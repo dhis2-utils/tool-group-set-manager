@@ -16,4 +16,10 @@ describe('parseCsv', () => {
     it('keeps empty fields', () => {
         expect(parseCsv('a,,c\n')).toEqual([['a', '', 'c']])
     })
+    it('keeps a newline embedded in a quoted field', () => {
+        expect(parseCsv('uid,note\nx1,"line1\nline2"\n')).toEqual([
+            ['uid', 'note'],
+            ['x1', 'line1\nline2'],
+        ])
+    })
 })

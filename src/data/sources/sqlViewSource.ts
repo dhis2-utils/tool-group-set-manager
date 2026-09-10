@@ -26,6 +26,11 @@ export const SQL_VIEW_DEFINITIONS = [
     {
         code: SQL_VIEW_CODES.orgUnitNames,
         name: 'GSI org unit names',
+        // Returns the raw, untranslated `name` column by design: resolving a
+        // caller's locale inside a SQL view is not practical, and this
+        // divergence from the metadata source's `displayName` only affects
+        // the label shown, never ids, counts or fixes. See design spec
+        // section 8a.
         sqlQuery: 'select uid, name from organisationunit',
     },
     {

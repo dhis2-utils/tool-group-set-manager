@@ -90,4 +90,14 @@ describe('metadataSource', () => {
         ])
         expect(progress).toEqual([1, 2])
     })
+
+    it('loads memberships for a group with no members as an empty array', async () => {
+        const fetcher = async () => jsonResponse({ organisationUnits: [] })
+        const payload = await createMetadataSource(fetcher).loadMemberships(
+            'organisationUnit',
+            ['g1'],
+            () => undefined
+        )
+        expect(payload.groups).toEqual([{ groupId: 'g1', memberIds: [] }])
+    })
 })
