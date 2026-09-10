@@ -15,3 +15,5 @@ DHIS2 App Platform app (TypeScript, Vite, pnpm). Spec: docs/superpowers/specs/20
 - Conflict = in more than one group of a set: always an error. Membership counted per set.
 - Data fetching through `useApiDataQuery` (TanStack Query v4), never `useDataQuery` directly.
 - Hash router; every route under `SyncUrlWithGlobalShell`.
+- Object lists are paged from the worker (`objectsFor` with offset/limit) and virtualised with @tanstack/react-virtual; text search is client-side over loaded rows until Plan 3.
+- MembershipControl is a segmented single-select for <= 5 groups, a SingleSelect above. Editing is wired in Plan 2.

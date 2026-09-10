@@ -1,0 +1,40 @@
+.seg {
+    display: inline-flex;
+    border: 1px solid var(--colors-grey400);
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--colors-white);
+}
+.segButton {
+    font: inherit;
+    font-size: 12px;
+    border: 0;
+    border-right: 1px solid var(--colors-grey400);
+    background: var(--colors-white);
+    color: var(--colors-grey700);
+    padding: 3px 10px;
+    cursor: pointer;
+}
+.segButton:last-child {
+    border-right: 0;
+}
+.segButton:disabled {
+    cursor: default;
+}
+.segButton[data-state='selected'] {
+    background: var(--colors-blue600);
+    color: var(--colors-white);
+}
+.segButton[data-state='conflict'] {
+    background: var(--colors-red050);
+    color: var(--colors-red700);
+    font-weight: 500;
+}
+.segButton[data-state='conflict']:not(:disabled):hover {
+    background: var(--colors-red600);
+    color: var(--colors-white);
+}
+.segButton:focus-visible {
+    outline: 2px solid var(--colors-blue600);
+    outline-offset: -2px;
+}

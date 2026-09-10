@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-10T17:35:18.181Z\n"
-"PO-Revision-Date: 2026-09-10T17:35:18.181Z\n"
+"POT-Creation-Date: 2026-09-10T18:05:53.922Z\n"
+"PO-Revision-Date: 2026-09-10T18:05:53.923Z\n"
 
 msgid "group"
 msgstr "group"
@@ -65,6 +65,54 @@ msgstr "Done"
 msgid "Some data could not be loaded"
 msgstr "Some data could not be loaded"
 
+msgid "Keep"
+msgstr "Keep"
+
+msgid "and remove the others"
+msgstr "and remove the others"
+
+msgid "Conflict"
+msgstr "Conflict"
+
+msgid "choose group to keep"
+msgstr "choose group to keep"
+
+msgid "Choose group"
+msgstr "Choose group"
+
+msgid "No group matches"
+msgstr "No group matches"
+
+msgid "current"
+msgstr "current"
+
+msgid "object"
+msgstr "object"
+
+msgid "objects"
+msgstr "objects"
+
+msgid "search matches loaded rows only"
+msgstr "search matches loaded rows only"
+
+msgid "updating…"
+msgstr "updating…"
+
+msgid "Name"
+msgstr "Name"
+
+msgid "Parent id"
+msgstr "Parent id"
+
+msgid "Level"
+msgstr "Level"
+
+msgid "Status"
+msgstr "Status"
+
+msgid "Group in this set"
+msgstr "Group in this set"
+
 msgid "Scope"
 msgstr "Scope"
 
@@ -77,6 +125,12 @@ msgstr "Choose the organisation unit to work in"
 msgid "Cancel"
 msgstr "Cancel"
 
+msgid "Missing (warning)"
+msgstr "Missing (warning)"
+
+msgid "Not applicable"
+msgstr "Not applicable"
+
 msgid "Includes organisation units above the chosen row level"
 msgstr "Includes organisation units above the chosen row level"
 
@@ -85,9 +139,6 @@ msgstr "Objects above the row level cannot be filtered yet"
 
 msgid "Organisation unit"
 msgstr "Organisation unit"
-
-msgid "Conflict"
-msgstr "Conflict"
 
 msgid "Total"
 msgstr "Total"
@@ -134,8 +185,29 @@ msgstr "Overview"
 msgid "Objects"
 msgstr "Objects"
 
-msgid "Objects list coming next"
-msgstr "Objects list coming next"
+msgid "All"
+msgstr "All"
+
+msgid "All levels"
+msgstr "All levels"
+
+msgid "Group"
+msgstr "Group"
+
+msgid "Any"
+msgstr "Any"
+
+msgid "No group"
+msgstr "No group"
+
+msgid "Several groups (conflict)"
+msgstr "Several groups (conflict)"
+
+msgid "Search loaded rows"
+msgstr "Search loaded rows"
+
+msgid "Clear area filter"
+msgstr "Clear area filter"
 
 msgid "Includes organisation units above the"
 msgstr "Includes organisation units above the"

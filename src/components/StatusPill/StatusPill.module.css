@@ -1,0 +1,10 @@
+.warning {
+    display: inline-flex;
+    align-items: center;
+    height: 23px;
+    padding: 5px 6px;
+    border-radius: 3px;
+    background-color: var(--colors-yellow100);
+    color: var(--colors-yellow900);
+    font-size: 13px;
+}
