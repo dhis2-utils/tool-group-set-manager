@@ -40,20 +40,36 @@ function loadedStore(): EngineStore {
 describe('EngineStore', () => {
     it('produces dashboard summaries for the scope', () => {
         const store = loadedStore()
-        const [entry] = store.dashboard({ objectType: 'organisationUnit', rootId: 'A' })
+        const [entry] = store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: 'A',
+        })
         expect(entry.set.id).toBe('own')
-        expect(entry.summary).toEqual({ population: 3, ok: 1, missingError: 1, missingWarning: 0, conflict: 1 })
+        expect(entry.summary).toEqual({
+            population: 3,
+            ok: 1,
+            missingError: 1,
+            missingWarning: 0,
+            conflict: 1,
+        })
     })
 
     it('ignores member ids that are not loaded objects', () => {
         const store = loadedStore()
-        const [entry] = store.dashboard({ objectType: 'organisationUnit', rootId: null })
+        const [entry] = store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: null,
+        })
         expect(entry.summary.population).toBe(6)
     })
 
     it('returns a matrix with resolved row objects', () => {
         const store = loadedStore()
-        const result = store.matrixFor('own', { objectType: 'organisationUnit', rootId: 'root' }, 2)
+        const result = store.matrixFor(
+            'own',
+            { objectType: 'organisationUnit', rootId: 'root' },
+            2
+        )
         expect(result.groups.map((g) => g.id)).toEqual(['pub', 'priv'])
         expect(result.rows[0].row?.displayName).toBe('A')
         expect(result.rows[0].perGroup).toEqual([1, 0])
@@ -80,7 +96,10 @@ describe('EngineStore', () => {
     it('reports hasData false for sets whose type is not loaded', () => {
         const store = new EngineStore()
         store.setGroupSets([{ ...ownership, id: 'x', objectType: 'indicator' }])
-        const [entry] = store.dashboard({ objectType: 'indicator', rootId: null })
+        const [entry] = store.dashboard({
+            objectType: 'indicator',
+            rootId: null,
+        })
         expect(entry.hasData).toBe(false)
     })
 

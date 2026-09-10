@@ -1,0 +1,5 @@
+# Approved design records and scratch workspaces are not the formatter's business.
+docs/
+.superpowers/
+pnpm-lock.yaml
+i18n/

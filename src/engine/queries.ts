@@ -55,7 +55,13 @@ export function summarize(
     h: Hierarchy | null,
     scopeRoot: number
 ): SetSummary {
-    const s: SetSummary = { population: 0, ok: 0, missingError: 0, missingWarning: 0, conflict: 0 }
+    const s: SetSummary = {
+        population: 0,
+        ok: 0,
+        missingError: 0,
+        missingWarning: 0,
+        conflict: 0,
+    }
     forEachInScope(status.length, h, scopeRoot, (i) => {
         switch (status[i]) {
             case Status.Ok:
@@ -88,7 +94,13 @@ export interface MatrixRow {
 }
 
 function newRow(object: number, groupCount: number): MatrixRow {
-    return { object, perGroup: new Array(groupCount).fill(0), missing: 0, conflict: 0, total: 0 }
+    return {
+        object,
+        perGroup: new Array(groupCount).fill(0),
+        missing: 0,
+        conflict: 0,
+        total: 0,
+    }
 }
 
 function addToRow(row: MatrixRow, status: number, groupOf: number): void {
@@ -169,13 +181,19 @@ export function listObjects(
         if (statusMask[status[i]] === 0) {
             return
         }
-        if (filter.level !== undefined && (h === null || h.level[i] !== filter.level)) {
+        if (
+            filter.level !== undefined &&
+            (h === null || h.level[i] !== filter.level)
+        ) {
             return
         }
         if (filter.group !== undefined && m.groupOf[i] !== filter.group) {
             return
         }
-        if (filter.ancestor !== undefined && (h === null || !isInSubtree(h, filter.ancestor, i))) {
+        if (
+            filter.ancestor !== undefined &&
+            (h === null || !isInSubtree(h, filter.ancestor, i))
+        ) {
             return
         }
         out.push(i)

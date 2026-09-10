@@ -1,8 +1,4 @@
-import {
-    ancestorAtLevel,
-    buildHierarchy,
-    isInSubtree,
-} from './hierarchy'
+import { ancestorAtLevel, buildHierarchy, isInSubtree } from './hierarchy'
 
 // Tree (index: level):
 // 0 root (1)
@@ -67,7 +63,7 @@ describe('isInSubtree', () => {
         expect(isInSubtree(h, 0, 6)).toBe(true)
     })
 
-    it('does not report unreachable (cyclic) nodes as inside a real root\'s subtree', () => {
+    it("does not report unreachable (cyclic) nodes as inside a real root's subtree", () => {
         // Node 0 is a real root with no children. Nodes 1 and 2 point at
         // each other and are never visited by the depth-first walk, so they
         // must not collide with root 0's own (unused) order/subtreeEnd

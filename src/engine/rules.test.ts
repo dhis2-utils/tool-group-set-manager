@@ -14,7 +14,10 @@ const set = (partial: Partial<GroupSetMeta>): GroupSetMeta => ({
 })
 
 // objects: 0 in group A, 1 in A and B, 2 in none, 3 in none (outside population), 4 in B
-const m = buildSetMembership(5, [Int32Array.from([0, 1]), Int32Array.from([1, 4])])
+const m = buildSetMembership(5, [
+    Int32Array.from([0, 1]),
+    Int32Array.from([1, 4]),
+])
 const population = Uint8Array.from([1, 1, 1, 0, 1])
 const level = Uint8Array.from([3, 3, 3, 2, 2])
 
@@ -28,28 +31,55 @@ describe('evaluateSet', () => {
     })
 
     it('missing is an error when the set is compulsory', () => {
-        const s = evaluateSet(set({ compulsory: true }), m, population, level, DEFAULT_CONFIG)
+        const s = evaluateSet(
+            set({ compulsory: true }),
+            m,
+            population,
+            level,
+            DEFAULT_CONFIG
+        )
         expect(s[2]).toBe(Status.MissingError)
         expect(s[3]).toBe(Status.NotApplicable)
     })
 
     it('missing is a warning when the set is a dimension but not compulsory', () => {
-        const s = evaluateSet(set({ dataDimension: true }), m, population, level, DEFAULT_CONFIG)
+        const s = evaluateSet(
+            set({ dataDimension: true }),
+            m,
+            population,
+            level,
+            DEFAULT_CONFIG
+        )
         expect(s[2]).toBe(Status.MissingWarning)
     })
 
     it('required levels make missing an error at those levels only', () => {
         const config = { ...DEFAULT_CONFIG, requiredLevels: { s: [2] } }
         // object 2 is level 3 -> not required; add object 5? use population where idx 4 missing:
-        const m2 = buildSetMembership(5, [Int32Array.from([0, 1]), Int32Array.from([1])])
-        const s = evaluateSet(set({ dataDimension: true }), m2, population, level, config)
+        const m2 = buildSetMembership(5, [
+            Int32Array.from([0, 1]),
+            Int32Array.from([1]),
+        ])
+        const s = evaluateSet(
+            set({ dataDimension: true }),
+            m2,
+            population,
+            level,
+            config
+        )
         expect(s[4]).toBe(Status.MissingError) // level 2, required
         expect(s[2]).toBe(Status.MissingWarning) // level 3, dimension warning still applies
     })
 
     it('required levels do not downgrade a compulsory set', () => {
         const config = { ...DEFAULT_CONFIG, requiredLevels: { s: [2] } }
-        const s = evaluateSet(set({ compulsory: true }), m, population, level, config)
+        const s = evaluateSet(
+            set({ compulsory: true }),
+            m,
+            population,
+            level,
+            config
+        )
         expect(s[2]).toBe(Status.MissingError)
     })
 

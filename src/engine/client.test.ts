@@ -20,7 +20,9 @@ class FakeWorker {
 describe('EngineClient', () => {
     it('resolves with the worker result', async () => {
         const client = new EngineClient(new FakeWorker() as unknown as Worker)
-        await expect(client.call<number>('indexOf', 'organisationUnit', 'x')).resolves.toBe(7)
+        await expect(
+            client.call<number>('indexOf', 'organisationUnit', 'x')
+        ).resolves.toBe(7)
     })
 
     it('rejects with the worker error and matches responses by id', async () => {

@@ -9,7 +9,10 @@ const h = buildHierarchy(
     Uint8Array.from([1, 2, 2, 3, 3, 3])
 )
 // groups: G0 = {3}, G1 = {4, 5}, and 4 also in G0 -> conflict
-const m = buildSetMembership(6, [Int32Array.from([3, 4]), Int32Array.from([4, 5])])
+const m = buildSetMembership(6, [
+    Int32Array.from([3, 4]),
+    Int32Array.from([4, 5]),
+])
 // status computed as a compulsory set would: 0,1,2 missing (error), 3 ok, 4 conflict, 5 ok
 const status = Uint8Array.from([
     Status.MissingError,
@@ -64,17 +67,35 @@ describe('matrix', () => {
 
 describe('listObjects', () => {
     it('returns indexes in the scope in depth-first order', () => {
-        expect(Array.from(listObjects(status, m, h, 0, {}))).toEqual([0, 1, 3, 4, 2, 5])
+        expect(Array.from(listObjects(status, m, h, 0, {}))).toEqual([
+            0, 1, 3, 4, 2, 5,
+        ])
     })
     it('filters by status, level, group and ancestor', () => {
-        expect(Array.from(listObjects(status, m, h, 0, { statuses: [Status.Conflict] }))).toEqual([4])
-        expect(Array.from(listObjects(status, m, h, 0, { level: 2 }))).toEqual([1, 2])
-        expect(Array.from(listObjects(status, m, h, 0, { group: 1 }))).toEqual([5])
-        expect(Array.from(listObjects(status, m, h, 0, { group: -1 }))).toEqual([0, 1, 2])
-        expect(Array.from(listObjects(status, m, h, 0, { ancestor: 2 }))).toEqual([2, 5])
+        expect(
+            Array.from(
+                listObjects(status, m, h, 0, { statuses: [Status.Conflict] })
+            )
+        ).toEqual([4])
+        expect(Array.from(listObjects(status, m, h, 0, { level: 2 }))).toEqual([
+            1, 2,
+        ])
+        expect(Array.from(listObjects(status, m, h, 0, { group: 1 }))).toEqual([
+            5,
+        ])
+        expect(Array.from(listObjects(status, m, h, 0, { group: -1 }))).toEqual(
+            [0, 1, 2]
+        )
+        expect(
+            Array.from(listObjects(status, m, h, 0, { ancestor: 2 }))
+        ).toEqual([2, 5])
     })
     it('works for flat types', () => {
-        expect(Array.from(listObjects(status, m, null, -1, { statuses: [Status.Ok] }))).toEqual([3, 5])
+        expect(
+            Array.from(
+                listObjects(status, m, null, -1, { statuses: [Status.Ok] })
+            )
+        ).toEqual([3, 5])
     })
 })
 

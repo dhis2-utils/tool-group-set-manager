@@ -26,7 +26,10 @@ export class EngineClient {
         const id = this.nextId++
         const request: EngineRequest = { id, method, args }
         return new Promise<T>((resolve, reject) => {
-            this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject })
+            this.pending.set(id, {
+                resolve: resolve as (v: unknown) => void,
+                reject,
+            })
             this.worker.postMessage(request)
         })
     }

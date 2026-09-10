@@ -53,7 +53,9 @@ export function populationFor(
                 }
             }
             for (let i = 0; i < n; i++) {
-                population[i] = categoryOfOption[i].some((c) => touched.has(c)) ? 1 : 0
+                population[i] = categoryOfOption[i].some((c) => touched.has(c))
+                    ? 1
+                    : 0
             }
             return population
         }

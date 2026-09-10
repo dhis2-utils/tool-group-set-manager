@@ -2,9 +2,23 @@ import { buildHierarchy, Hierarchy } from './hierarchy'
 import { buildSetMembership, groupsOf, SetMembership } from './membership'
 import { ObjectAttributes, populationFor } from './population'
 import { MembershipsPayload, ObjectsPayload } from './protocol'
-import { listObjects, matrix, MatrixRow, ObjectFilter, SetSummary, summarize } from './queries'
+import {
+    listObjects,
+    matrix,
+    MatrixRow,
+    ObjectFilter,
+    SetSummary,
+    summarize,
+} from './queries'
 import { evaluateSet } from './rules'
-import { DEFAULT_CONFIG, EngineConfig, GroupMeta, GroupSetMeta, ObjectType, Status } from './types'
+import {
+    DEFAULT_CONFIG,
+    EngineConfig,
+    GroupMeta,
+    GroupSetMeta,
+    ObjectType,
+    Status,
+} from './types'
 
 export interface ScopeRef {
     objectType: ObjectType
@@ -52,7 +66,13 @@ interface SetState {
     status: Uint8Array
 }
 
-const EMPTY_SUMMARY: SetSummary = { population: 0, ok: 0, missingError: 0, missingWarning: 0, conflict: 0 }
+const EMPTY_SUMMARY: SetSummary = {
+    population: 0,
+    ok: 0,
+    missingError: 0,
+    missingWarning: 0,
+    conflict: 0,
+}
 
 export class EngineStore {
     private types = new Map<ObjectType, TypeIndex>()
@@ -73,7 +93,7 @@ export class EngineStore {
         if (p.level && p.parentIds) {
             const parent = new Int32Array(p.ids.length)
             p.parentIds.forEach((pid, i) => {
-                const parentIndex = pid === null ? -1 : indexOf.get(pid) ?? -1
+                const parentIndex = pid === null ? -1 : (indexOf.get(pid) ?? -1)
                 parent[i] = parentIndex
             })
             hierarchy = buildHierarchy(parent, p.level)
@@ -118,7 +138,9 @@ export class EngineStore {
     loadMemberships(p: MembershipsPayload): void {
         const t = this.types.get(p.objectType)
         if (!t) {
-            throw new Error(`loadMemberships before loadObjects for ${p.objectType}`)
+            throw new Error(
+                `loadMemberships before loadObjects for ${p.objectType}`
+            )
         }
         p.groups.forEach((g) => t.membersByGroup.set(g.groupId, g.memberIds))
     }
@@ -151,9 +173,21 @@ export class EngineStore {
                 return Int32Array.from(out)
             })
             const membership = buildSetMembership(t.ids.length, groupMembers)
-            const population = populationFor(set, t.ids.length, membership, t.attrs, this.config)
+            const population = populationFor(
+                set,
+                t.ids.length,
+                membership,
+                t.attrs,
+                this.config
+            )
             const level = t.hierarchy ? t.hierarchy.level : null
-            const status = evaluateSet(set, membership, population, level, this.config)
+            const status = evaluateSet(
+                set,
+                membership,
+                population,
+                level,
+                this.config
+            )
             this.sets.set(set.id, { set, membership, status })
         })
     }
@@ -176,7 +210,11 @@ export class EngineStore {
                 }
                 return {
                     set,
-                    summary: summarize(state.status, t.hierarchy, this.scopeRoot(t, scope)),
+                    summary: summarize(
+                        state.status,
+                        t.hierarchy,
+                        this.scopeRoot(t, scope)
+                    ),
                     hasData: true,
                 }
             })
@@ -227,7 +265,10 @@ export class EngineStore {
         )
         return {
             groups: state.set.groups,
-            rows: rows.map((r) => ({ ...r, row: r.object >= 0 ? this.ref(t, r.object) : null })),
+            rows: rows.map((r) => ({
+                ...r,
+                row: r.object >= 0 ? this.ref(t, r.object) : null,
+            })),
         }
     }
 
@@ -239,7 +280,13 @@ export class EngineStore {
         limit: number
     ): ObjectsResult {
         const { state, t } = this.setState(setId)
-        const all = listObjects(state.status, state.membership, t.hierarchy, this.scopeRoot(t, scope), filter)
+        const all = listObjects(
+            state.status,
+            state.membership,
+            t.hierarchy,
+            this.scopeRoot(t, scope),
+            filter
+        )
         const slice = all.subarray(offset, offset + limit)
         return {
             total: all.length,
