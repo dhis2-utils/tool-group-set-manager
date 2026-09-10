@@ -44,7 +44,12 @@ export function buildHierarchy(
     // unvisited must never collide with position 0 of a real root.
     const order = new Int32Array(n).fill(-1)
     const subtreeEnd = new Int32Array(n).fill(-1)
-    const byOrder = new Int32Array(n)
+    // -1 sentinel here too: only positions the depth-first walk actually
+    // reaches get a real object index. Corrupted input (e.g. a parent
+    // cycle) leaves some tail positions unassigned; without this fill they
+    // would default to 0 and a whole-forest scan would revisit object 0
+    // instead of skipping the positions no node ever claimed.
+    const byOrder = new Int32Array(n).fill(-1)
     const stack = new Int32Array(n)
     let position = 0
 
