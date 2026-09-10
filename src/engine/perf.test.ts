@@ -107,9 +107,17 @@ describe('engine performance on 300K org units', () => {
         expect(dash[0].summary.conflict).toBeGreaterThan(0)
         expect(m.rows.length).toBe(41) // 40 states + "above" row
         expect(page.total).toBeGreaterThan(0)
-        // Budgets are generous for CI machines; the point is catching 10x regressions.
-        expect(tLoad).toBeLessThan(5000)
-        expect(tQuery).toBeLessThan(500)
+        // Measured baseline on the machine this test was written on (two
+        // runs): load+evaluate 237-325 ms, three queries 32-46 ms. Budgets
+        // below are set at roughly 6x the worse of those two baselines --
+        // enough slack that a slower or busier CI machine's normal run
+        // doesn't trip this, but tight enough that a true 10x regression
+        // (which would land at ~2350-3250 ms / ~320-460 ms) is still well
+        // over budget and fails. This is not a tight performance assertion;
+        // it exists to catch an order-of-magnitude regression, not to hold
+        // the engine to its current speed.
+        expect(tLoad).toBeLessThan(2000)
+        expect(tQuery).toBeLessThan(300)
         console.info(
             `perf: load+evaluate ${tLoad.toFixed(0)} ms, three queries ${tQuery.toFixed(0)} ms`
         )
