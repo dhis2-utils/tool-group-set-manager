@@ -105,7 +105,13 @@ export async function loadAll(
                     await deps.engine.call('setNames', type, reused.names)
                 }
                 status.fromCache[type] = true
-                emit({ type })
+                // A cache hit is at the same point a freshly loaded type is
+                // right after its memberships land: data is in the engine
+                // and only the (shared, end-of-loop) evaluate() is still to
+                // come. Reusing 'evaluate' here, rather than patching only
+                // `type`, means the phase can't be left showing whatever an
+                // earlier type happened to leave behind.
+                emit({ phase: 'evaluate', type, progress: null })
                 continue
             }
 
@@ -113,7 +119,6 @@ export async function loadAll(
             const objects = await deps.source.loadObjects(type, (p) =>
                 emit({ phase: 'objects', type, progress: p })
             )
-            await deps.engine.call('loadObjects', objects)
 
             emit({ phase: 'memberships', type, progress: null })
             const memberships = await deps.source.loadMemberships(
@@ -121,6 +126,16 @@ export async function loadAll(
                 groupIds,
                 (p) => emit({ phase: 'memberships', type, progress: p })
             )
+
+            // Commit to the engine only once both payloads are in hand. If
+            // memberships failed after objects had already landed, the
+            // engine would hold objects with no membership data, and the
+            // unconditional evaluate() below would then read every object as
+            // missing from every group of this type -- indistinguishable
+            // from a real integrity failure. Resolving both first means a
+            // failure anywhere above leaves the engine exactly as it was
+            // before this type was attempted.
+            await deps.engine.call('loadObjects', objects)
             await deps.engine.call('loadMemberships', memberships)
             emit({ phase: 'evaluate', type })
             await deps.engine.call('evaluate')

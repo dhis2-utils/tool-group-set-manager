@@ -172,6 +172,39 @@ describe('loadAll', () => {
         // second, exactly like organisation units.
         expect(status[status.length - 1].fromCache.indicator).toBe(true)
         expect(second.loads.filter((l) => l.endsWith('indicator'))).toEqual([])
+        // A cache hit reports a coherent phase of its own rather than
+        // whatever the previously emitted status happened to leave behind
+        // (organisation units are the first type in the loop, so before the
+        // fix this would still read 'groupSets').
+        const ouStatus = status.find(
+            (s) => s.type === 'organisationUnit' && s.fromCache.organisationUnit
+        )
+        expect(ouStatus?.phase).toBe('evaluate')
+    })
+
+    it('bypasses a populated cache when forceRefresh is set', async () => {
+        const source = fakeSource()
+        const cache = createMemoryCache()
+        await loadAll({
+            source,
+            fetcher,
+            cache,
+            engine: inlineEngine(),
+            onStatus: () => undefined,
+        })
+        const second = fakeSource()
+        const status: LoadStatus[] = []
+        await loadAll({
+            source: second,
+            fetcher,
+            cache,
+            engine: inlineEngine(),
+            forceRefresh: true,
+            onStatus: (s) => status.push(s),
+        })
+        expect(second.loads).toContain('objects:organisationUnit')
+        expect(second.loads).toContain('objects:indicator')
+        expect(status[status.length - 1].fromCache).toEqual({})
     })
 
     it('records an error for a failing type and still loads the others', async () => {
@@ -203,5 +236,49 @@ describe('loadAll', () => {
         const last = status[status.length - 1]
         expect(last.errors.indicator).toBe('nope')
         expect(last.errors.organisationUnit).toBeUndefined()
+    })
+
+    it('keeps a type out of the engine entirely when its memberships fail', async () => {
+        const source = fakeSource()
+        source.loadMemberships = async (type) => {
+            if (type === 'indicator') {
+                throw new Error('memberships boom')
+            }
+            return type === 'organisationUnit'
+                ? ouMembers
+                : { objectType: type, groups: [] }
+        }
+        const engine = inlineEngine()
+        const status: LoadStatus[] = []
+        await loadAll({
+            source,
+            fetcher,
+            cache: createMemoryCache(),
+            engine,
+            onStatus: (s) => status.push(s),
+        })
+        const last = status[status.length - 1]
+        expect(last.errors.indicator).toBe('memberships boom')
+        expect(last.errors.organisationUnit).toBeUndefined()
+
+        // The objects payload was resolved before memberships failed, but
+        // must never have reached the engine: a half-loaded type (objects
+        // with no membership data) would evaluate as every object missing
+        // from every group, which reads as a real integrity failure rather
+        // than a failed request.
+        expect(engine.store.resolve('indicator', [0])).toEqual([])
+        const entries = engine.store.dashboard({
+            objectType: 'indicator',
+            rootId: null,
+        })
+        expect(entries).toHaveLength(1)
+        expect(entries[0].hasData).toBe(false)
+        expect(entries[0].summary).toEqual({
+            population: 0,
+            ok: 0,
+            missingError: 0,
+            missingWarning: 0,
+            conflict: 0,
+        })
     })
 })
