@@ -32,4 +32,10 @@ describe('buildSetMembership', () => {
         expect(big.memberCount[0]).toBe(255)
         expect(big.groupOf[0]).toBe(-2)
     })
+
+    it('does not treat a duplicate member id within one group as a conflict', () => {
+        const dup = buildSetMembership(3, [Int32Array.from([0, 0, 1])])
+        expect(dup.memberCount[0]).toBe(1)
+        expect(dup.groupOf[0]).toBe(0)
+    })
 })

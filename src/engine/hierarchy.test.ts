@@ -66,6 +66,19 @@ describe('isInSubtree', () => {
         expect(isInSubtree(h, 2, 3)).toBe(false)
         expect(isInSubtree(h, 0, 6)).toBe(true)
     })
+
+    it('does not report unreachable (cyclic) nodes as inside a real root\'s subtree', () => {
+        // Node 0 is a real root with no children. Nodes 1 and 2 point at
+        // each other and are never visited by the depth-first walk, so they
+        // must not collide with root 0's own (unused) order/subtreeEnd
+        // sentinel position.
+        const corrupted = buildHierarchy(
+            Int32Array.from([-1, 2, 1]),
+            Uint8Array.from([1, 2, 2])
+        )
+        expect(isInSubtree(corrupted, 0, 1)).toBe(false)
+        expect(isInSubtree(corrupted, 0, 2)).toBe(false)
+    })
 })
 
 describe('ancestorAtLevel', () => {
@@ -78,5 +91,16 @@ describe('ancestorAtLevel', () => {
     })
     it('returns -1 when the object is above the requested level', () => {
         expect(ancestorAtLevel(h, 1, 3)).toBe(-1)
+    })
+
+    it('returns -1 instead of looping forever on a parent cycle', () => {
+        // Two nodes point at each other at the same level, violating the
+        // "parent is strictly shallower" invariant. The walk must detect
+        // this and bail out rather than spin forever.
+        const cyclic = buildHierarchy(
+            Int32Array.from([1, 0]),
+            Uint8Array.from([2, 2])
+        )
+        expect(ancestorAtLevel(cyclic, 0, 1)).toBe(-1)
     })
 })
