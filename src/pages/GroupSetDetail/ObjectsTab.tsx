@@ -59,6 +59,21 @@ export const ObjectsTab = ({ set, scope, filter, onFilter, levels }: Props) => {
         levels.some((l) => l.level === filter.level)
             ? String(filter.level)
             : 'all'
+    // `filter` state lives in GroupSetDetail, keyed by route rather than by
+    // group set, so it survives switching to a different group set on the
+    // same route -- a `filter.group` index valid for a previous set (say,
+    // position 3 of a 4-group set) can arrive here for a set with fewer
+    // groups. That is exactly the "selected with no matching option" crash
+    // the level filter above already guards against, so this mirrors it:
+    // -1 (no group) and -2 (conflict) are always valid, any other index
+    // only if it is actually within this set's `groups`.
+    const groupSelected =
+        filter.group !== undefined &&
+        (filter.group === -1 ||
+            filter.group === -2 ||
+            (filter.group >= 0 && filter.group < set.groups.length))
+            ? String(filter.group)
+            : 'all'
     return (
         <div>
             <div className={styles.filters}>
@@ -115,11 +130,7 @@ export const ObjectsTab = ({ set, scope, filter, onFilter, levels }: Props) => {
                 <SingleSelectField
                     dense
                     label={i18n.t('Group')}
-                    selected={
-                        filter.group === undefined
-                            ? 'all'
-                            : String(filter.group)
-                    }
+                    selected={groupSelected}
                     onChange={({ selected }) =>
                         onFilter({
                             ...filter,

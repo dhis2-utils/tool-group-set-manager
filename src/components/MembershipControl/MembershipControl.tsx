@@ -60,40 +60,63 @@ export const MembershipControl = ({
         )
     }
     const selected = current.length === 1 ? String(current[0]) : ''
+    // For this branch (more than five groups), the conflicting group
+    // *names* otherwise live only inside the dropdown's own option labels
+    // -- and a disabled `SingleSelect` cannot be opened at all, so a
+    // conflict row here would say only "there is a conflict", never which
+    // two groups it is between. That is the app's headline case, so the
+    // names are surfaced as plain text next to the control instead of
+    // being locked inside it.
+    const conflictGroupNames = isConflict
+        ? current
+              .map((i) => groups[i]?.displayName)
+              .filter((name): name is string => Boolean(name))
+        : []
     return (
-        <SingleSelect
-            dense
-            disabled={disabled}
-            selected={selected}
-            placeholder={
-                // A colon inside an i18n.t() string is read by this
-                // project's i18next-scanner as a namespace separator (its
-                // default `nsSeparator`), which splits "Conflict: choose
-                // group to keep" into namespace "Conflict" plus key
-                // " choose group to keep" and warns that the namespace
-                // doesn't exist -- confirmed against the scanner's own
-                // output while running `pnpm start` for the browser check.
-                // Spliced outside the call instead, the same way
-                // GroupSetDetail.tsx builds "Scope: {name}".
-                isConflict
-                    ? `${i18n.t('Conflict')}: ${i18n.t('choose group to keep')}`
-                    : i18n.t('Choose group')
-            }
-            onChange={({ selected: value }) => onChange(Number(value))}
-            filterable={groups.length > 10}
-            noMatchText={i18n.t('No group matches')}
-        >
-            {groups.map((g, i) => (
-                <SingleSelectOption
-                    key={g.id}
-                    value={String(i)}
-                    label={
-                        current.includes(i) && isConflict
-                            ? `${g.displayName} (${i18n.t('current')})`
-                            : g.displayName
-                    }
-                />
-            ))}
-        </SingleSelect>
+        <span className={styles.dropdownWrap}>
+            <SingleSelect
+                dense
+                disabled={disabled}
+                selected={selected}
+                placeholder={
+                    // A colon inside an i18n.t() string is read by this
+                    // project's i18next-scanner as a namespace separator
+                    // (its default `nsSeparator`), which splits "Conflict:
+                    // choose group to keep" into namespace "Conflict" plus
+                    // key " choose group to keep" and warns that the
+                    // namespace doesn't exist -- confirmed against the
+                    // scanner's own output while running `pnpm start` for
+                    // the browser check. Spliced outside the call instead,
+                    // the same way GroupSetDetail.tsx builds "Scope:
+                    // {name}".
+                    isConflict
+                        ? `${i18n.t('Conflict')}: ${i18n.t('choose group to keep')}`
+                        : i18n.t('Choose group')
+                }
+                onChange={({ selected: value }) => onChange(Number(value))}
+                filterable={groups.length > 10}
+                noMatchText={i18n.t('No group matches')}
+            >
+                {groups.map((g, i) => (
+                    <SingleSelectOption
+                        key={g.id}
+                        value={String(i)}
+                        label={
+                            current.includes(i) && isConflict
+                                ? `${g.displayName} (${i18n.t('current')})`
+                                : g.displayName
+                        }
+                    />
+                ))}
+            </SingleSelect>
+            {conflictGroupNames.length > 0 && (
+                <span
+                    className={styles.conflictNames}
+                    title={conflictGroupNames.join(', ')}
+                >
+                    {`${i18n.t('Conflict')}: ${conflictGroupNames.join(' + ')}`}
+                </span>
+            )}
+        </span>
     )
 }

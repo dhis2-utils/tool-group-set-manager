@@ -38,3 +38,17 @@
     outline: 2px solid var(--colors-blue600);
     outline-offset: -2px;
 }
+.dropdownWrap {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacers-dp4);
+    min-width: 0;
+}
+.conflictNames {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--colors-red700);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

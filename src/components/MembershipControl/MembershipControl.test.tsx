@@ -54,3 +54,18 @@ it('renders a dropdown for more than five groups', () => {
     ).toHaveLength(0)
     expect(screen.getByText(/choose group/i)).toBeInTheDocument()
 })
+
+it('names the conflicting groups next to a disabled dropdown for more than five groups', () => {
+    render(
+        <MembershipControl
+            groups={groups(6)}
+            current={[1, 4]}
+            disabled
+            onChange={() => undefined}
+        />
+    )
+    // The dropdown itself is disabled and so cannot be opened to reveal
+    // which groups collide -- the names must be readable outside it.
+    expect(screen.getByText(/Group 1/)).toBeInTheDocument()
+    expect(screen.getByText(/Group 4/)).toBeInTheDocument()
+})

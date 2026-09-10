@@ -53,19 +53,15 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
         setLimit(PAGE)
     }, [filterKey])
 
-    // `useEngineQuery` itself is what makes a slow, superseded response
-    // harmless: its effect is keyed on the full args (so a filter, scope or
-    // limit change re-runs it), and its cleanup sets a `cancelled` flag
-    // that the in-flight promise's `.then()` checks before calling
-    // `setState` -- see src/hooks/useEngineQuery.ts. So a request for the
-    // previous filter that resolves *after* a newer request has already
-    // started can never land: its own effect was already cleaned up by
-    // then, `cancelled` is already true, and its result is dropped. There
-    // is deliberately no separate "does this response match the current
-    // filter" bookkeeping here on top of that -- `objectsFor` always
-    // returns the *complete* row list for whatever key was requested
-    // (offset 0 through `limit`), never a delta to append, so there is
-    // nothing to append stale rows onto in the first place.
+    // `useEngineQuery` itself is what makes a slow, superseded response for
+    // a *previous filter* harmless: its effect is keyed on the full args
+    // (so a filter, scope or limit change re-runs it), and its cleanup sets
+    // a `cancelled` flag that the in-flight promise's `.then()` checks
+    // before calling `setState` -- see src/hooks/useEngineQuery.ts. So a
+    // request for a superseded filter can never land once a newer one has
+    // started. `objectsFor` also always returns the *complete* row list
+    // for whatever key was requested (offset 0 through `limit`), never a
+    // delta to append, so there is nothing to append stale rows onto.
     const { data, isLoading, error } = useEngineQuery<ObjectsResult>(
         'objectsFor',
         [set.id, scope, filter, 0, limit]
@@ -92,11 +88,44 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
     const virtualItems = virtualizer.getVirtualItems()
     const lastVisible = virtualItems[virtualItems.length - 1]?.index ?? 0
 
+    // Loading more must request exactly one page at a time, never a
+    // stampede to the end: `data` does not update until the in-flight
+    // fetch for the *current* `limit` actually resolves, but `lastVisible`
+    // and `rows.length` (both derived from the still-stale `data`) don't
+    // change meanwhile either -- so as long as this effect's decision were
+    // keyed on `limit` alone, the first near-the-end scroll would re-fire
+    // it on every render `limit` itself causes, ratcheting `limit` to the
+    // full total before a single response returns (confirmed: this is
+    // exactly what happened before this guard existed).
+    //
+    // `caughtUpWithLimit` is the fix: a response only counts as "settled"
+    // once it has actually returned as many items as the current `limit`
+    // asked for (or hit the true end of the list first). While a bigger
+    // request is outstanding, `data` is still whatever the *previous*,
+    // smaller `limit` returned, so `loadedCount` lags `limit` and this
+    // stays false -- which is precisely the signal that holds off
+    // requesting yet another page before this one has landed. Combined
+    // with the `!isLoading` check (belt-and-braces for the same
+    // "outstanding fetch" case), the effect now only ever asks for one
+    // more page per settled result, no matter how many times it re-fires
+    // for unrelated reasons (`lastVisible` ticking, `limit` changing) in
+    // between.
+    const loadedCount = data?.items.length ?? 0
+    const caughtUpWithLimit =
+        data !== undefined &&
+        (loadedCount === limit || loadedCount === data.total)
+
     useEffect(() => {
-        if (data && lastVisible >= rows.length - 50 && limit < data.total) {
+        if (
+            !isLoading &&
+            caughtUpWithLimit &&
+            data &&
+            lastVisible >= rows.length - 50 &&
+            limit < data.total
+        ) {
             setLimit((l) => l + PAGE)
         }
-    }, [lastVisible, rows.length, limit, data])
+    }, [isLoading, caughtUpWithLimit, data, lastVisible, rows.length, limit])
 
     if (error) {
         return <NoticeBox error>{error}</NoticeBox>
@@ -105,24 +134,37 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
         return <CircularLoader small />
     }
     const isOrgUnit = set.objectType === 'organisationUnit'
+    // Org unit rows: Name / Level / Status / Group. Flat types have no
+    // hierarchy at all, so just Name / Status / Group. (Parent used to be
+    // a column here too, but `ObjectRef.parentId` -- src/engine/store.ts,
+    // not touched by this task -- is only ever a raw DHIS2 id with no name
+    // resolution until Plan 2; showing it earned the column nothing beyond
+    // "here is an opaque identifier", most visibly in the conflict view
+    // where every row shares the same one, so it's dropped rather than
+    // shown under an honest-but-unhelpful header.)
     const gridStyle = {
         gridTemplateColumns: isOrgUnit ? undefined : '3fr 130px 2fr',
     }
+    const trimmedSearch = search.trim()
     return (
         <div>
             <p className={styles.count}>
                 {objectsCountLabel(data.total)}
-                {search && ` · ${i18n.t('search matches loaded rows only')}`}
+                {trimmedSearch &&
+                    ` · ${i18n.t('search matches loaded rows only')}`}
                 {isLoading && ` · ${i18n.t('updating…')}`}
             </p>
             <div className={styles.head} style={gridStyle}>
                 <span>{i18n.t('Name')}</span>
-                {isOrgUnit && <span>{i18n.t('Parent id')}</span>}
                 {isOrgUnit && <span>{i18n.t('Level')}</span>}
                 <span>{i18n.t('Status')}</span>
                 <span>{i18n.t('Group in this set')}</span>
             </div>
-            <div ref={parentRef} className={styles.scroll}>
+            <div
+                ref={parentRef}
+                className={styles.scroll}
+                data-test="objects-table-scroll"
+            >
                 <div
                     style={{
                         height: virtualizer.getTotalSize(),
@@ -143,11 +185,6 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
                                 <span title={r.id}>
                                     {r.displayName ?? r.id}
                                 </span>
-                                {isOrgUnit && (
-                                    <span title={r.parentId ?? ''}>
-                                        {r.parentId ?? ''}
-                                    </span>
-                                )}
                                 {isOrgUnit && <span>{r.level}</span>}
                                 <span>
                                     <StatusPill status={r.status} />
