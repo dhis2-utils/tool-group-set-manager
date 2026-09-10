@@ -22,7 +22,6 @@ export interface SetSummary {
  * unassigned position, and from never visiting the unreachable nodes -
  * each object is visited at most once.
  */
-// eslint-disable-next-line max-params -- internal helper threading the same scope args every query takes
 function forEachInScope(
     n: number,
     h: Hierarchy | null,
@@ -106,7 +105,6 @@ function addToRow(row: MatrixRow, status: number, groupOf: number): void {
     }
 }
 
-// eslint-disable-next-line max-params -- signature fixed by the engine's task-6 contract
 export function matrix(
     status: Uint8Array,
     m: SetMembership,
@@ -152,7 +150,6 @@ export interface ObjectFilter {
     ancestor?: number
 }
 
-// eslint-disable-next-line max-params -- signature fixed by the engine's task-6 contract
 export function listObjects(
     status: Uint8Array,
     m: SetMembership,

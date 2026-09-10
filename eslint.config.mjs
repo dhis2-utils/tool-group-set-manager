@@ -15,4 +15,12 @@ export default defineConfig([
             },
         },
     },
+    {
+        // The engine's signatures are fixed positional contracts consumed by
+        // the worker protocol, so they routinely exceed the default max-params.
+        files: ['src/engine/**'],
+        rules: {
+            'max-params': 'off',
+        },
+    },
 ])

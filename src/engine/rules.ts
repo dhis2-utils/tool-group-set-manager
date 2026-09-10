@@ -8,7 +8,6 @@ import { EngineConfig, GroupSetMeta, Status } from './types'
  *   object's level is in the set's required levels; a warning when the set
  *   is a data dimension; otherwise Ok.
  */
-// eslint-disable-next-line max-params -- signature fixed by the engine's task-6 contract
 export function evaluateSet(
     set: GroupSetMeta,
     membership: SetMembership,

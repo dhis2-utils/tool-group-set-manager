@@ -11,7 +11,6 @@ export interface ObjectAttributes {
 /**
  * Which objects a group set applies to (spec 3.1). 1 = in population.
  */
-// eslint-disable-next-line max-params -- signature fixed by the engine's task-6 contract
 export function populationFor(
     set: GroupSetMeta,
     n: number,
