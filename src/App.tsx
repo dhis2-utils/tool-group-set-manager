@@ -1,8 +1,10 @@
-import i18n from '@dhis2/d2-i18n'
 import { CssReset, CssVariables } from '@dhis2/ui'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 import { createHashRouter, RouterProvider } from 'react-router-dom'
+import { EngineProvider } from '@/hooks/useEngine'
+import { ScopeProvider } from '@/hooks/useScope'
+import { Dashboard } from '@/pages/Dashboard/Dashboard'
 import { SyncUrlWithGlobalShell } from '@/utils/SyncUrlWithGlobalShell'
 
 const queryClient = new QueryClient({
@@ -12,12 +14,7 @@ const queryClient = new QueryClient({
 const router = createHashRouter([
     {
         element: <SyncUrlWithGlobalShell />,
-        children: [
-            {
-                path: '/',
-                element: <div>{i18n.t('Group Set Integrity Tool')}</div>,
-            },
-        ],
+        children: [{ path: '/', element: <Dashboard /> }],
     },
 ])
 
@@ -25,7 +22,11 @@ const App = () => (
     <QueryClientProvider client={queryClient}>
         <CssReset />
         <CssVariables theme spacers colors elevations />
-        <RouterProvider router={router} />
+        <ScopeProvider>
+            <EngineProvider>
+                <RouterProvider router={router} />
+            </EngineProvider>
+        </ScopeProvider>
     </QueryClientProvider>
 )
 

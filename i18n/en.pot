@@ -5,38 +5,85 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-01-03T10:11:58.219Z\n"
-"PO-Revision-Date: 2026-01-03T10:11:58.220Z\n"
+"POT-Creation-Date: 2026-09-10T15:44:37.491Z\n"
+"PO-Revision-Date: 2026-09-10T15:44:37.492Z\n"
 
-msgid "ERROR"
-msgstr "ERROR"
+msgid "Compulsory"
+msgstr "Compulsory"
 
-msgid "Loading..."
-msgstr "Loading..."
+msgid "Data dimension"
+msgstr "Data dimension"
 
-msgid "Hello {{name}}"
-msgstr "Hello {{name}}"
+msgid "Conflicts"
+msgstr "Conflicts"
 
-msgid "Welcome to DHIS2 with TypeScript!"
-msgstr "Welcome to DHIS2 with TypeScript!"
+msgid "Missing"
+msgstr "Missing"
 
-msgid "Error"
-msgstr "Error"
+msgid "OK"
+msgstr "OK"
 
-msgid "Error loading the data elements"
-msgstr "Error loading the data elements"
+msgid "Loading…"
+msgstr "Loading…"
 
-msgid "ID"
-msgstr "ID"
+msgid "You can edit all groups"
+msgstr "You can edit all groups"
 
-msgid "Name"
-msgstr "Name"
+msgid "Loading group sets"
+msgstr "Loading group sets"
 
-msgid "Domain"
-msgstr "Domain"
+msgid "Loading objects"
+msgstr "Loading objects"
 
-msgid "Value Type"
-msgstr "Value Type"
+msgid "Loading group memberships"
+msgstr "Loading group memberships"
 
-msgid "Created by"
-msgstr "Created by"
+msgid "Loading names"
+msgstr "Loading names"
+
+msgid "Checking rules"
+msgstr "Checking rules"
+
+msgid "Done"
+msgstr "Done"
+
+msgid "Some data could not be loaded"
+msgstr "Some data could not be loaded"
+
+msgid "Scope"
+msgstr "Scope"
+
+msgid "Change"
+msgstr "Change"
+
+msgid "Choose the organisation unit to work in"
+msgstr "Choose the organisation unit to work in"
+
+msgid "Cancel"
+msgstr "Cancel"
+
+msgid "Organisation unit group sets"
+msgstr "Organisation unit group sets"
+
+msgid "Data element group sets"
+msgstr "Data element group sets"
+
+msgid "Indicator group sets"
+msgstr "Indicator group sets"
+
+msgid "Category option group sets"
+msgstr "Category option group sets"
+
+msgid "Only sets with issues"
+msgstr "Only sets with issues"
+
+msgid "Loading failed"
+msgstr "Loading failed"
+
+msgctxt "Application title"
+msgid "__MANIFEST_APP_TITLE"
+msgstr "Group Set Integrity Tool"
+
+msgctxt "Application description"
+msgid "__MANIFEST_APP_DESCRIPTION"
+msgstr ""

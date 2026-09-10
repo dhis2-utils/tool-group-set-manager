@@ -1,0 +1,59 @@
+.card {
+    padding: var(--spacers-dp16);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacers-dp8);
+}
+.name {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--colors-grey900);
+}
+.badges {
+    display: flex;
+    gap: var(--spacers-dp4);
+    flex-wrap: wrap;
+}
+.stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--spacers-dp8);
+    font-variant-numeric: tabular-nums;
+}
+.value {
+    font-size: 20px;
+    font-weight: 500;
+    line-height: 1.1;
+}
+.label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--colors-grey600);
+}
+.error {
+    border-left: 3px solid var(--colors-red600);
+    padding-left: var(--spacers-dp8);
+}
+.error .value {
+    color: var(--colors-red600);
+}
+.warning {
+    border-left: 3px solid var(--colors-yellow700);
+    padding-left: var(--spacers-dp8);
+}
+.warning .value {
+    color: var(--colors-yellow700);
+}
+.ok {
+    border-left: 3px solid var(--colors-green700);
+    padding-left: var(--spacers-dp8);
+}
+.ok .value {
+    color: var(--colors-green700);
+}
+.meta {
+    font-size: 12px;
+    color: var(--colors-grey600);
+}
