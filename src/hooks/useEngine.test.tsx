@@ -118,6 +118,28 @@ beforeEach(() => {
     mockLoadAll.mockImplementation(defaultLoadAllImpl)
 })
 
+it('exposes a null client before the creation effect has run, then a live one after', async () => {
+    const seen: unknown[] = []
+    const Capture = () => {
+        const { client } = useEngine()
+        seen.push(client)
+        return null
+    }
+    render(
+        <EngineProvider>
+            <Capture />
+        </EngineProvider>
+    )
+    await waitFor(() => expect(seen.some((c) => c !== null)).toBe(true))
+    // The very first render commits before the client-creation effect has
+    // had a chance to run, so the context must have honestly exposed null
+    // rather than a lying cast -- this is what stops a consumer that reads
+    // `client` in its own mount effect (which runs before this provider's)
+    // from dereferencing a value TypeScript claimed could never be null.
+    expect(seen[0]).toBeNull()
+    expect(seen[seen.length - 1]).not.toBeNull()
+})
+
 it('loads on mount and exposes status, group sets and source kind', async () => {
     render(
         <EngineProvider>

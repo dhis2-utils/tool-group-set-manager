@@ -17,7 +17,7 @@ import { createEngineWorker } from '@/engine/createWorker'
 import { GroupSetMeta } from '@/engine/types'
 
 interface EngineContextValue {
-    client: EngineClient
+    client: EngineClient | null
     status: LoadStatus | null
     groupSets: GroupSetMeta[]
     sourceKind: 'sqlView' | 'metadata' | null
@@ -29,7 +29,17 @@ const EngineContext = createContext<EngineContextValue | null>(null)
 
 export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
     const { baseUrl, apiVersion } = useConfig()
-    const clientRef = useRef<EngineClient | null>(null)
+    // The client is real state, not a ref: a ref can't be a hook dependency,
+    // so a memoised context value built from `ref.current` can never notice
+    // the client changing on its own -- it would keep serving whatever it
+    // read on the render that happened to be running when the ref changed
+    // (often null, since a child's mount effect runs before this
+    // component's, so a consumer that calls `client.call(...)` in its own
+    // effect can easily run before the ref would ever have been assigned).
+    // Holding it in state means the type is honestly nullable, so
+    // TypeScript makes every consumer handle "no client yet", and the
+    // context value updates the moment the client actually exists.
+    const [client, setClient] = useState<EngineClient | null>(null)
     // Bumped by every reload() call; a call's own state updates are dropped
     // once a newer call has started, so two overlapping reloads can never
     // interleave their setStatus/setGroupSets/setSourceKind updates, and a
@@ -56,12 +66,11 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
 
     const reload = useCallback(
         async (force: boolean) => {
-            const generation = ++generationRef.current
-            const isCurrent = () => generationRef.current === generation
-            const client = clientRef.current
             if (!client) {
                 return
             }
+            const generation = ++generationRef.current
+            const isCurrent = () => generationRef.current === generation
             setError(null)
             try {
                 const fetcher = createFetcher(baseUrl, apiVersion)
@@ -102,41 +111,49 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
                 }
             }
         },
-        [baseUrl, apiVersion, getCache]
+        [baseUrl, apiVersion, getCache, client]
     )
 
     // Create and terminate the worker together, in the same effect: if
-    // creation only happened in the render body (behind a ref-null guard)
-    // while termination lived in a separate empty-deps effect, nothing
-    // would ever recreate the client after a remount that only re-runs
-    // effects without re-rendering (Strict Mode's mount/unmount/remount
-    // simulation is exactly this) -- the ref would stay cleared, or worse,
-    // stay pointed at the terminated worker, and every later call would
-    // hang forever (postMessage on a terminated worker is a silent no-op).
-    // Clearing the ref here means a remount always builds a live one.
+    // creation only happened in the render body while termination lived in
+    // a separate empty-deps effect, nothing would ever recreate the client
+    // after a remount that only re-runs effects without re-rendering
+    // (Strict Mode's mount/unmount/remount simulation is exactly this) --
+    // the client would stay cleared, or worse, stay pointed at the
+    // terminated worker, and every later call would hang forever
+    // (postMessage on a terminated worker is a silent no-op). Note: the
+    // client is deliberately NOT created synchronously in the render body
+    // to make it available on the first render -- that pattern is exactly
+    // what caused the remount bug in the first place.
     useEffect(() => {
-        const client = new EngineClient(createEngineWorker())
-        clientRef.current = client
+        const created = new EngineClient(createEngineWorker())
+        setClient(created)
         return () => {
-            client.terminate()
-            clientRef.current = null
+            created.terminate()
+            setClient(null)
         }
     }, [])
 
+    // reload's identity depends on `client`, so once the client goes from
+    // null to a real instance, this effect re-runs and the initial load
+    // starts as soon as there is a worker to run it on. (The very first
+    // invocation, while client is still null, is a harmless no-op --
+    // reload() returns immediately without touching the generation counter
+    // or any engine/network call.)
     useEffect(() => {
         void reload(false)
     }, [reload])
 
     const value = useMemo<EngineContextValue>(
         () => ({
-            client: clientRef.current as EngineClient,
+            client,
             status,
             groupSets,
             sourceKind,
             error,
             reload,
         }),
-        [status, groupSets, sourceKind, error, reload]
+        [client, status, groupSets, sourceKind, error, reload]
     )
     return (
         <EngineContext.Provider value={value}>
