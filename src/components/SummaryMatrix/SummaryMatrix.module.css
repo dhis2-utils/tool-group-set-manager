@@ -8,6 +8,10 @@
 .cell:hover {
     background: var(--colors-blue050);
 }
+.cellStatic {
+    font-variant-numeric: tabular-nums;
+    cursor: default;
+}
 .error {
     color: var(--colors-red600);
     font-weight: 500;

@@ -33,11 +33,37 @@ interface Props {
      * level at all.
      */
     flat?: boolean
+    /**
+     * Pre-composed, already-translated explanation of why the "above the
+     * row level" row exists, shown under its heading. Every organisation
+     * unit group set -- compulsory or not -- evaluates every organisation
+     * unit at every level (`populationFor` in `src/engine/population.ts`
+     * never restricts an org unit set's population by level), so the row
+     * appears for entirely non-compulsory sets too (confirmed against the
+     * Sierra Leone demo: the non-compulsory "Area" set still has a
+     * non-empty above-the-row-level row). Hardcoding a "compulsory" or
+     * "data dimension" explanation would therefore be just as likely to be
+     * wrong as right; the caller (which knows the row level actually
+     * chosen) supplies the real reason instead. Falls back to a neutral,
+     * still-true default when omitted.
+     */
+    aboveLevelCaption?: string
 }
 
 const fmt = (n: number) => n.toLocaleString()
 
-export const SummaryMatrix = ({ result, onCell, flat = false }: Props) => {
+const DEFAULT_ABOVE_LEVEL_CAPTION = () =>
+    i18n.t('Includes organisation units above the chosen row level')
+
+const ABOVE_LEVEL_CLICK_TITLE = () =>
+    i18n.t('Objects above the row level cannot be filtered yet')
+
+export const SummaryMatrix = ({
+    result,
+    onCell,
+    flat = false,
+    aboveLevelCaption,
+}: Props) => {
     const totals = {
         perGroup: result.groups.map((_, g) =>
             result.rows.reduce((s, r) => s + r.perGroup[g], 0)
@@ -53,27 +79,36 @@ export const SummaryMatrix = ({ result, onCell, flat = false }: Props) => {
             column: MatrixColumn
             tone?: 'error'
             cellKey?: React.Key
+            clickable?: boolean
         }
-    ) => (
-        <DataTableCell
-            key={options.cellKey ?? options.column.kind}
-            align="right"
-            className={styles.cell}
-            onClick={() => onCell(options.row, options.column)}
-        >
-            <span
-                className={
-                    options.tone === 'error' && value > 0
-                        ? styles.error
-                        : value === 0
-                          ? styles.zero
-                          : undefined
+    ) => {
+        const clickable = options.clickable ?? true
+        return (
+            <DataTableCell
+                key={options.cellKey ?? options.column.kind}
+                align="right"
+                className={clickable ? styles.cell : styles.cellStatic}
+                onClick={
+                    clickable
+                        ? () => onCell(options.row, options.column)
+                        : undefined
                 }
+                title={clickable ? undefined : ABOVE_LEVEL_CLICK_TITLE()}
             >
-                {fmt(value)}
-            </span>
-        </DataTableCell>
-    )
+                <span
+                    className={
+                        options.tone === 'error' && value > 0
+                            ? styles.error
+                            : value === 0
+                              ? styles.zero
+                              : undefined
+                    }
+                >
+                    {fmt(value)}
+                </span>
+            </DataTableCell>
+        )
+    }
     return (
         <div className={styles.wrap}>
             <DataTable>
@@ -99,66 +134,87 @@ export const SummaryMatrix = ({ result, onCell, flat = false }: Props) => {
                     </DataTableRow>
                 </DataTableHead>
                 <DataTableBody>
-                    {result.rows.map((r) => (
-                        <DataTableRow key={r.object}>
-                            <DataTableCell>
-                                {r.row ? (
-                                    (r.row.displayName ?? r.row.id)
-                                ) : flat ? (
-                                    i18n.t('All objects')
-                                ) : (
-                                    <div>
+                    {result.rows.map((r) => {
+                        // The engine represents "no row" the same way (`row:
+                        // null`) whether that's a flat type's sole row (the
+                        // whole population -- handled above, still fully
+                        // filterable) or a hierarchical leftover above the
+                        // chosen row level. Only the latter has no `ancestor`
+                        // to filter by: `onCell` would build a filter with a
+                        // group/status but no ancestor, which silently
+                        // matches every such object in the *whole* scope
+                        // rather than the handful this row counted. There is
+                        // no way to express "objects above this row level" in
+                        // the engine's current filter, so these cells must
+                        // not be clickable at all rather than lie about what
+                        // they'd filter.
+                        const isAboveRowLeftover = r.row === null && !flat
+                        return (
+                            <DataTableRow key={r.object}>
+                                <DataTableCell>
+                                    {r.row ? (
+                                        (r.row.displayName ?? r.row.id)
+                                    ) : flat ? (
+                                        i18n.t('All objects')
+                                    ) : (
                                         <div>
-                                            {i18n.t('Above the row level')}
+                                            <div>
+                                                {i18n.t('Above the row level')}
+                                            </div>
+                                            <div className={styles.hint}>
+                                                {aboveLevelCaption ??
+                                                    DEFAULT_ABOVE_LEVEL_CAPTION()}
+                                            </div>
                                         </div>
-                                        <div className={styles.hint}>
-                                            {i18n.t(
-                                                'A compulsory group set is checked at every level, including this one'
-                                            )}
-                                        </div>
-                                    </div>
+                                    )}
+                                </DataTableCell>
+                                {r.perGroup.map((v, g) =>
+                                    cell(v, {
+                                        row: r.row,
+                                        column: { kind: 'group', index: g },
+                                        cellKey: g,
+                                        clickable: !isAboveRowLeftover,
+                                    })
                                 )}
-                            </DataTableCell>
-                            {r.perGroup.map((v, g) =>
-                                cell(v, {
+                                {cell(r.missing, {
                                     row: r.row,
-                                    column: { kind: 'group', index: g },
-                                    cellKey: g,
-                                })
-                            )}
-                            {cell(r.missing, {
-                                row: r.row,
-                                column: { kind: 'missing' },
-                                tone: 'error',
-                            })}
-                            {cell(r.conflict, {
-                                row: r.row,
-                                column: { kind: 'conflict' },
-                                tone: 'error',
-                            })}
-                            {cell(r.total, {
-                                row: r.row,
-                                column: { kind: 'total' },
-                            })}
-                        </DataTableRow>
-                    ))}
-                    <DataTableRow className={styles.totalRow}>
-                        <DataTableCell>{i18n.t('Total')}</DataTableCell>
-                        {totals.perGroup.map((v, g) => (
-                            <DataTableCell key={g} align="right">
-                                {fmt(v)}
+                                    column: { kind: 'missing' },
+                                    tone: 'error',
+                                    clickable: !isAboveRowLeftover,
+                                })}
+                                {cell(r.conflict, {
+                                    row: r.row,
+                                    column: { kind: 'conflict' },
+                                    tone: 'error',
+                                    clickable: !isAboveRowLeftover,
+                                })}
+                                {cell(r.total, {
+                                    row: r.row,
+                                    column: { kind: 'total' },
+                                    clickable: !isAboveRowLeftover,
+                                })}
+                            </DataTableRow>
+                        )
+                    })}
+                    {result.rows.length > 1 && (
+                        <DataTableRow className={styles.totalRow}>
+                            <DataTableCell>{i18n.t('Total')}</DataTableCell>
+                            {totals.perGroup.map((v, g) => (
+                                <DataTableCell key={g} align="right">
+                                    {fmt(v)}
+                                </DataTableCell>
+                            ))}
+                            <DataTableCell align="right">
+                                {fmt(totals.missing)}
                             </DataTableCell>
-                        ))}
-                        <DataTableCell align="right">
-                            {fmt(totals.missing)}
-                        </DataTableCell>
-                        <DataTableCell align="right">
-                            {fmt(totals.conflict)}
-                        </DataTableCell>
-                        <DataTableCell align="right">
-                            {fmt(totals.total)}
-                        </DataTableCell>
-                    </DataTableRow>
+                            <DataTableCell align="right">
+                                {fmt(totals.conflict)}
+                            </DataTableCell>
+                            <DataTableCell align="right">
+                                {fmt(totals.total)}
+                            </DataTableCell>
+                        </DataTableRow>
+                    )}
                 </DataTableBody>
             </DataTable>
         </div>

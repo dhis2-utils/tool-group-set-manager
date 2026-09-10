@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-10T17:11:16.650Z\n"
-"PO-Revision-Date: 2026-09-10T17:11:16.651Z\n"
+"POT-Creation-Date: 2026-09-10T17:35:18.181Z\n"
+"PO-Revision-Date: 2026-09-10T17:35:18.181Z\n"
 
 msgid "group"
 msgstr "group"
@@ -77,6 +77,12 @@ msgstr "Choose the organisation unit to work in"
 msgid "Cancel"
 msgstr "Cancel"
 
+msgid "Includes organisation units above the chosen row level"
+msgstr "Includes organisation units above the chosen row level"
+
+msgid "Objects above the row level cannot be filtered yet"
+msgstr "Objects above the row level cannot be filtered yet"
+
 msgid "Organisation unit"
 msgstr "Organisation unit"
 
@@ -91,9 +97,6 @@ msgstr "All objects"
 
 msgid "Above the row level"
 msgstr "Above the row level"
-
-msgid "A compulsory group set is checked at every level, including this one"
-msgstr "A compulsory group set is checked at every level, including this one"
 
 msgid "set without issues hidden"
 msgstr "set without issues hidden"
@@ -134,11 +137,14 @@ msgstr "Objects"
 msgid "Objects list coming next"
 msgstr "Objects list coming next"
 
-msgid "Rows"
-msgstr "Rows"
+msgid "Includes organisation units above the"
+msgstr "Includes organisation units above the"
 
 msgid "level"
 msgstr "level"
+
+msgid "Rows"
+msgstr "Rows"
 
 msgid "Organisation unit group sets"
 msgstr "Organisation unit group sets"

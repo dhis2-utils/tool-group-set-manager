@@ -1,6 +1,6 @@
 import i18n from '@dhis2/d2-i18n'
 import { Button, Tab, TabBar, Tag } from '@dhis2/ui'
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import styles from './GroupSetDetail.module.css'
 import { ObjectsTab } from './ObjectsTab'
@@ -46,6 +46,39 @@ export const GroupSetDetail = () => {
                 .sort((a, b) => a.level - b.level),
         [levelsData, scopeLevel]
     )
+
+    // `rowLevel` is seeded once, at mount, from `scopeLevel` -- which itself
+    // depends on the asynchronously-resolved user roots. A deep link opened
+    // before roots resolve seeds it from the fallback scope level (1), and
+    // when the real roots arrive with a deeper root, `levels` is recomputed
+    // against the new `scopeLevel` and may no longer contain the seeded
+    // value at all. Left uncorrected, `rowLevel` would then point at a
+    // level `SingleSelectField` has no matching option for, which
+    // `@dhis2/ui` treats as a hard render error rather than a no-op -- the
+    // same crash the empty-list gate in OverviewTab guards against, just
+    // reached a different way.
+    //
+    // Correcting this from a `useEffect` alone is one render too late: the
+    // render that first sees the new, narrower `levels` also passes the
+    // still-stale `rowLevel` straight into `OverviewTab`/`SingleSelectField`
+    // in that same pass, and `SingleSelectField` throws synchronously
+    // during that render -- before any effect from this render has had a
+    // chance to run and fix `rowLevel` up. So the value actually handed to
+    // children is a synchronously-derived, always-valid one computed right
+    // here during render; the effect below only exists to bring the
+    // underlying `rowLevel` state itself back in sync afterwards (so a
+    // later, organic level list change starts from a consistent value
+    // rather than compounding drift).
+    const effectiveRowLevel =
+        levels.length === 0 || levels.some((l) => l.level === rowLevel)
+            ? rowLevel
+            : levels[0].level
+
+    useEffect(() => {
+        if (effectiveRowLevel !== rowLevel) {
+            setRowLevel(effectiveRowLevel)
+        }
+    }, [effectiveRowLevel, rowLevel])
 
     if (!set) {
         return <p>{i18n.t('Group set not found or not loaded yet.')}</p>
@@ -121,7 +154,7 @@ export const GroupSetDetail = () => {
                 <OverviewTab
                     set={set}
                     scope={scope}
-                    rowLevel={rowLevel}
+                    rowLevel={effectiveRowLevel}
                     levels={levels}
                     onRowLevel={setRowLevel}
                     onCell={onCell}

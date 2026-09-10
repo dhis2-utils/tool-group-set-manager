@@ -45,6 +45,18 @@ export const OverviewTab = ({
     // current `rowLevel` to match -- rather than rendering it with a
     // `selected` value that has no corresponding option yet.
     const canShowRowLevelSelector = isHierarchical && levels.length > 0
+    // Every organisation unit group set -- compulsory or not -- evaluates
+    // every organisation unit at every level (`populationFor` in
+    // `src/engine/population.ts` never restricts an org unit set's
+    // population by level), so the "above the row level" row is not
+    // specific to compulsory sets: confirmed against the Sierra Leone demo,
+    // where the non-compulsory "Area" set still has a non-empty one. What
+    // *is* true, and known here rather than inside SummaryMatrix, is which
+    // row level was actually chosen -- so that is what the caption names.
+    const rowLevelLabel = levels.find((l) => l.level === rowLevel)?.displayName
+    const aboveLevelCaption = rowLevelLabel
+        ? `${i18n.t('Includes organisation units above the')} ${rowLevelLabel} ${i18n.t('level')}`
+        : undefined
     return (
         <div className={styles.overview}>
             {canShowRowLevelSelector && (
@@ -70,15 +82,19 @@ export const OverviewTab = ({
                     ))}
                 </SingleSelectField>
             )}
-            {error && <NoticeBox error>{error}</NoticeBox>}
-            {isLoading || !data ? (
+            {isLoading ? (
                 <CircularLoader small />
+            ) : error ? (
+                <NoticeBox error>{error}</NoticeBox>
             ) : (
-                <SummaryMatrix
-                    result={data}
-                    onCell={onCell}
-                    flat={!isHierarchical}
-                />
+                data && (
+                    <SummaryMatrix
+                        result={data}
+                        onCell={onCell}
+                        flat={!isHierarchical}
+                        aboveLevelCaption={aboveLevelCaption}
+                    />
+                )
             )}
         </div>
     )
