@@ -8,7 +8,7 @@ import React, {
     useRef,
     useState,
 } from 'react'
-import { openCache } from '@/data/cache'
+import { Cache, openCache } from '@/data/cache'
 import { createFetcher } from '@/data/fetcher'
 import { loadAll, LoadStatus } from '@/data/loadAll'
 import { selectSource } from '@/data/sources/selectSource'
@@ -30,9 +30,11 @@ const EngineContext = createContext<EngineContextValue | null>(null)
 export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
     const { baseUrl, apiVersion } = useConfig()
     const clientRef = useRef<EngineClient | null>(null)
-    if (clientRef.current === null) {
-        clientRef.current = new EngineClient(createEngineWorker())
-    }
+    // Bumped by every reload() call; a call's own state updates are dropped
+    // once a newer call has started, so two overlapping reloads can never
+    // interleave their setStatus/setGroupSets/setSourceKind updates, and a
+    // forced reload always wins over whatever an older one was still doing.
+    const generationRef = useRef(0)
     const [status, setStatus] = useState<LoadStatus | null>(null)
     const [groupSets, setGroupSets] = useState<GroupSetMeta[]>([])
     const [sourceKind, setSourceKind] = useState<'sqlView' | 'metadata' | null>(
@@ -40,40 +42,90 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
     )
     const [error, setError] = useState<string | null>(null)
 
+    // One IndexedDB connection per base URL, opened lazily on first use
+    // rather than during render (avoiding an extra, unclosable connection
+    // if this component's render is ever invoked more than once for the
+    // same commit) and reused across every reload() call against that URL.
+    const cacheRef = useRef<{ baseUrl: string; cache: Cache } | null>(null)
+    const getCache = useCallback((): Cache => {
+        if (!cacheRef.current || cacheRef.current.baseUrl !== baseUrl) {
+            cacheRef.current = { baseUrl, cache: openCache(baseUrl) }
+        }
+        return cacheRef.current.cache
+    }, [baseUrl])
+
     const reload = useCallback(
         async (force: boolean) => {
-            const client = clientRef.current as EngineClient
+            const generation = ++generationRef.current
+            const isCurrent = () => generationRef.current === generation
+            const client = clientRef.current
+            if (!client) {
+                return
+            }
             setError(null)
             try {
                 const fetcher = createFetcher(baseUrl, apiVersion)
                 const { source } = await selectSource(fetcher)
+                if (!isCurrent()) {
+                    return
+                }
                 setSourceKind(source.kind)
                 if (force) {
+                    // A forced reload must never let an older, still-running
+                    // load keep filling the engine after this reset -- but
+                    // it also must not be skipped just because something
+                    // newer than IT has since started (the newest call
+                    // always wins).
                     await client.call('reset')
+                    if (!isCurrent()) {
+                        return
+                    }
                 }
                 const result = await loadAll({
                     source,
                     fetcher,
-                    cache: openCache(baseUrl),
+                    cache: getCache(),
                     engine: client,
-                    onStatus: setStatus,
+                    onStatus: (s) => {
+                        if (isCurrent()) {
+                            setStatus(s)
+                        }
+                    },
                     forceRefresh: force,
                 })
-                setGroupSets(result.groupSets)
+                if (isCurrent()) {
+                    setGroupSets(result.groupSets)
+                }
             } catch (e) {
-                setError(e instanceof Error ? e.message : String(e))
+                if (isCurrent()) {
+                    setError(e instanceof Error ? e.message : String(e))
+                }
             }
         },
-        [baseUrl, apiVersion]
+        [baseUrl, apiVersion, getCache]
     )
+
+    // Create and terminate the worker together, in the same effect: if
+    // creation only happened in the render body (behind a ref-null guard)
+    // while termination lived in a separate empty-deps effect, nothing
+    // would ever recreate the client after a remount that only re-runs
+    // effects without re-rendering (Strict Mode's mount/unmount/remount
+    // simulation is exactly this) -- the ref would stay cleared, or worse,
+    // stay pointed at the terminated worker, and every later call would
+    // hang forever (postMessage on a terminated worker is a silent no-op).
+    // Clearing the ref here means a remount always builds a live one.
+    useEffect(() => {
+        const client = new EngineClient(createEngineWorker())
+        clientRef.current = client
+        return () => {
+            client.terminate()
+            clientRef.current = null
+        }
+    }, [])
 
     useEffect(() => {
         void reload(false)
     }, [reload])
-
-    // Terminate the worker only when the provider unmounts, not when reload
-    // changes identity (e.g. baseUrl/apiVersion happen to change reference).
-    useEffect(() => () => clientRef.current?.terminate(), [])
 
     const value = useMemo<EngineContextValue>(
         () => ({

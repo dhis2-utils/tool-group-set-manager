@@ -1,4 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import {
+    act,
+    render,
+    renderHook,
+    screen,
+    waitFor,
+} from '@testing-library/react'
 import React from 'react'
 import { EngineProvider, useEngine } from './useEngine'
 
@@ -6,18 +12,35 @@ jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://localhost:8080', apiVersion: 41 }),
 }))
 
-const mockLoadAll = jest.fn(async ({ onStatus }) => {
-    onStatus({
-        phase: 'done',
-        type: null,
-        progress: null,
-        fromCache: {},
-        errors: {},
-    })
+interface MockStatus {
+    phase: string
+    type: string | null
+    progress: null
+    fromCache: Record<string, boolean>
+    errors: Record<string, string>
+}
+
+interface MockLoadAllDeps {
+    engine: { call: (method: string, ...args: unknown[]) => Promise<unknown> }
+    onStatus: (s: MockStatus) => void
+}
+
+const doneStatus: MockStatus = {
+    phase: 'done',
+    type: null,
+    progress: null,
+    fromCache: {},
+    errors: {},
+}
+
+async function defaultLoadAllImpl({ onStatus }: MockLoadAllDeps) {
+    onStatus(doneStatus)
     return { groupSets: [{ id: 's1' }] }
-})
+}
+const mockLoadAll = jest.fn(defaultLoadAllImpl)
+
 jest.mock('@/data/loadAll', () => ({
-    loadAll: (deps: unknown) => mockLoadAll(deps),
+    loadAll: (deps: MockLoadAllDeps) => mockLoadAll(deps),
 }))
 jest.mock('@/data/sources/selectSource', () => ({
     selectSource: async () => ({
@@ -32,15 +55,47 @@ jest.mock('@/data/cache', () => ({
         clear: async () => undefined,
     }),
 }))
-jest.mock('@/engine/client', () => ({
-    EngineClient: class {
-        call = jest.fn()
-        terminate = jest.fn()
-    },
-}))
+
+// A fake worker-backed client whose `call` behaves like the real one after
+// `terminate()`: postMessage on a terminated worker is a silent no-op, so a
+// call made against a terminated client must never settle -- that is the
+// observable symptom of the provider reusing a dead client after a remount.
+jest.mock('@/engine/client', () => {
+    class FakeEngineClient {
+        static instances: FakeEngineClient[] = []
+        terminated = false
+        call = jest.fn(() => {
+            if (this.terminated) {
+                return new Promise(() => undefined)
+            }
+            return Promise.resolve(undefined)
+        })
+        terminate = jest.fn(() => {
+            this.terminated = true
+        })
+        constructor() {
+            FakeEngineClient.instances.push(this)
+        }
+    }
+    return { EngineClient: FakeEngineClient }
+})
 jest.mock('@/engine/createWorker', () => ({
     createEngineWorker: () => ({}),
 }))
+
+interface FakeClientHandle {
+    terminated: boolean
+    call: jest.Mock
+    terminate: jest.Mock
+}
+
+interface FakeEngineClientStatics {
+    instances: FakeClientHandle[]
+}
+
+const { EngineClient: FakeEngineClientClass } = jest.requireMock(
+    '@/engine/client'
+) as { EngineClient: FakeEngineClientStatics }
 
 const Probe = () => {
     const { status, groupSets, sourceKind } = useEngine()
@@ -53,6 +108,16 @@ const Probe = () => {
     )
 }
 
+const Wrapper = ({ children }: { children: React.ReactNode }) => (
+    <EngineProvider>{children}</EngineProvider>
+)
+
+beforeEach(() => {
+    FakeEngineClientClass.instances.length = 0
+    mockLoadAll.mockReset()
+    mockLoadAll.mockImplementation(defaultLoadAllImpl)
+})
+
 it('loads on mount and exposes status, group sets and source kind', async () => {
     render(
         <EngineProvider>
@@ -63,4 +128,145 @@ it('loads on mount and exposes status, group sets and source kind', async () => 
     expect(screen.getByText('1')).toBeInTheDocument()
     expect(screen.getByText('metadata')).toBeInTheDocument()
     expect(mockLoadAll).toHaveBeenCalledTimes(1)
+})
+
+it('unmount terminates the client exactly once', async () => {
+    const { result, unmount } = renderHook(() => useEngine(), {
+        wrapper: Wrapper,
+    })
+    await waitFor(() => expect(result.current.status?.phase).toBe('done'))
+    const client = result.current.client as unknown as FakeClientHandle
+    unmount()
+    expect(client.terminate).toHaveBeenCalledTimes(1)
+})
+
+it('reload(true) resets the engine before loadAll runs', async () => {
+    const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.status?.phase).toBe('done'))
+
+    const order: string[] = []
+    const client = result.current.client as unknown as FakeClientHandle
+    client.call.mockImplementation((method: string) => {
+        if (method === 'reset') {
+            order.push('reset')
+        }
+        return Promise.resolve(undefined)
+    })
+    mockLoadAll.mockImplementationOnce(async ({ onStatus }) => {
+        order.push('loadAll')
+        onStatus(doneStatus)
+        return { groupSets: [] }
+    })
+
+    await act(async () => {
+        await result.current.reload(true)
+    })
+
+    expect(order).toEqual(['reset', 'loadAll'])
+})
+
+it('a whole-load failure sets error', async () => {
+    mockLoadAll.mockRejectedValueOnce(new Error('group sets request failed'))
+    const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
+    await waitFor(() =>
+        expect(result.current.error).toBe('group sets request failed')
+    )
+})
+
+it('a per-type failure arrives in status.errors and does not set error', async () => {
+    mockLoadAll.mockImplementationOnce(async ({ onStatus }) => {
+        onStatus({
+            phase: 'done',
+            type: null,
+            progress: null,
+            fromCache: {},
+            errors: { organisationUnit: 'organisationUnits request failed' },
+        })
+        return { groupSets: [] }
+    })
+    const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
+    await waitFor(() =>
+        expect(result.current.status?.errors.organisationUnit).toBe(
+            'organisationUnits request failed'
+        )
+    )
+    expect(result.current.error).toBeNull()
+})
+
+it('a remount after an unmount produces a working client rather than a dead one', async () => {
+    const StrictWrapper = ({ children }: { children: React.ReactNode }) => (
+        <React.StrictMode>
+            <EngineProvider>{children}</EngineProvider>
+        </React.StrictMode>
+    )
+    const { result } = renderHook(() => useEngine(), {
+        wrapper: StrictWrapper,
+    })
+    await waitFor(() => expect(result.current.status?.phase).toBe('done'))
+
+    // Strict Mode (in dev) mounts, simulates an unmount, then simulates a
+    // remount, all as part of this one render. Whichever client the
+    // provider currently exposes must be a live one, and some earlier
+    // instance must have actually been torn down (i.e. this isn't
+    // trivially true because cleanup never ran at all).
+    const current = result.current.client as unknown as FakeClientHandle
+    expect(current.terminated).toBe(false)
+    expect(
+        FakeEngineClientClass.instances.some(
+            (i) => i !== current && i.terminated
+        )
+    ).toBe(true)
+
+    // The proof that it is "working" rather than "dead": a fresh forced
+    // reload actually settles instead of hanging on a terminated
+    // client's silently-dropped postMessage.
+    await act(async () => {
+        await result.current.reload(true)
+    })
+    expect(result.current.error).toBeNull()
+}, 3000)
+
+it('a forced reload supersedes an in-flight non-forced one, and a late-arriving stale result cannot overwrite it', async () => {
+    let resolveFirst: (() => void) | undefined
+    mockLoadAll.mockImplementationOnce(async ({ onStatus }) => {
+        await new Promise<void>((resolve) => {
+            resolveFirst = resolve
+        })
+        onStatus({
+            phase: 'done',
+            type: null,
+            progress: null,
+            fromCache: {},
+            errors: { organisationUnit: 'stale result' },
+        })
+        return { groupSets: [{ id: 'stale' }] }
+    })
+
+    const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
+    // Let the mount-triggered reload(false) start and block inside loadAll.
+    await waitFor(() => expect(mockLoadAll).toHaveBeenCalledTimes(1))
+
+    mockLoadAll.mockImplementationOnce(async ({ onStatus }) => {
+        onStatus(doneStatus)
+        return { groupSets: [{ id: 'fresh' }] }
+    })
+    // The forced reload runs and completes fully while the first (stale)
+    // call is still blocked -- this is the user explicitly asking for fresh
+    // data while an old load is still in flight.
+    await act(async () => {
+        await result.current.reload(true)
+    })
+    expect(result.current.groupSets).toEqual([{ id: 'fresh' }])
+
+    // Only now does the superseded, still-in-flight non-forced call resolve.
+    // Its stale result must not be allowed to overwrite the fresh one.
+    await act(async () => {
+        resolveFirst?.()
+        for (let i = 0; i < 5; i++) {
+            await Promise.resolve()
+        }
+    })
+
+    expect(result.current.groupSets).toEqual([{ id: 'fresh' }])
+    expect(result.current.status?.errors.organisationUnit).toBeUndefined()
 })
