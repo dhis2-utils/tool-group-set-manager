@@ -3,6 +3,8 @@ import { EngineRequest, EngineResponse } from './protocol'
 
 class FakeWorker {
     onmessage: ((e: MessageEvent<EngineResponse>) => void) | null = null
+    onerror: ((e: ErrorEvent) => void) | null = null
+    onmessageerror: ((e: MessageEvent) => void) | null = null
     sent: EngineRequest[] = []
     postMessage(req: EngineRequest) {
         this.sent.push(req)
@@ -33,5 +35,13 @@ describe('EngineClient', () => {
         await expect(b).rejects.toThrow('boom')
         await expect(a).resolves.toBe(7)
         expect(worker.sent.map((r) => r.id)).toEqual([1, 2])
+    })
+
+    it('rejects every in-flight call when the worker errors', async () => {
+        const worker = new FakeWorker()
+        const client = new EngineClient(worker as unknown as Worker)
+        const call = client.call('evaluate')
+        worker.onerror?.({ message: 'worker crashed' } as ErrorEvent)
+        await expect(call).rejects.toThrow(/worker crashed/)
     })
 })

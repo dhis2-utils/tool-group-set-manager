@@ -1,6 +1,16 @@
 import { EngineStore } from './store'
 import { GroupSetMeta, Status } from './types'
 
+const indicatorSet: GroupSetMeta = {
+    id: 'ind',
+    displayName: 'Indicator Set',
+    objectType: 'indicator',
+    compulsory: true,
+    dataDimension: true,
+    canWrite: true,
+    groups: [{ id: 'g1', displayName: 'G1', canWrite: true }],
+}
+
 const ownership: GroupSetMeta = {
     id: 'own',
     displayName: 'Ownership',
@@ -32,6 +42,27 @@ function loadedStore(): EngineStore {
             { groupId: 'pub', memberIds: ['a1', 'a2', 'unknown-id'] },
             { groupId: 'priv', memberIds: ['a2', 'b1'] },
         ],
+    })
+    store.evaluate()
+    return store
+}
+
+/** A flat (no hierarchy) object type, to exercise the "no root requested" scan-everything path. */
+function flatIndicatorStore(): EngineStore {
+    const store = new EngineStore()
+    store.loadObjects({
+        objectType: 'indicator',
+        ids: ['i1', 'i2'],
+        names: ['I1', 'I2'],
+        level: null,
+        parentIds: null,
+        domainType: null,
+        categoryIdsOfOption: null,
+    })
+    store.setGroupSets([indicatorSet])
+    store.loadMemberships({
+        objectType: 'indicator',
+        groups: [{ groupId: 'g1', memberIds: ['i1'] }],
     })
     store.evaluate()
     return store
@@ -107,5 +138,139 @@ describe('EngineStore', () => {
         const store = loadedStore()
         store.setNames('organisationUnit', ['R', 'AA', 'BB', 'x', 'y', 'z'])
         expect(store.resolve('organisationUnit', [1])[0].displayName).toBe('AA')
+    })
+
+    it('scans everything when the root id is null for a flat object type', () => {
+        const store = flatIndicatorStore()
+        const [entry] = store.dashboard({
+            objectType: 'indicator',
+            rootId: null,
+        })
+        expect(entry.hasData).toBe(true)
+        expect(entry.summary.population).toBe(2)
+    })
+
+    it('dashboard throws for an unknown scope root id rather than scanning everything', () => {
+        const store = loadedStore()
+        expect(() =>
+            store.dashboard({ objectType: 'organisationUnit', rootId: 'nope' })
+        ).toThrow(/organisationUnit/)
+        expect(() =>
+            store.dashboard({ objectType: 'organisationUnit', rootId: 'nope' })
+        ).toThrow(/nope/)
+    })
+
+    it('matrixFor throws for an unknown scope root id rather than scanning everything', () => {
+        const store = loadedStore()
+        expect(() =>
+            store.matrixFor(
+                'own',
+                { objectType: 'organisationUnit', rootId: 'nope' },
+                2
+            )
+        ).toThrow(/organisationUnit/)
+        expect(() =>
+            store.matrixFor(
+                'own',
+                { objectType: 'organisationUnit', rootId: 'nope' },
+                2
+            )
+        ).toThrow(/nope/)
+    })
+
+    it('objectsFor throws for an unknown scope root id rather than scanning everything', () => {
+        const store = loadedStore()
+        expect(() =>
+            store.objectsFor(
+                'own',
+                { objectType: 'organisationUnit', rootId: 'nope' },
+                {},
+                0,
+                10
+            )
+        ).toThrow(/organisationUnit/)
+        expect(() =>
+            store.objectsFor(
+                'own',
+                { objectType: 'organisationUnit', rootId: 'nope' },
+                {},
+                0,
+                10
+            )
+        ).toThrow(/nope/)
+    })
+
+    it('keeps membership per group set when one group belongs to two group sets', () => {
+        // Mirrors the real EMIS instance: "Private", "JSS" and "SSS" each sit
+        // in two group sets, so membership must be resolved per set, not per
+        // group.
+        const store = new EngineStore()
+        store.loadObjects({
+            objectType: 'organisationUnit',
+            ids: ['root', 'a1', 'a2'],
+            names: ['Root', 'a1', 'a2'],
+            level: Uint8Array.from([1, 2, 2]),
+            parentIds: [null, 'root', 'root'],
+            domainType: null,
+            categoryIdsOfOption: null,
+        })
+        const setA: GroupSetMeta = {
+            id: 'setA',
+            displayName: 'Set A',
+            objectType: 'organisationUnit',
+            compulsory: true,
+            dataDimension: true,
+            canWrite: true,
+            groups: [
+                { id: 'shared', displayName: 'Shared', canWrite: true },
+                { id: 'onlyA', displayName: 'Only A', canWrite: true },
+            ],
+        }
+        const setB: GroupSetMeta = {
+            id: 'setB',
+            displayName: 'Set B',
+            objectType: 'organisationUnit',
+            compulsory: true,
+            dataDimension: true,
+            canWrite: true,
+            groups: [{ id: 'shared', displayName: 'Shared', canWrite: true }],
+        }
+        store.setGroupSets([setA, setB])
+        store.loadMemberships({
+            objectType: 'organisationUnit',
+            groups: [
+                // a1 is in "shared" and "onlyA" -> conflict in set A, but
+                // "shared" is the only group of set B, so a1 is fine there.
+                { groupId: 'shared', memberIds: ['a1', 'a2'] },
+                { groupId: 'onlyA', memberIds: ['a1'] },
+            ],
+        })
+        store.evaluate()
+
+        const a1 = store.indexOf('organisationUnit', 'a1')
+        const a2 = store.indexOf('organisationUnit', 'a2')
+
+        const pageA = store.objectsFor(
+            'setA',
+            { objectType: 'organisationUnit', rootId: null },
+            {},
+            0,
+            10
+        )
+        const pageB = store.objectsFor(
+            'setB',
+            { objectType: 'organisationUnit', rootId: null },
+            {},
+            0,
+            10
+        )
+
+        const statusA = new Map(pageA.items.map((i) => [i.index, i.status]))
+        const statusB = new Map(pageB.items.map((i) => [i.index, i.status]))
+
+        expect(statusA.get(a1)).toBe(Status.Conflict)
+        expect(statusA.get(a2)).toBe(Status.Ok)
+        expect(statusB.get(a1)).toBe(Status.Ok)
+        expect(statusB.get(a2)).toBe(Status.Ok)
     })
 })

@@ -192,11 +192,23 @@ export class EngineStore {
         })
     }
 
+    /**
+     * -1 means "scan everything": either the type has no hierarchy, or no
+     * root was requested. A root id that does not resolve is different from
+     * that and must not be read as "scan everything" by the query layer, so
+     * it throws instead of silently returning whole-instance numbers.
+     */
     private scopeRoot(t: TypeIndex, scope: ScopeRef): number {
         if (!t.hierarchy || scope.rootId === null) {
             return -1
         }
-        return t.indexOf.get(scope.rootId) ?? -1
+        const idx = t.indexOf.get(scope.rootId)
+        if (idx === undefined) {
+            throw new Error(
+                `Unknown ${scope.objectType} root id ${scope.rootId}`
+            )
+        }
+        return idx
     }
 
     dashboard(scope: ScopeRef): DashboardEntry[] {

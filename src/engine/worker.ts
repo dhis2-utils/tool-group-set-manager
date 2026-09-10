@@ -5,9 +5,18 @@ import { EngineStore } from './store'
 const store = new EngineStore()
 
 self.onmessage = (event: MessageEvent<EngineRequest>) => {
-    const { id, method, args } = event.data
+    // The id is read inside the try along with everything else: a malformed
+    // message (e.g. one that fails structured clone validation, or is
+    // missing fields) is then reported back as a failed response for that
+    // id rather than throwing outside the handler. If the id itself can't
+    // be read, there is no id to answer with, so that case is rethrown to
+    // surface via the worker's own onerror instead.
+    let id: number | undefined
     let response: EngineResponse
     try {
+        const request = event.data
+        id = request.id
+        const { method, args } = request
         const fn = (
             store as unknown as Record<string, (...a: unknown[]) => unknown>
         )[method]
@@ -17,6 +26,9 @@ self.onmessage = (event: MessageEvent<EngineRequest>) => {
         const result = fn.apply(store, args)
         response = { id, ok: true, result }
     } catch (error) {
+        if (id === undefined) {
+            throw error
+        }
         response = {
             id,
             ok: false,

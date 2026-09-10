@@ -20,6 +20,21 @@ export class EngineClient {
                 p.reject(new Error(response.error))
             }
         }
+        // A worker that dies (e.g. an out-of-memory crash on a large
+        // instance) or sends something the structured-clone algorithm can't
+        // deliver otherwise leaves every pending call unresolved forever.
+        // Fail them all instead, the same way terminate() does.
+        worker.onerror = (event: ErrorEvent) => {
+            this.failAll(new Error(`Engine worker failed: ${event.message}`))
+        }
+        worker.onmessageerror = () => {
+            this.failAll(new Error('Engine worker sent an unreadable message'))
+        }
+    }
+
+    private failAll(error: Error): void {
+        this.pending.forEach((p) => p.reject(error))
+        this.pending.clear()
     }
 
     call<T>(method: EngineMethod, ...args: unknown[]): Promise<T> {
@@ -36,7 +51,6 @@ export class EngineClient {
 
     terminate(): void {
         this.worker.terminate()
-        this.pending.forEach((p) => p.reject(new Error('Engine terminated')))
-        this.pending.clear()
+        this.failAll(new Error('Engine terminated'))
     }
 }
