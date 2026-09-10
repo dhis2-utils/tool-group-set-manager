@@ -10,16 +10,7 @@ import { DashboardEntry } from '@/engine/store'
 import { OBJECT_TYPES, ObjectType } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useScope } from '@/hooks/useScope'
-
-// Shared with LoadProgress so the "Loading group memberships: dataElement"
-// style progress line reads the same translated section name a user sees
-// here, rather than a second, untranslated copy of the raw object type.
-export const TYPE_LABEL: Record<ObjectType, string> = {
-    organisationUnit: i18n.t('Organisation unit group sets'),
-    dataElement: i18n.t('Data element group sets'),
-    indicator: i18n.t('Indicator group sets'),
-    categoryOption: i18n.t('Category option group sets'),
-}
+import { TYPE_LABEL } from '@/utils/objectTypeLabels'
 
 const hasIssues = (e: DashboardEntry) =>
     e.summary.conflict + e.summary.missingError + e.summary.missingWarning > 0

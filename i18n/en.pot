@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-10T16:36:22.917Z\n"
-"PO-Revision-Date: 2026-09-10T16:36:22.917Z\n"
+"POT-Creation-Date: 2026-09-10T16:39:39.724Z\n"
+"PO-Revision-Date: 2026-09-10T16:39:39.724Z\n"
 
 msgid "group"
 msgstr "group"
@@ -77,18 +77,6 @@ msgstr "Choose the organisation unit to work in"
 msgid "Cancel"
 msgstr "Cancel"
 
-msgid "Organisation unit group sets"
-msgstr "Organisation unit group sets"
-
-msgid "Data element group sets"
-msgstr "Data element group sets"
-
-msgid "Indicator group sets"
-msgstr "Indicator group sets"
-
-msgid "Category option group sets"
-msgstr "Category option group sets"
-
 msgid "set without issues hidden"
 msgstr "set without issues hidden"
 
@@ -103,6 +91,18 @@ msgstr "Loading failed"
 
 msgid "This type's summary could not be computed"
 msgstr "This type's summary could not be computed"
+
+msgid "Organisation unit group sets"
+msgstr "Organisation unit group sets"
+
+msgid "Data element group sets"
+msgstr "Data element group sets"
+
+msgid "Indicator group sets"
+msgstr "Indicator group sets"
+
+msgid "Category option group sets"
+msgstr "Category option group sets"
 
 msgctxt "Application title"
 msgid "__MANIFEST_APP_TITLE"

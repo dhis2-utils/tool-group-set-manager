@@ -3,7 +3,7 @@ import { LinearLoader, NoticeBox } from '@dhis2/ui'
 import React from 'react'
 import { LoadStatus } from '@/data/loadAll'
 import { ObjectType } from '@/engine/types'
-import { TYPE_LABEL } from '@/pages/Dashboard/Dashboard'
+import { TYPE_LABEL } from '@/utils/objectTypeLabels'
 
 const PHASE_LABEL: Record<LoadStatus['phase'], string> = {
     groupSets: i18n.t('Loading group sets'),
