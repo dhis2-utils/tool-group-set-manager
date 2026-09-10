@@ -5,14 +5,32 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-10T15:44:37.491Z\n"
-"PO-Revision-Date: 2026-09-10T15:44:37.492Z\n"
+"POT-Creation-Date: 2026-09-10T16:36:22.917Z\n"
+"PO-Revision-Date: 2026-09-10T16:36:22.917Z\n"
+
+msgid "group"
+msgstr "group"
+
+msgid "groups"
+msgstr "groups"
+
+msgid "group read-only for you"
+msgstr "group read-only for you"
+
+msgid "groups read-only for you"
+msgstr "groups read-only for you"
 
 msgid "Compulsory"
 msgstr "Compulsory"
 
 msgid "Data dimension"
 msgstr "Data dimension"
+
+msgid "Loading…"
+msgstr "Loading…"
+
+msgid "This group set has no groups configured"
+msgstr "This group set has no groups configured"
 
 msgid "Conflicts"
 msgstr "Conflicts"
@@ -22,9 +40,6 @@ msgstr "Missing"
 
 msgid "OK"
 msgstr "OK"
-
-msgid "Loading…"
-msgstr "Loading…"
 
 msgid "You can edit all groups"
 msgstr "You can edit all groups"
@@ -74,11 +89,20 @@ msgstr "Indicator group sets"
 msgid "Category option group sets"
 msgstr "Category option group sets"
 
+msgid "set without issues hidden"
+msgstr "set without issues hidden"
+
+msgid "sets without issues hidden"
+msgstr "sets without issues hidden"
+
 msgid "Only sets with issues"
 msgstr "Only sets with issues"
 
 msgid "Loading failed"
 msgstr "Loading failed"
+
+msgid "This type's summary could not be computed"
+msgstr "This type's summary could not be computed"
 
 msgctxt "Application title"
 msgid "__MANIFEST_APP_TITLE"

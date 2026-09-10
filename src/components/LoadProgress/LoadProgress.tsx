@@ -2,6 +2,8 @@ import i18n from '@dhis2/d2-i18n'
 import { LinearLoader, NoticeBox } from '@dhis2/ui'
 import React from 'react'
 import { LoadStatus } from '@/data/loadAll'
+import { ObjectType } from '@/engine/types'
+import { TYPE_LABEL } from '@/pages/Dashboard/Dashboard'
 
 const PHASE_LABEL: Record<LoadStatus['phase'], string> = {
     groupSets: i18n.t('Loading group sets'),
@@ -16,13 +18,13 @@ export const LoadProgress = ({ status }: { status: LoadStatus | null }) => {
     if (!status) {
         return <LinearLoader amount={0} />
     }
-    const errors = Object.entries(status.errors)
+    const errors = Object.entries(status.errors) as [ObjectType, string][]
     if (status.phase === 'done') {
         return errors.length === 0 ? null : (
             <NoticeBox error title={i18n.t('Some data could not be loaded')}>
                 {errors.map(([type, message]) => (
                     <div key={type}>
-                        {type}: {message}
+                        {TYPE_LABEL[type]}: {message}
                     </div>
                 ))}
             </NoticeBox>
@@ -38,7 +40,7 @@ export const LoadProgress = ({ status }: { status: LoadStatus | null }) => {
             <LinearLoader amount={amount} />
             <small>
                 {PHASE_LABEL[status.phase]}
-                {status.type ? `: ${status.type}` : ''}
+                {status.type ? `: ${TYPE_LABEL[status.type]}` : ''}
                 {detail}
             </small>
         </div>

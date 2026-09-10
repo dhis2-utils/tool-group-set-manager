@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { GroupSetCard } from './GroupSetCard'
@@ -47,4 +47,59 @@ it('shows a loading state when the type has no data yet', () => {
         />
     )
     expect(screen.getByText(/Loading/)).toBeInTheDocument()
+})
+
+it('pluralises the read-only-groups count for more than one group', () => {
+    const entryWithManyReadOnly = {
+        ...entry,
+        set: {
+            ...entry.set,
+            groups: [
+                { id: 'a', displayName: 'A', canWrite: false },
+                { id: 'b', displayName: 'B', canWrite: false },
+                { id: 'c', displayName: 'C', canWrite: false },
+            ],
+        },
+    }
+    render(
+        <GroupSetCard entry={entryWithManyReadOnly} onOpen={() => undefined} />
+    )
+    expect(screen.getByText('3 groups read-only for you')).toBeInTheDocument()
+})
+
+it('uses the singular group count for exactly one group', () => {
+    const entryWithOneGroup = {
+        ...entry,
+        set: {
+            ...entry.set,
+            groups: [{ id: 'a', displayName: 'A', canWrite: true }],
+        },
+    }
+    render(<GroupSetCard entry={entryWithOneGroup} onOpen={() => undefined} />)
+    expect(screen.getByText('1 group')).toBeInTheDocument()
+})
+
+it('pluralises the group count tag for more than one group', () => {
+    render(<GroupSetCard entry={entry} onOpen={() => undefined} />)
+    expect(screen.getByText('2 groups')).toBeInTheDocument()
+})
+
+it('shows a configuration-gap message instead of all-clean stats when a set has no groups', () => {
+    const entryWithNoGroups = {
+        ...entry,
+        set: { ...entry.set, groups: [] },
+    }
+    render(<GroupSetCard entry={entryWithNoGroups} onOpen={() => undefined} />)
+    expect(
+        screen.getByText('This group set has no groups configured')
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Conflicts')).not.toBeInTheDocument()
+    expect(screen.queryByText('OK')).not.toBeInTheDocument()
+})
+
+it('can be activated with the Space key', () => {
+    const onOpen = jest.fn()
+    render(<GroupSetCard entry={entry} onOpen={onOpen} />)
+    fireEvent.keyDown(screen.getByRole('button'), { key: ' ' })
+    expect(onOpen).toHaveBeenCalled()
 })
