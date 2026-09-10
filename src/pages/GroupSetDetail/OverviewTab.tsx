@@ -92,25 +92,32 @@ export const OverviewTab = ({
                     ))}
                 </SingleSelectField>
             )}
-            {isLoading ? (
-                <CircularLoader small />
-            ) : error ? (
+            {/* Data first, loader only when there is none. `useEngineQuery`
+                clears its data the moment the arguments change, so whenever
+                `data` is present it belongs to the scope and row level
+                currently on screen -- and the loader shown while it is
+                absent is a real "these numbers are being recomputed". The
+                hook also re-runs (isLoading true, data kept) on every engine
+                load phase and type change; checking isLoading first would
+                replace the whole matrix with a spinner on each of those,
+                several times per load. */}
+            {error ? (
                 <NoticeBox error>{error}</NoticeBox>
-            ) : (
-                data && (
-                    <SummaryMatrix
-                        result={data}
-                        onCell={onCell}
-                        flat={!isHierarchical}
-                        aboveLevelCaption={aboveLevelCaption}
-                        // Only a set that is neither compulsory nor a data
-                        // dimension can hold objects that are in no group
-                        // and still Ok (spec 3.2); anywhere else the column
-                        // would be a permanent zero.
-                        showUnassigned={!set.compulsory && !set.dataDimension}
-                    />
-                )
-            )}
+            ) : data ? (
+                <SummaryMatrix
+                    result={data}
+                    onCell={onCell}
+                    flat={!isHierarchical}
+                    aboveLevelCaption={aboveLevelCaption}
+                    // Only a set that is neither compulsory nor a data
+                    // dimension can hold objects that are in no group and
+                    // still Ok (spec 3.2); anywhere else the column would be
+                    // a permanent zero.
+                    showUnassigned={!set.compulsory && !set.dataDimension}
+                />
+            ) : isLoading ? (
+                <CircularLoader small />
+            ) : null}
         </div>
     )
 }
