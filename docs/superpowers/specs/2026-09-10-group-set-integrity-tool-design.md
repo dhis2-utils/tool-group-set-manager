@@ -370,6 +370,23 @@ Only changes that actually succeeded are recorded.
   timing with the numbers in 4.1 as baseline.
 - Final pass with the DHIS2 app review recipe before hand-off.
 
+## 8a. Known divergence between the two data sources
+
+The SQL view path reads organisation unit names from the `name` column,
+while the metadata API path requests `displayName`, which resolves the
+user's locale against the object's translations. On an instance where org
+unit names are translated, the two paths therefore show different names for
+the same unit. Counts, statuses and every fix are unaffected, since those
+key on ids.
+
+This is accepted for now rather than fixed: making the view translation
+aware would mean resolving the caller's locale inside SQL, and org unit
+name translations are rare in practice. The app states which source it
+used, so a user seeing untranslated names has a way to explain them. If an
+instance needs translated names, the remedy is to remove the
+`GSI_ORGUNIT_NAMES` view, which drops only names back to the metadata API
+while keeping the hierarchy and membership views.
+
 ## 9. Open items to verify during implementation
 
 - Whether adding members to a group updates the group's `lastUpdated` on
@@ -380,3 +397,5 @@ Only changes that actually succeeded are recorded.
   across versions.
 - Whether `access.write` is returned on group collections for non-admin
   users on 2.40.
+- Whether resolving org unit name translations inside the names SQL view is
+  practical on 2.40 to 2.43, which would remove the divergence in 8a.
