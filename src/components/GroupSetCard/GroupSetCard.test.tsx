@@ -19,6 +19,7 @@ const entry = {
     summary: {
         population: 100,
         ok: 80,
+        unassigned: 0,
         missingError: 12,
         missingWarning: 0,
         conflict: 8,
@@ -102,4 +103,32 @@ it('can be activated with the Space key', () => {
     render(<GroupSetCard entry={entry} onOpen={onOpen} />)
     fireEvent.keyDown(screen.getByRole('button'), { key: ' ' })
     expect(onOpen).toHaveBeenCalled()
+})
+
+it('shows the "no group, not required" count only for a set where being in no group is allowed', () => {
+    // The card, the matrix column and the drill-down all key on the same
+    // condition. A compulsory or data dimension set can never have one of
+    // these, so the stat would be a permanent zero there.
+    const permissive = {
+        ...entry,
+        set: { ...entry.set, compulsory: false, dataDimension: false },
+        summary: {
+            population: 100,
+            ok: 30,
+            unassigned: 70,
+            missingError: 0,
+            missingWarning: 0,
+            conflict: 0,
+        },
+    }
+    const { rerender } = render(
+        <GroupSetCard entry={permissive} onOpen={() => undefined} />
+    )
+    expect(screen.getByText('No group (not required)')).toBeInTheDocument()
+    expect(screen.getByText('70')).toBeInTheDocument()
+
+    rerender(<GroupSetCard entry={entry} onOpen={() => undefined} />)
+    expect(
+        screen.queryByText('No group (not required)')
+    ).not.toBeInTheDocument()
 })

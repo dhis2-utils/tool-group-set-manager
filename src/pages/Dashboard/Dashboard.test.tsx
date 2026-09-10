@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { Dashboard } from './Dashboard'
@@ -11,9 +12,13 @@ import { Dashboard } from './Dashboard'
 const mockCallOverrides: {
     dataElementError: string | null
     extraCleanOrgUnitSet: boolean
+    worseOrgUnitSets: boolean
+    dataElementSets: boolean
 } = {
     dataElementError: null,
     extraCleanOrgUnitSet: false,
+    worseOrgUnitSets: false,
+    dataElementSets: false,
 }
 
 const cleanSet = (id: string, name: string) => ({
@@ -29,6 +34,7 @@ const cleanSet = (id: string, name: string) => ({
     summary: {
         population: 5,
         ok: 5,
+        unassigned: 0,
         missingError: 0,
         missingWarning: 0,
         conflict: 0,
@@ -36,36 +42,56 @@ const cleanSet = (id: string, name: string) => ({
     hasData: true,
 })
 
+const brokenSet = (id: string, name: string, conflict: number) => ({
+    set: {
+        id,
+        displayName: name,
+        objectType: 'organisationUnit',
+        compulsory: true,
+        dataDimension: true,
+        canWrite: true,
+        groups: [],
+    },
+    summary: {
+        population: 5,
+        ok: 4,
+        unassigned: 0,
+        missingError: 1,
+        missingWarning: 0,
+        conflict,
+    },
+    hasData: true,
+})
+
 const entries = {
     get organisationUnit() {
         const sets = [
-            {
-                set: {
-                    id: 'own',
-                    displayName: 'Ownership',
-                    objectType: 'organisationUnit',
-                    compulsory: true,
-                    dataDimension: true,
-                    canWrite: true,
-                    groups: [],
-                },
-                summary: {
-                    population: 5,
-                    ok: 4,
-                    missingError: 1,
-                    missingWarning: 0,
-                    conflict: 0,
-                },
-                hasData: true,
-            },
+            brokenSet('own', 'Ownership', 0),
             cleanSet('clean', 'Clean set'),
         ]
         if (mockCallOverrides.extraCleanOrgUnitSet) {
             sets.push(cleanSet('clean2', 'Clean set 2'))
         }
+        if (mockCallOverrides.worseOrgUnitSets) {
+            sets.push(brokenSet('worst', 'Worst set', 40))
+            sets.push(brokenSet('middle', 'Middle set', 5))
+            sets.push(brokenSet('tied', 'Tied set', 0))
+        }
         return sets
     },
-    dataElement: [] as unknown[],
+    get dataElement() {
+        return mockCallOverrides.dataElementSets
+            ? [
+                  {
+                      ...brokenSet('de', 'Element set', 2),
+                      set: {
+                          ...brokenSet('de', 'Element set', 2).set,
+                          objectType: 'dataElement',
+                      },
+                  },
+              ]
+            : ([] as unknown[])
+    },
     indicator: [] as unknown[],
     categoryOption: [] as unknown[],
 }
@@ -114,6 +140,8 @@ jest.mock('@/components/ScopeSelector/ScopeSelector', () => ({
 afterEach(() => {
     mockCallOverrides.dataElementError = null
     mockCallOverrides.extraCleanOrgUnitSet = false
+    mockCallOverrides.worseOrgUnitSets = false
+    mockCallOverrides.dataElementSets = false
 })
 
 it('lists sets with issues and hides clean ones by default', async () => {
@@ -158,4 +186,64 @@ it('surfaces a per-type engine failure instead of silently hiding the section', 
     expect(
         screen.getByText('Unknown organisationUnit root id xyz')
     ).toBeInTheDocument()
+})
+
+it('sorts cards worst first, keeping API order among equals (spec 5.1)', async () => {
+    mockCallOverrides.worseOrgUnitSets = true
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Worst set')).toBeInTheDocument()
+    )
+    const names = screen
+        .getAllByRole('button')
+        .map((b) => b.textContent ?? '')
+        .filter((t) => t.includes('set') || t.includes('Ownership'))
+    // 40 conflicts, then 5, then the two with one missing error each in the
+    // order the engine returned them.
+    expect(names[0]).toContain('Worst set')
+    expect(names[1]).toContain('Middle set')
+    expect(names[2]).toContain('Ownership')
+    expect(names[3]).toContain('Tied set')
+})
+
+it('filters the sections by object type (spec 5.1)', async () => {
+    mockCallOverrides.dataElementSets = true
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Element set')).toBeInTheDocument()
+    )
+    expect(screen.getByText('Ownership')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('All object types'))
+    // The section heading carries the same text as the option, so the option
+    // is picked by its value rather than by its label.
+    await userEvent.click(
+        document.querySelector('[data-value="dataElement"]') as HTMLElement
+    )
+
+    await waitFor(() =>
+        expect(screen.queryByText('Ownership')).not.toBeInTheDocument()
+    )
+    expect(screen.getByText('Element set')).toBeInTheDocument()
+})
+
+it('says which data source served the numbers (spec 8a)', async () => {
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(
+            screen.getByText('Data loaded from the metadata API')
+        ).toBeInTheDocument()
+    )
 })

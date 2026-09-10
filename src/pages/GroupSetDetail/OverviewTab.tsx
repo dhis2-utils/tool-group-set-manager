@@ -14,6 +14,7 @@ import {
 import { MatrixResult, ObjectRef, ScopeRef } from '@/engine/store'
 import { GroupSetMeta } from '@/engine/types'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
+import { interpolate } from '@/utils/interpolate'
 
 interface Props {
     set: GroupSetMeta
@@ -54,8 +55,14 @@ export const OverviewTab = ({
     // *is* true, and known here rather than inside SummaryMatrix, is which
     // row level was actually chosen -- so that is what the caption names.
     const rowLevelLabel = levels.find((l) => l.level === rowLevel)?.displayName
+    // One whole translated sentence with a placeholder filled in afterwards,
+    // never a join of separately translated fragments -- see
+    // src/utils/interpolate.ts.
     const aboveLevelCaption = rowLevelLabel
-        ? `${i18n.t('Includes organisation units above the')} ${rowLevelLabel} ${i18n.t('level')}`
+        ? interpolate(
+              i18n.t('Includes organisation units above the {level} level'),
+              { level: rowLevelLabel }
+          )
         : undefined
     return (
         <div className={styles.overview}>
@@ -70,14 +77,17 @@ export const OverviewTab = ({
                         <SingleSelectOption
                             key={l.level}
                             value={String(l.level)}
-                            // See the matching comment in GroupSetCard.tsx: any
-                            // second argument to i18n.t (interpolation options
-                            // included) makes this project's i18next-scanner
-                            // treat the whole call as unextractable, so the
-                            // level number is spliced in with plain JS
-                            // templating instead of i18next's own {{level}}
-                            // interpolation.
-                            label={`${l.displayName} (${i18n.t('level')} ${l.level})`}
+                            // One complete string with placeholders rather
+                            // than translated fragments joined in English
+                            // word order -- see src/utils/interpolate.ts for
+                            // why the call itself takes no second argument.
+                            label={interpolate(
+                                i18n.t('{name} (level {level})'),
+                                {
+                                    name: l.displayName,
+                                    level: l.level,
+                                }
+                            )}
                         />
                     ))}
                 </SingleSelectField>
@@ -93,6 +103,11 @@ export const OverviewTab = ({
                         onCell={onCell}
                         flat={!isHierarchical}
                         aboveLevelCaption={aboveLevelCaption}
+                        // Only a set that is neither compulsory nor a data
+                        // dimension can hold objects that are in no group
+                        // and still Ok (spec 3.2); anywhere else the column
+                        // would be a permanent zero.
+                        showUnassigned={!set.compulsory && !set.dataDimension}
                     />
                 )
             )}

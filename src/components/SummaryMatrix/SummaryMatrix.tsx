@@ -14,6 +14,7 @@ import { MatrixResult, ObjectRef } from '@/engine/store'
 export type MatrixColumn =
     | { kind: 'group'; index: number }
     | { kind: 'missing' }
+    | { kind: 'unassigned' }
     | { kind: 'conflict' }
     | { kind: 'total' }
 
@@ -48,6 +49,15 @@ interface Props {
      * still-true default when omitted.
      */
     aboveLevelCaption?: string
+    /**
+     * Whether to show the "no group, and that is allowed" column. It can only
+     * ever be non-zero for a set that is neither compulsory nor a data
+     * dimension (spec 3.2 gives an object with no group Status.Ok only
+     * then), so for every other set it would be a column of zeroes inviting
+     * a manager to wonder what it means. The caller knows the set; this
+     * component only knows the rows.
+     */
+    showUnassigned?: boolean
 }
 
 const fmt = (n: number) => n.toLocaleString()
@@ -63,12 +73,14 @@ export const SummaryMatrix = ({
     onCell,
     flat = false,
     aboveLevelCaption,
+    showUnassigned = false,
 }: Props) => {
     const totals = {
         perGroup: result.groups.map((_, g) =>
             result.rows.reduce((s, r) => s + r.perGroup[g], 0)
         ),
         missing: result.rows.reduce((s, r) => s + r.missing, 0),
+        unassigned: result.rows.reduce((s, r) => s + r.unassigned, 0),
         conflict: result.rows.reduce((s, r) => s + r.conflict, 0),
         total: result.rows.reduce((s, r) => s + r.total, 0),
     }
@@ -122,6 +134,11 @@ export const SummaryMatrix = ({
                                 {g.displayName}
                             </DataTableColumnHeader>
                         ))}
+                        {showUnassigned && (
+                            <DataTableColumnHeader align="right">
+                                {i18n.t('No group (not required)')}
+                            </DataTableColumnHeader>
+                        )}
                         <DataTableColumnHeader align="right">
                             {i18n.t('Missing')}
                         </DataTableColumnHeader>
@@ -176,6 +193,12 @@ export const SummaryMatrix = ({
                                         clickable: !isAboveRowLeftover,
                                     })
                                 )}
+                                {showUnassigned &&
+                                    cell(r.unassigned, {
+                                        row: r.row,
+                                        column: { kind: 'unassigned' },
+                                        clickable: !isAboveRowLeftover,
+                                    })}
                                 {cell(r.missing, {
                                     row: r.row,
                                     column: { kind: 'missing' },
@@ -204,6 +227,11 @@ export const SummaryMatrix = ({
                                     {fmt(v)}
                                 </DataTableCell>
                             ))}
+                            {showUnassigned && (
+                                <DataTableCell align="right">
+                                    {fmt(totals.unassigned)}
+                                </DataTableCell>
+                            )}
                             <DataTableCell align="right">
                                 {fmt(totals.missing)}
                             </DataTableCell>

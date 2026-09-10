@@ -60,7 +60,8 @@ describe('loadGroupSets', () => {
             }
             return json({ dataElementGroupSets: [] })
         }
-        const sets = await loadGroupSets(fetcher)
+        const { sets, errors } = await loadGroupSets(fetcher)
+        expect(errors).toEqual({})
         expect(
             sets.map((s) => [
                 s.id,
@@ -83,6 +84,39 @@ describe('loadGroupSets', () => {
                 canWrite: false,
             },
         ])
+    })
+
+    it('keeps the types that loaded when one type responds with an error', async () => {
+        // Spec 6.4: a failure is per object type. A bare Promise.all here
+        // rejected the whole load, so one unreadable type blanked the entire
+        // dashboard behind a single "Loading failed" box.
+        const fetcher = async (path: string) => {
+            if (path.startsWith('dataElementGroupSets')) {
+                return json({ message: 'Forbidden' })
+            }
+            if (path.startsWith('indicatorGroupSets')) {
+                return new Response('nope', { status: 409 })
+            }
+            if (path.startsWith('organisationUnitGroupSets')) {
+                return json({
+                    organisationUnitGroupSets: [
+                        {
+                            id: 'own',
+                            displayName: 'Ownership',
+                            compulsory: true,
+                            access: { write: true },
+                            organisationUnitGroups: [],
+                        },
+                    ],
+                })
+            }
+            return json({ categoryOptionGroupSets: [] })
+        }
+        const { sets, errors } = await loadGroupSets(fetcher)
+        expect(sets.map((s) => s.id)).toEqual(['own'])
+        expect(errors.indicator).toMatch(/409/)
+        expect(errors.organisationUnit).toBeUndefined()
+        expect(errors.categoryOption).toBeUndefined()
     })
 })
 

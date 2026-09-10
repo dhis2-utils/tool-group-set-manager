@@ -18,15 +18,34 @@ const mockGroupSets = [
     },
 ]
 
+// Mutable so a test can put the engine behind the level lookup, or take it
+// away again. `call` is all `useEngineQuery` needs of a client.
+const mockEngine: {
+    groupSets: typeof mockGroupSets
+    client: {
+        call: (method: string, ...args: unknown[]) => Promise<unknown>
+    } | null
+    status: null
+} = {
+    groupSets: mockGroupSets,
+    client: null,
+    status: null,
+}
 jest.mock('@/hooks/useEngine', () => ({
-    useEngine: () => ({
-        groupSets: mockGroupSets,
-        client: null,
-        status: null,
-    }),
+    useEngine: () => mockEngine,
 }))
+
+const mockScope: {
+    rootId: string
+    rootName: string
+    rootLevel: number | null
+} = {
+    rootId: 'root1',
+    rootName: 'Root',
+    rootLevel: null,
+}
 jest.mock('@/hooks/useScope', () => ({
-    useScope: () => ({ rootId: 'root1', rootName: 'Root' }),
+    useScope: () => mockScope,
 }))
 jest.mock('@/utils/useApiDataQuery', () => ({
     useApiDataQuery: () => ({
@@ -71,7 +90,20 @@ jest.mock('@/hooks/useUserScope', () => {
 
 afterEach(() => {
     mockResolveRoots = null
+    mockEngine.client = null
+    mockScope.rootId = 'root1'
+    mockScope.rootName = 'Root'
+    mockScope.rootLevel = null
 })
+
+const renderDetail = () =>
+    render(
+        <MemoryRouter initialEntries={['/sets/own']}>
+            <Routes>
+                <Route path="/sets/:setId" element={<GroupSetDetail />} />
+            </Routes>
+        </MemoryRouter>
+    )
 
 it('keeps the row level in sync when late-arriving roots change the available levels, instead of crashing', async () => {
     render(
@@ -101,4 +133,42 @@ it('keeps the row level in sync when late-arriving roots change the available le
         expect(screen.getByText(/Facility/)).toBeInTheDocument()
     )
     expect(screen.queryByText(/District/)).not.toBeInTheDocument()
+})
+
+it('offers only levels below the scope when the scope carries its own level', async () => {
+    // A scope chosen through the org unit tree is not among the user's roots,
+    // so its level can only come from the selection itself. Without it the
+    // scope read as level 1: the row level list offered levels above the
+    // scope, the default row level was wrong, and the matrix keyed rows on
+    // org units outside the scope entirely.
+    mockScope.rootId = 'chiefdom-deep-in-the-tree'
+    mockScope.rootLevel = 3
+    renderDetail()
+    await waitFor(() =>
+        expect(screen.getByText(/Facility/)).toBeInTheDocument()
+    )
+    expect(screen.queryByText(/District/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Chiefdom/)).not.toBeInTheDocument()
+})
+
+it('falls back to the engine for the level of a scope stored without one', async () => {
+    mockScope.rootId = 'chiefdom-deep-in-the-tree'
+    mockScope.rootLevel = null
+    const calls: unknown[][] = []
+    mockEngine.client = {
+        call: async (method: string, ...args: unknown[]) => {
+            calls.push([method, ...args])
+            return method === 'levelOf' ? 3 : null
+        },
+    }
+    renderDetail()
+    await waitFor(() =>
+        expect(screen.getByText(/Facility/)).toBeInTheDocument()
+    )
+    expect(screen.queryByText(/District/)).not.toBeInTheDocument()
+    expect(calls).toContainEqual([
+        'levelOf',
+        'organisationUnit',
+        'chiefdom-deep-in-the-tree',
+    ])
 })

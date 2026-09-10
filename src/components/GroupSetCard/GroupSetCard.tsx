@@ -36,6 +36,14 @@ const readOnlyLabel = (count: number) =>
 export const GroupSetCard = ({ entry, onOpen }: Props) => {
     const { set, summary, hasData } = entry
     const readOnlyGroups = set.groups.filter((g) => !g.canWrite).length
+    // The same condition, and the same wording, as the summary matrix's
+    // extra column (see SummaryMatrix's showUnassigned): only a set that is
+    // neither compulsory nor a data dimension can hold objects that are in
+    // no group and still Ok. Showing it here as well is what keeps the card
+    // and the matrix telling one story -- the card used to fold those
+    // objects into a green OK number while the matrix counted them as
+    // Missing.
+    const showUnassigned = !set.compulsory && !set.dataDimension
     const activate = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter') {
             onOpen()
@@ -100,6 +108,16 @@ export const GroupSetCard = ({ entry, onOpen }: Props) => {
                                 {i18n.t('Missing')}
                             </div>
                         </div>
+                        {showUnassigned && (
+                            <div className={styles.neutral}>
+                                <div className={styles.value}>
+                                    {summary.unassigned}
+                                </div>
+                                <div className={styles.label}>
+                                    {i18n.t('No group (not required)')}
+                                </div>
+                            </div>
+                        )}
                         <div className={styles.ok}>
                             <div className={styles.value}>{summary.ok}</div>
                             <div className={styles.label}>{i18n.t('OK')}</div>

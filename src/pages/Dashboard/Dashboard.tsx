@@ -1,5 +1,11 @@
 import i18n from '@dhis2/d2-i18n'
-import { Checkbox, NoticeBox } from '@dhis2/ui'
+import {
+    Button,
+    Checkbox,
+    NoticeBox,
+    SingleSelectField,
+    SingleSelectOption,
+} from '@dhis2/ui'
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import styles from './Dashboard.module.css'
@@ -15,6 +21,16 @@ import { TYPE_LABEL } from '@/utils/objectTypeLabels'
 const hasIssues = (e: DashboardEntry) =>
     e.summary.conflict + e.summary.missingError + e.summary.missingWarning > 0
 
+/** Spec 5.1 sorts cards by error count. Errors are conflicts and missing
+ * memberships the rules call errors; a missing membership that is only a
+ * warning breaks ties, so a set with warnings still outranks a clean one. */
+const errorCount = (e: DashboardEntry) =>
+    e.summary.conflict + e.summary.missingError
+
+const byWorstFirst = (a: DashboardEntry, b: DashboardEntry) =>
+    errorCount(b) - errorCount(a) ||
+    b.summary.missingWarning - a.summary.missingWarning
+
 // See the matching comment in GroupSetCard.tsx: a single i18n.t(key, {
 // count, defaultValue_plural }) call neither pluralises at runtime with
 // this i18next version nor gets picked up by this project's i18n extractor
@@ -28,11 +44,21 @@ const hiddenSetsLabel = (count: number) =>
             : i18n.t('sets without issues hidden')
     }`
 
+// Spec 8a accepts that the SQL view path shows untranslated organisation
+// unit names specifically because the app says which source served it, so
+// this line is not decoration: it is the explanation a user needs for names
+// that do not match their locale.
+const sourceLabel = (kind: 'sqlView' | 'metadata') =>
+    kind === 'sqlView'
+        ? i18n.t('Data loaded from the GSI SQL views')
+        : i18n.t('Data loaded from the metadata API')
+
 export const Dashboard = () => {
-    const { client, status, error } = useEngine()
+    const { client, status, error, sourceKind, reload } = useEngine()
     const { rootId, isReady } = useScope()
     const navigate = useNavigate()
     const [onlyIssues, setOnlyIssues] = useState(true)
+    const [typeFilter, setTypeFilter] = useState<ObjectType | 'all'>('all')
     const [entries, setEntries] = useState<
         Partial<Record<ObjectType, DashboardEntry[]>>
     >({})
@@ -90,15 +116,45 @@ export const Dashboard = () => {
         }
     }, [client, rootId, isReady, status?.phase, status?.type])
 
+    const shownTypes = OBJECT_TYPES.filter(
+        (type) => typeFilter === 'all' || type === typeFilter
+    )
+
     return (
         <div className={styles.page}>
             <div className={styles.toolbar}>
                 <ScopeSelector />
+                <SingleSelectField
+                    dense
+                    label={i18n.t('Object type')}
+                    selected={typeFilter}
+                    onChange={({ selected }) =>
+                        setTypeFilter(selected as ObjectType | 'all')
+                    }
+                >
+                    <SingleSelectOption
+                        value="all"
+                        label={i18n.t('All object types')}
+                    />
+                    {OBJECT_TYPES.map((type) => (
+                        <SingleSelectOption
+                            key={type}
+                            value={type}
+                            label={TYPE_LABEL[type]}
+                        />
+                    ))}
+                </SingleSelectField>
                 <Checkbox
                     checked={onlyIssues}
                     label={i18n.t('Only sets with issues')}
                     onChange={({ checked }) => setOnlyIssues(checked)}
                 />
+                {/* The cache is reused across restarts, so a user who has
+                    just fixed data elsewhere needs a way to say "look
+                    again" without clearing browser storage. */}
+                <Button small onClick={() => void reload(true)}>
+                    {i18n.t('Reload data')}
+                </Button>
             </div>
             {error && (
                 <NoticeBox error title={i18n.t('Loading failed')}>
@@ -106,12 +162,21 @@ export const Dashboard = () => {
                 </NoticeBox>
             )}
             <LoadProgress status={status} />
-            {OBJECT_TYPES.map((type) => {
+            {sourceKind && (
+                <p className={styles.note}>{sourceLabel(sourceKind)}</p>
+            )}
+            {shownTypes.map((type) => {
                 const all = entries[type] ?? []
                 const typeError = typeErrors[type]
-                const shown = onlyIssues
-                    ? all.filter((e) => hasIssues(e) || !e.hasData)
-                    : all
+                const shown = (
+                    onlyIssues
+                        ? all.filter((e) => hasIssues(e) || !e.hasData)
+                        : all
+                )
+                    .slice()
+                    // Array.prototype.sort is stable, so sets with the same
+                    // error count keep the order the API returned them in.
+                    .sort(byWorstFirst)
                 const hidden = all.length - shown.length
                 if (all.length === 0 && !typeError) {
                     return null

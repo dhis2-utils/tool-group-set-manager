@@ -20,6 +20,7 @@ const result = {
             },
             perGroup: [210, 388],
             missing: 61,
+            unassigned: 0,
             conflict: 12,
             total: 671,
         },
@@ -28,6 +29,7 @@ const result = {
             row: null,
             perGroup: [0, 0],
             missing: 7,
+            unassigned: 0,
             conflict: 0,
             total: 7,
         },
@@ -55,6 +57,7 @@ it('labels the sole row of a flat (non-hierarchical) object type as the whole po
                 row: null,
                 perGroup: [10],
                 missing: 2,
+                unassigned: 0,
                 conflict: 1,
                 total: 13,
             },
@@ -86,6 +89,7 @@ it('suppresses the totals row generally whenever there is exactly one data row, 
                 },
                 perGroup: [3],
                 missing: 1,
+                unassigned: 0,
                 conflict: 0,
                 total: 4,
             },
@@ -106,6 +110,47 @@ it('does not let the aggregate "above the row level" row be filtered by clicking
     expect(valueCells.length).toBeGreaterThan(0)
     valueCells.forEach((td) => fireEvent.click(td))
     expect(onCell).not.toHaveBeenCalled()
+})
+
+it('shows the "no group, not required" column only when the caller asks for it, and filters by it', async () => {
+    const permissive = {
+        groups: [{ id: 'g', displayName: 'Group', canWrite: true }],
+        rows: [
+            {
+                object: 1,
+                row: {
+                    index: 1,
+                    id: 'A',
+                    displayName: 'Abaji',
+                    level: 3,
+                    parentId: 'r',
+                },
+                perGroup: [4],
+                missing: 0,
+                unassigned: 9,
+                conflict: 0,
+                total: 13,
+            },
+        ],
+    }
+    const onCell = jest.fn()
+    const { rerender } = render(
+        <SummaryMatrix result={permissive} onCell={onCell} />
+    )
+    // Without the flag the column is not there at all -- for a compulsory or
+    // data dimension set it could only ever be zero.
+    expect(
+        screen.queryByText('No group (not required)')
+    ).not.toBeInTheDocument()
+
+    rerender(
+        <SummaryMatrix result={permissive} onCell={onCell} showUnassigned />
+    )
+    expect(screen.getByText('No group (not required)')).toBeInTheDocument()
+    await userEvent.click(screen.getByText('9'))
+    expect(onCell).toHaveBeenCalledWith(permissive.rows[0].row, {
+        kind: 'unassigned',
+    })
 })
 
 it('lets the caller say why the aggregate row exists instead of assuming a compulsory set', () => {

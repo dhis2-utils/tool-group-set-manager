@@ -1,4 +1,4 @@
-import { createSqlViewSource } from './sqlViewSource'
+import { createSqlViewSource, SQL_VIEW_DEFINITIONS } from './sqlViewSource'
 
 const csvResponse = (text: string) => new Response(text, { status: 200 })
 
@@ -53,5 +53,18 @@ describe('sqlViewSource', () => {
         )
         expect(calls[0]).toContain('indicators?fields=')
         expect(payload.ids).toEqual(['i'])
+    })
+})
+
+describe('SQL_VIEW_DEFINITIONS', () => {
+    it('pins every definition to a plain view', () => {
+        // The app declines to read a MATERIALIZED_VIEW (see selectSource), so
+        // the creation code a later plan writes must not inherit whatever
+        // type the server would default to.
+        expect(SQL_VIEW_DEFINITIONS.map((d) => d.type)).toEqual([
+            'VIEW',
+            'VIEW',
+            'VIEW',
+        ])
     })
 })

@@ -17,7 +17,10 @@
 }
 .stats {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    /* auto-fit rather than a fixed three columns: sets that are neither
+       compulsory nor a data dimension show a fourth "no group, not required"
+       stat. */
+    grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
     gap: var(--spacers-dp8);
     font-variant-numeric: tabular-nums;
 }
@@ -45,6 +48,13 @@
 }
 .warning .value {
     color: var(--colors-yellow700);
+}
+.neutral {
+    border-left: 3px solid var(--colors-grey500);
+    padding-left: var(--spacers-dp8);
+}
+.neutral .value {
+    color: var(--colors-grey700);
 }
 .ok {
     border-left: 3px solid var(--colors-green700);

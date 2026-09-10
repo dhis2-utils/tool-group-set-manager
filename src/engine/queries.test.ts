@@ -25,16 +25,18 @@ const status = Uint8Array.from([
 
 describe('summarize', () => {
     it('counts within the scope subtree', () => {
-        expect(summarize(status, h, 0)).toEqual({
+        expect(summarize(status, m, h, 0)).toEqual({
             population: 6,
             ok: 2,
+            unassigned: 0,
             missingError: 3,
             missingWarning: 0,
             conflict: 1,
         })
-        expect(summarize(status, h, 1)).toEqual({
+        expect(summarize(status, m, h, 1)).toEqual({
             population: 3,
             ok: 1,
+            unassigned: 0,
             missingError: 1,
             missingWarning: 0,
             conflict: 1,
@@ -43,7 +45,32 @@ describe('summarize', () => {
 
     it('ignores NotApplicable objects', () => {
         const s = Uint8Array.from([Status.NotApplicable, Status.Ok])
-        expect(summarize(s, null, -1).population).toBe(1)
+        expect(
+            summarize(s, buildSetMembership(2, []), null, -1).population
+        ).toBe(1)
+    })
+
+    it('counts an Ok object with no group as unassigned, not as ok', () => {
+        // A set that is neither compulsory nor a data dimension: rules.ts
+        // gives its group-less objects Status.Ok (spec 3.2). Folding those
+        // into `ok` would let a card claim every object is categorised when
+        // none of them is.
+        const permissive = Uint8Array.from([
+            Status.Ok, // 0: no group, allowed
+            Status.Ok, // 1: no group, allowed
+            Status.Ok, // 2: no group, allowed
+            Status.Ok, // 3: in G0
+            Status.Conflict,
+            Status.Ok, // 5: in G1
+        ])
+        expect(summarize(permissive, m, h, 0)).toEqual({
+            population: 6,
+            ok: 2,
+            unassigned: 3,
+            missingError: 0,
+            missingWarning: 0,
+            conflict: 1,
+        })
     })
 })
 
@@ -51,17 +78,96 @@ describe('matrix', () => {
     it('one row per org unit at the row level, plus an "above" row', () => {
         const rows = matrix(status, m, h, 0, 2, 2)
         expect(rows).toEqual([
-            { object: 1, perGroup: [1, 0], missing: 1, conflict: 1, total: 3 },
-            { object: 2, perGroup: [0, 1], missing: 1, conflict: 0, total: 2 },
-            { object: -1, perGroup: [0, 0], missing: 1, conflict: 0, total: 1 },
+            {
+                object: 1,
+                perGroup: [1, 0],
+                missing: 1,
+                unassigned: 0,
+                conflict: 1,
+                total: 3,
+            },
+            {
+                object: 2,
+                perGroup: [0, 1],
+                missing: 1,
+                unassigned: 0,
+                conflict: 0,
+                total: 2,
+            },
+            {
+                object: -1,
+                perGroup: [0, 0],
+                missing: 1,
+                unassigned: 0,
+                conflict: 0,
+                total: 1,
+            },
         ])
     })
 
     it('flat types produce a single row', () => {
         const rows = matrix(status, m, null, -1, 0, 2)
         expect(rows).toEqual([
-            { object: -1, perGroup: [1, 1], missing: 3, conflict: 1, total: 6 },
+            {
+                object: -1,
+                perGroup: [1, 1],
+                missing: 3,
+                unassigned: 0,
+                conflict: 1,
+                total: 6,
+            },
         ])
+    })
+
+    it('buckets a group-less object the rules call Ok as unassigned, not missing', () => {
+        // The bug this replaces: the Missing column was keyed on membership,
+        // so a non-compulsory, non-data-dimension set (rules.ts gives those
+        // objects Status.Ok) reported Missing N in the matrix while the card
+        // reported Missing 0 -- and clicking the cell, which filters by
+        // status, listed nothing at all.
+        const permissive = Uint8Array.from([
+            Status.Ok,
+            Status.Ok,
+            Status.Ok,
+            Status.Ok,
+            Status.Conflict,
+            Status.Ok,
+        ])
+        const rows = matrix(permissive, m, null, -1, 0, 2)
+        expect(rows).toEqual([
+            {
+                object: -1,
+                perGroup: [1, 1],
+                missing: 0,
+                unassigned: 3,
+                conflict: 1,
+                total: 6,
+            },
+        ])
+        // Every bucket still sums to the total.
+        const r = rows[0]
+        expect(
+            r.perGroup.reduce((a, b) => a + b, 0) +
+                r.missing +
+                r.unassigned +
+                r.conflict
+        ).toBe(r.total)
+    })
+
+    it('still counts a warning-level missing object as missing', () => {
+        // A data dimension set that is not compulsory: group-less objects are
+        // MissingWarning, which belongs in Missing, not in the new bucket.
+        const warned = Uint8Array.from([
+            Status.MissingWarning,
+            Status.MissingWarning,
+            Status.MissingWarning,
+            Status.Ok,
+            Status.Conflict,
+            Status.Ok,
+        ])
+        const rows = matrix(warned, m, null, -1, 0, 2)
+        expect(rows[0].missing).toBe(3)
+        expect(rows[0].unassigned).toBe(0)
     })
 })
 
@@ -90,6 +196,29 @@ describe('listObjects', () => {
             Array.from(listObjects(status, m, h, 0, { ancestor: 2 }))
         ).toEqual([2, 5])
     })
+    it('lists exactly the objects the "no group, not required" column counts', () => {
+        // The filter the matrix's new column drills into: status Ok *and* no
+        // group. Status alone would also list every object that is in a
+        // group; group alone would also list the missing ones on a set where
+        // being in no group is an error.
+        const permissive = Uint8Array.from([
+            Status.Ok,
+            Status.Ok,
+            Status.Ok,
+            Status.Ok,
+            Status.Conflict,
+            Status.Ok,
+        ])
+        expect(
+            Array.from(
+                listObjects(permissive, m, h, 0, {
+                    group: -1,
+                    statuses: [Status.Ok],
+                })
+            )
+        ).toEqual([0, 1, 2])
+    })
+
     it('works for flat types', () => {
         expect(
             Array.from(

@@ -16,15 +16,23 @@ export const SQL_VIEW_CODES = {
     orgUnitMemberships: 'GSI_ORGUNIT_MEMBERSHIPS',
 } as const
 
+/**
+ * `type` is pinned on every definition: the app refuses to read a
+ * MATERIALIZED_VIEW (see selectSource.ts -- it serves whatever was last
+ * written, with no signal of its age), so the creation code a later plan
+ * writes must not inherit whatever the server would default to.
+ */
 export const SQL_VIEW_DEFINITIONS = [
     {
         code: SQL_VIEW_CODES.orgUnits,
+        type: 'VIEW',
         name: 'GSI org unit hierarchy',
         sqlQuery:
             'select ou.uid, ou.hierarchylevel as level, p.uid as parent from organisationunit ou left join organisationunit p on p.organisationunitid = ou.parentid',
     },
     {
         code: SQL_VIEW_CODES.orgUnitNames,
+        type: 'VIEW',
         name: 'GSI org unit names',
         // Returns the raw, untranslated `name` column by design: resolving a
         // caller's locale inside a SQL view is not practical, and this
@@ -35,6 +43,7 @@ export const SQL_VIEW_DEFINITIONS = [
     },
     {
         code: SQL_VIEW_CODES.orgUnitMemberships,
+        type: 'VIEW',
         name: 'GSI org unit group memberships',
         sqlQuery:
             'select g.uid as groupid, ou.uid as ouid from orgunitgroupmembers m join orgunitgroup g on g.orgunitgroupid = m.orgunitgroupid join organisationunit ou on ou.organisationunitid = m.organisationunitid where g.orgunitgroupid in (select orgunitgroupid from orgunitgroupsetmembers)',

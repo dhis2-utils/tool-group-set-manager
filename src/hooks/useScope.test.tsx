@@ -34,12 +34,46 @@ beforeEach(() => {
 it('restores a stored root from the same server', () => {
     sessionStorage.setItem(
         KEY,
-        JSON.stringify({ id: 'a1', name: 'A1', baseUrl: 'http://server' })
+        JSON.stringify({
+            id: 'a1',
+            name: 'A1',
+            level: 3,
+            baseUrl: 'http://server',
+        })
     )
     const { result } = renderHook(() => useScope(), { wrapper: Wrapper })
     expect(result.current.rootId).toBe('a1')
     expect(result.current.rootName).toBe('A1')
+    expect(result.current.rootLevel).toBe(3)
     expect(result.current.isReady).toBe(true)
+})
+
+it('keeps the level of a scope chosen deeper in the tree', () => {
+    // The level cannot be recovered from the id later: a scope chosen
+    // through the org unit tree is not among the user's roots, so before it
+    // was carried here every such scope read as level 1 -- which offered row
+    // levels above the scope and produced matrix rows outside it.
+    const { result } = renderHook(() => useScope(), { wrapper: Wrapper })
+    act(() => {
+        result.current.setRoot('deep', 'Deep unit', 4)
+    })
+    expect(result.current.rootLevel).toBe(4)
+    expect(JSON.parse(sessionStorage.getItem(KEY) as string)).toEqual({
+        id: 'deep',
+        name: 'Deep unit',
+        level: 4,
+        baseUrl: 'http://server',
+    })
+})
+
+it('accepts a scope stored before levels were stored, reporting an unknown level', () => {
+    sessionStorage.setItem(
+        KEY,
+        JSON.stringify({ id: 'a1', name: 'A1', baseUrl: 'http://server' })
+    )
+    const { result } = renderHook(() => useScope(), { wrapper: Wrapper })
+    expect(result.current.rootId).toBe('a1')
+    expect(result.current.rootLevel).toBeNull()
 })
 
 it('discards a stored root from a different server and falls back to the first user root', async () => {
@@ -52,6 +86,7 @@ it('discards a stored root from a different server and falls back to the first u
     expect(result.current.rootId).not.toBe('a1')
     await waitFor(() => expect(result.current.rootId).toBe('root1'))
     expect(result.current.rootName).toBe('Root One')
+    expect(result.current.rootLevel).toBe(1)
 })
 
 it('degrades to no stored scope when sessionStorage holds corrupted JSON', async () => {
@@ -78,7 +113,7 @@ it('does not break when sessionStorage access throws, as in private browsing', a
 
     expect(() => {
         act(() => {
-            result.current.setRoot('x1', 'X1')
+            result.current.setRoot('x1', 'X1', 4)
         })
     }).not.toThrow()
     expect(result.current.rootId).toBe('x1')

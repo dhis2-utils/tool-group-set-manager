@@ -99,6 +99,24 @@ const lastCallArgs = () =>
         mockUseEngineQuery.mock.calls.length - 1
     ][1] as unknown[]
 
+/**
+ * Every distinct page the component has asked the engine for, in order, as
+ * "offset/limit". Both halves matter: a fix that paged by offset but kept
+ * growing the limit, or one that kept the limit but re-requested from zero,
+ * would each look right in one half alone.
+ */
+const pageRequests = () => {
+    const seen: string[] = []
+    mockUseEngineQuery.mock.calls.forEach((c) => {
+        const args = c[1] as unknown[]
+        const key = `${args[3] as number}/${args[4] as number}`
+        if (seen[seen.length - 1] !== key) {
+            seen.push(key)
+        }
+    })
+    return seen
+}
+
 // @tanstack/react-virtual's `observeElementRect` (checked in the installed
 // node_modules/.pnpm/@tanstack+virtual-core@3.17.9/.../index.js) calls its
 // resize handler once synchronously, on mount, with the scroll element's
@@ -156,12 +174,14 @@ it('renders rows with status and membership', async () => {
     expect(screen.getByText(/3 objects/)).toBeInTheDocument()
 })
 
-it('advances the limit by exactly one page per near-the-end scroll, and only once the response for that page lands', async () => {
+it('pages by offset and appends, never re-requesting the rows it already has', async () => {
     const { useFakeQuery, resolve } = createControllableEngineQuery()
     mockUseEngineQuery.mockImplementation(useFakeQuery)
 
     render(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
     const firstPageArgs = lastCallArgs()
+    // [setId, scope, filter, offset, limit]
+    expect(firstPageArgs[3]).toBe(0)
     expect(firstPageArgs[4]).toBe(200)
 
     await act(async () => {
@@ -173,35 +193,107 @@ it('advances the limit by exactly one page per near-the-end scroll, and only onc
         scrollEl.scrollTop = 6000
         fireEvent.scroll(scrollEl)
     })
-    await waitFor(() => expect(lastCallArgs()[4]).toBe(400))
+    // The next page is exactly that: the next 200 rows, not the first 400
+    // all over again. Growing a limit from offset 0 re-sent and re-resolved
+    // every row already on screen.
+    await waitFor(() => expect(lastCallArgs()[3]).toBe(200))
+    expect(lastCallArgs()[4]).toBe(200)
 
-    // The response for the second page hasn't landed yet -- further scroll
-    // ticks (or any other re-render) while it's outstanding must not ask
-    // for 600, 800, and so on. This is the regression the fix targets:
-    // before it, this alone was enough to ratchet the limit to the total.
+    // While that page is outstanding, further scroll ticks must not ask for
+    // 400, 600 and so on.
     act(() => {
         fireEvent.scroll(scrollEl)
         fireEvent.scroll(scrollEl)
     })
-    const limitsRequestedSoFar = mockUseEngineQuery.mock.calls.map(
-        (c) => (c[1] as unknown[])[4] as number
-    )
-    expect(Math.max(...limitsRequestedSoFar)).toBe(400)
+    expect(pageRequests()).toEqual(['0/200', '200/200'])
 
-    // Now the second page's response lands.
     const secondPageArgs = mockUseEngineQuery.mock.calls.find(
-        (c) => (c[1] as unknown[])[4] === 400
+        (c) => (c[1] as unknown[])[3] === 200
     )![1] as unknown[]
     await act(async () => {
-        resolve(secondPageArgs, { total: 1000, items: makeItems(400) })
+        resolve(secondPageArgs, {
+            total: 1000,
+            items: makeItems(200, { offset: 200 }),
+        })
     })
 
-    // Scrolled near the new end: exactly one more page is requested.
+    // Both pages are in the list now: the second page was appended to the
+    // first, not swapped for it. (Only the rows near the scroll position are
+    // in the DOM, so each end is checked from where it is visible.)
     act(() => {
         scrollEl.scrollTop = 13000
         fireEvent.scroll(scrollEl)
     })
-    await waitFor(() => expect(lastCallArgs()[4]).toBe(600))
+    await waitFor(() =>
+        expect(screen.getByText('Item 380')).toBeInTheDocument()
+    )
+    act(() => {
+        scrollEl.scrollTop = 0
+        fireEvent.scroll(scrollEl)
+    })
+    await waitFor(() => expect(screen.getByText('Item 0')).toBeInTheDocument())
+    expect(pageRequests()).toEqual(['0/200', '200/200', '400/200'])
+})
+
+it('does not page at all while a search term is active, however few rows it matches', async () => {
+    const { useFakeQuery, resolve } = createControllableEngineQuery()
+    mockUseEngineQuery.mockImplementation(useFakeQuery)
+
+    const { rerender } = render(
+        <ObjectsTable set={set} scope={scope} filter={{}} search="" />
+    )
+    await act(async () => {
+        resolve(lastCallArgs(), { total: 100000, items: makeItems(200) })
+    })
+    expect(pageRequests()).toEqual(['0/200'])
+
+    // A search matching three of the 200 loaded rows. The last visible index
+    // is then permanently within 50 of the *filtered* list's end, which is
+    // what used to make every settled response ask for another page --
+    // one worker round-trip per page, all the way to the 100,000th row.
+    rerender(
+        <ObjectsTable set={set} scope={scope} filter={{}} search="Item 19" />
+    )
+    const scrollEl = getScrollEl()
+    act(() => {
+        scrollEl.scrollTop = 0
+        fireEvent.scroll(scrollEl)
+        fireEvent.scroll(scrollEl)
+        fireEvent.scroll(scrollEl)
+    })
+    await waitFor(() =>
+        expect(screen.getByText('Item 190')).toBeInTheDocument()
+    )
+    expect(pageRequests()).toEqual(['0/200'])
+    // And the count line still tells the truth about both numbers.
+    expect(screen.getByText(/100,000 objects/)).toBeInTheDocument()
+    expect(screen.getByText(/200 rows loaded so far/)).toBeInTheDocument()
+})
+
+it('resumes paging from where it left off once the search is cleared', async () => {
+    const { useFakeQuery, resolve } = createControllableEngineQuery()
+    mockUseEngineQuery.mockImplementation(useFakeQuery)
+
+    const { rerender } = render(
+        <ObjectsTable set={set} scope={scope} filter={{}} search="Item 1" />
+    )
+    await act(async () => {
+        resolve(lastCallArgs(), { total: 1000, items: makeItems(200) })
+    })
+    const scrollEl = getScrollEl()
+    act(() => {
+        scrollEl.scrollTop = 6000
+        fireEvent.scroll(scrollEl)
+    })
+    expect(pageRequests()).toEqual(['0/200'])
+
+    rerender(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
+    act(() => {
+        scrollEl.scrollTop = 6000
+        fireEvent.scroll(scrollEl)
+    })
+    // The 200 rows already loaded are kept; paging continues at 200.
+    await waitFor(() => expect(pageRequests()).toEqual(['0/200', '200/200']))
 })
 
 it('resets paging to the first page when the filter changes', async () => {
@@ -221,14 +313,15 @@ it('resets paging to the first page when the filter changes', async () => {
         scrollEl.scrollTop = 6000
         fireEvent.scroll(scrollEl)
     })
-    await waitFor(() => expect(lastCallArgs()[4]).toBe(400))
+    await waitFor(() => expect(lastCallArgs()[3]).toBe(200))
 
-    // A different filter must go back to the first page, not keep asking
-    // for the bigger limit it had reached under the old one.
+    // A different filter must go back to the first page, and must not keep
+    // the rows the old filter had loaded.
     rerender(
         <ObjectsTable set={set} scope={scope} filter={{ level: 4 }} search="" />
     )
-    await waitFor(() => expect(lastCallArgs()[4]).toBe(200))
+    await waitFor(() => expect(lastCallArgs()[3]).toBe(0))
+    expect(screen.queryByText('Item 0')).not.toBeInTheDocument()
 })
 
 it('does not let a slow response for the previous filter land once a new filter has been requested', async () => {

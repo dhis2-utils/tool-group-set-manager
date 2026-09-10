@@ -31,6 +31,7 @@ export type EngineMethod =
     | 'objectsFor'
     | 'resolve'
     | 'indexOf'
+    | 'levelOf'
     | 'reset'
 
 export interface EngineRequest {

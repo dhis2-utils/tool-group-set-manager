@@ -7,6 +7,15 @@ export interface CachedType {
     memberships: MembershipsPayload
     names: string[] | null
     groupIds: string[]
+    /**
+     * Spec 4.4: the groups' `lastUpdated` stamps at load time, keyed by group
+     * id. Moving an object from one group to another changes neither the
+     * group id list nor the object total, so those two alone can never notice
+     * a membership change; the stamps can. An entry written before this field
+     * existed has it undefined, which reads as "cannot be verified" and so
+     * forces a reload.
+     */
+    groupLastUpdated?: Record<string, string>
     objectTotal: number
     savedAt: number
 }

@@ -53,6 +53,39 @@ async function objectTotal(
     return body.pager.total
 }
 
+/**
+ * The `lastUpdated` stamp of every group of the type, keyed by id (spec 4.4).
+ * Adding or removing a member updates the group, so this is what tells a
+ * cached membership payload apart from the current one -- the group id list
+ * and the object total are both unchanged by a move between groups.
+ */
+export async function groupStamps(
+    fetcher: Fetcher,
+    type: ObjectType
+): Promise<Record<string, string>> {
+    const groups = ENDPOINTS[type].groups
+    const body = await fetchJson<
+        Record<string, { id: string; lastUpdated?: string }[]>
+    >(fetcher, `${groups}?fields=id,lastUpdated&paging=false`)
+    const stamps: Record<string, string> = {}
+    ;(body[groups] ?? []).forEach((g) => {
+        stamps[g.id] = g.lastUpdated ?? ''
+    })
+    return stamps
+}
+
+function sameStamps(
+    cached: Record<string, string> | undefined,
+    current: Record<string, string>,
+    groupIds: string[]
+): boolean {
+    if (!cached) {
+        // An entry cached before stamps were stored cannot be verified.
+        return false
+    }
+    return groupIds.every((id) => cached[id] === current[id])
+}
+
 /** Names come back keyed by id; align them to the payload's id order. */
 export function alignNames(ids: string[], named: NamedId[]): string[] {
     const byId = new Map(named.map((n) => [n.id, n.displayName]))
@@ -79,7 +112,15 @@ export async function loadAll(
     }
 
     emit({ phase: 'groupSets' })
-    const groupSets = await loadGroupSets(deps.fetcher)
+    const { sets: groupSets, errors: groupSetErrors } = await loadGroupSets(
+        deps.fetcher
+    )
+    // A type whose group sets could not be read is recorded and skipped
+    // (spec 6.4); the types that did load carry on.
+    Object.assign(status.errors, groupSetErrors)
+    if (Object.keys(groupSetErrors).length > 0) {
+        emit({})
+    }
     // The engine's evaluate() only recomputes what setGroupSets last told it
     // about; this call must land before the first evaluate below (and it
     // does, since evaluate is only ever reached inside or after the loop
@@ -153,11 +194,15 @@ export async function loadAll(
             const total = await objectTotal(deps.fetcher, type).catch(
                 () => objects.ids.length
             )
+            const stamps = await groupStamps(deps.fetcher, type).catch(
+                () => undefined
+            )
             const entry: CachedType = {
                 objects,
                 memberships,
                 names,
                 groupIds,
+                groupLastUpdated: stamps,
                 objectTotal: total,
                 savedAt: Date.now(),
             }
@@ -175,6 +220,17 @@ export async function loadAll(
     return { groupSets }
 }
 
+/**
+ * Spec 4.4. A cached payload is only reused when the group id list, the
+ * object total *and* every group's `lastUpdated` match the server. The first
+ * two alone are blind to the change this tool exists to track: moving an
+ * object from one group to another leaves both identical, so a stale
+ * membership set would be reused forever and the app would keep insisting
+ * data the user has already fixed is still broken. A stamp that cannot be
+ * fetched (or was never cached) counts as a mismatch, so the type is
+ * reloaded rather than trusted -- the same conservative reading the object
+ * total check already applies.
+ */
 async function tryCache(
     deps: Deps,
     type: ObjectType,
@@ -185,5 +241,12 @@ async function tryCache(
         return undefined
     }
     const total = await objectTotal(deps.fetcher, type).catch(() => -1)
-    return total === cached.objectTotal ? cached : undefined
+    if (total !== cached.objectTotal) {
+        return undefined
+    }
+    const stamps = await groupStamps(deps.fetcher, type).catch(() => null)
+    if (!stamps || !sameStamps(cached.groupLastUpdated, stamps, groupIds)) {
+        return undefined
+    }
+    return cached
 }

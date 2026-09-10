@@ -15,3 +15,16 @@ export const TYPE_LABEL: Record<ObjectType, string> = {
     indicator: i18n.t('Indicator group sets'),
     categoryOption: i18n.t('Category option group sets'),
 }
+
+// The objects themselves, rather than their group sets, in the form that
+// reads correctly *inside* a sentence -- "Loading organisation units", not
+// "Loading Organisation unit group sets". Sentences that name a type are
+// translated whole, with this spliced into a {type} placeholder afterwards
+// (see src/utils/interpolate.ts), so each of these is a plain noun phrase a
+// translator can decline as their language needs.
+export const TYPE_OBJECTS_LABEL: Record<ObjectType, string> = {
+    organisationUnit: i18n.t('organisation units'),
+    dataElement: i18n.t('data elements'),
+    indicator: i18n.t('indicators'),
+    categoryOption: i18n.t('category options'),
+}

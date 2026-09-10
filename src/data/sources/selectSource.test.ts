@@ -60,6 +60,49 @@ describe('selectSource', () => {
         expect(result.sqlViews).toBeNull()
     })
 
+    it('falls back to metadata when a view is materialised', async () => {
+        // A MATERIALIZED_VIEW returns whatever was written the last time
+        // someone executed it, with nothing in the response to say how old
+        // that is -- confident counts from arbitrarily stale rows.
+        const fetcher = async () =>
+            jsonResponse({
+                sqlViews: [
+                    readableView('v1', 'GSI_ORGUNITS'),
+                    readableView('v2', 'GSI_ORGUNIT_NAMES'),
+                    {
+                        ...readableView('v3', 'GSI_ORGUNIT_MEMBERSHIPS'),
+                        type: 'MATERIALIZED_VIEW',
+                    },
+                ],
+            })
+        const result = await selectSource(fetcher)
+        expect(result.source.kind).toBe('metadata')
+        expect(result.sqlViews).toBeNull()
+    })
+
+    it('accepts plain views and queries, and asks the server for the type', async () => {
+        const paths: string[] = []
+        const fetcher = async (path: string) => {
+            paths.push(path)
+            return jsonResponse({
+                sqlViews: [
+                    { ...readableView('v1', 'GSI_ORGUNITS'), type: 'VIEW' },
+                    {
+                        ...readableView('v2', 'GSI_ORGUNIT_NAMES'),
+                        type: 'QUERY',
+                    },
+                    {
+                        ...readableView('v3', 'GSI_ORGUNIT_MEMBERSHIPS'),
+                        type: 'VIEW',
+                    },
+                ],
+            })
+        }
+        const result = await selectSource(fetcher)
+        expect(result.source.kind).toBe('sqlView')
+        expect(paths[0]).toContain('type')
+    })
+
     it('falls back to metadata when the lookup fetch rejects', async () => {
         const fetcher = async (): Promise<Response> => {
             throw new Error('network down')

@@ -4,7 +4,17 @@ import { Status } from './types'
 
 export interface SetSummary {
     population: number
+    /** in exactly one group of the set */
     ok: number
+    /**
+     * In no group of the set, and the rules allow that (spec 3.2: the set is
+     * neither compulsory nor a data dimension, and the object's level is not
+     * a required level). Kept apart from `ok` so every bucket is disjoint and
+     * they sum to `population`, and so the dashboard card can say "N in no
+     * group, which is allowed here" rather than folding those objects into a
+     * green OK number that reads as "in a group".
+     */
+    unassigned: number
     missingError: number
     missingWarning: number
     conflict: number
@@ -52,12 +62,14 @@ function forEachInScope(
 
 export function summarize(
     status: Uint8Array,
+    m: SetMembership,
     h: Hierarchy | null,
     scopeRoot: number
 ): SetSummary {
     const s: SetSummary = {
         population: 0,
         ok: 0,
+        unassigned: 0,
         missingError: 0,
         missingWarning: 0,
         conflict: 0,
@@ -65,7 +77,14 @@ export function summarize(
     forEachInScope(status.length, h, scopeRoot, (i) => {
         switch (status[i]) {
             case Status.Ok:
-                s.ok++
+                // Status.Ok covers both "in exactly one group" and "in no
+                // group, which this set allows"; only the membership tells
+                // them apart.
+                if (m.groupOf[i] >= 0) {
+                    s.ok++
+                } else {
+                    s.unassigned++
+                }
                 break
             case Status.MissingError:
                 s.missingError++
@@ -88,7 +107,10 @@ export interface MatrixRow {
     /** org unit index of the row, or -1 for objects above the row level */
     object: number
     perGroup: number[]
+    /** in no group where the rules require one: an error or a warning */
     missing: number
+    /** in no group where that is allowed (spec 3.2), so status Ok */
+    unassigned: number
     conflict: number
     total: number
 }
@@ -98,22 +120,40 @@ function newRow(object: number, groupCount: number): MatrixRow {
         object,
         perGroup: new Array(groupCount).fill(0),
         missing: 0,
+        unassigned: 0,
         conflict: 0,
         total: 0,
     }
 }
 
+/**
+ * Buckets by *status*, not by membership. Bucketing "in no group" as missing
+ * regardless of status contradicted rules.ts, which gives such an object
+ * Status.Ok when the set is neither compulsory nor a data dimension (spec
+ * 3.2): the card counted no missing objects, the matrix counted them all,
+ * and the drill-down filter (which goes by status) listed none of them.
+ * Those objects now have their own bucket instead, so every bucket is
+ * disjoint and the four still sum to `total`.
+ */
 function addToRow(row: MatrixRow, status: number, groupOf: number): void {
     if (status === Status.NotApplicable) {
         return
     }
     row.total++
-    if (status === Status.Conflict) {
-        row.conflict++
-    } else if (groupOf >= 0) {
-        row.perGroup[groupOf]++
-    } else {
-        row.missing++
+    switch (status) {
+        case Status.Conflict:
+            row.conflict++
+            break
+        case Status.MissingError:
+        case Status.MissingWarning:
+            row.missing++
+            break
+        default:
+            if (groupOf >= 0) {
+                row.perGroup[groupOf]++
+            } else {
+                row.unassigned++
+            }
     }
 }
 

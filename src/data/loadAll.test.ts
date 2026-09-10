@@ -101,9 +101,29 @@ const groupSetsBody = {
     categoryOptionGroupSets: [],
 }
 
+// The `lastUpdated` stamps the server reports for each group, mutable so a
+// test can simulate someone moving an object between groups (which updates
+// both groups and nothing else the loader looks at).
+const stamps: Record<string, string> = {
+    pub: '2026-09-01T10:00:00.000',
+    ig1: '2026-09-01T10:00:00.000',
+}
+
 const fetcher = async (path: string) => {
+    // Checked before the group check below: "organisationUnitGroupSets?"
+    // also starts with "organisationUnitGroups".
     if (path.includes('GroupSets?')) {
         return new Response(JSON.stringify(groupSetsBody), { status: 200 })
+    }
+    if (path.includes('Groups?fields=id,lastUpdated')) {
+        const resource = path.slice(0, path.indexOf('?'))
+        const ids = resource.startsWith('organisationUnit') ? ['pub'] : ['ig1']
+        return new Response(
+            JSON.stringify({
+                [resource]: ids.map((id) => ({ id, lastUpdated: stamps[id] })),
+            }),
+            { status: 200 }
+        )
     }
     // object totals: organisationUnits has 2, everything else 0
     const total = path.startsWith('organisationUnits') ? 2 : 0
@@ -276,9 +296,96 @@ describe('loadAll', () => {
         expect(entries[0].summary).toEqual({
             population: 0,
             ok: 0,
+            unassigned: 0,
             missingError: 0,
             missingWarning: 0,
             conflict: 0,
         })
+    })
+
+    it('reloads a type when a group has been updated since it was cached', async () => {
+        // The case the cache used to be blind to: moving an object from
+        // Public to Private changes neither the group id list nor the object
+        // total, so the stale memberships were reused for good and the app
+        // kept insisting on problems the user had already fixed.
+        const cache = createMemoryCache()
+        await loadAll({
+            source: fakeSource(),
+            fetcher,
+            cache,
+            engine: inlineEngine(),
+            onStatus: () => undefined,
+        })
+        expect((await cache.get('organisationUnit'))?.groupLastUpdated).toEqual(
+            { pub: '2026-09-01T10:00:00.000' }
+        )
+
+        stamps.pub = '2026-09-10T08:30:00.000'
+        const second = fakeSource()
+        const status: LoadStatus[] = []
+        await loadAll({
+            source: second,
+            fetcher,
+            cache,
+            engine: inlineEngine(),
+            onStatus: (s) => status.push(s),
+        })
+        expect(second.loads).toContain('objects:organisationUnit')
+        expect(second.loads).toContain('memberships:organisationUnit')
+        expect(status[status.length - 1].fromCache.organisationUnit).toBe(
+            undefined
+        )
+        // The unchanged type is still served from the cache: one changed
+        // group set does not throw away everything.
+        expect(second.loads.filter((l) => l.endsWith('indicator'))).toEqual([])
+        stamps.pub = '2026-09-01T10:00:00.000'
+    })
+
+    it('reloads rather than trusts a cache entry stored without group stamps', async () => {
+        const cache = createMemoryCache()
+        await loadAll({
+            source: fakeSource(),
+            fetcher,
+            cache,
+            engine: inlineEngine(),
+            onStatus: () => undefined,
+        })
+        const stored = await cache.get('organisationUnit')
+        // An entry written by a build from before stamps were stored.
+        delete (stored as { groupLastUpdated?: unknown }).groupLastUpdated
+        await cache.put('organisationUnit', stored!)
+
+        const second = fakeSource()
+        await loadAll({
+            source: second,
+            fetcher,
+            cache,
+            engine: inlineEngine(),
+            onStatus: () => undefined,
+        })
+        expect(second.loads).toContain('objects:organisationUnit')
+    })
+
+    it('records a type whose group sets could not be read and loads the rest', async () => {
+        const failing = async (path: string) => {
+            if (path.startsWith('indicatorGroupSets')) {
+                return new Response('boom', { status: 500 })
+            }
+            return fetcher(path)
+        }
+        const source = fakeSource()
+        const status: LoadStatus[] = []
+        const { groupSets } = await loadAll({
+            source,
+            fetcher: failing,
+            cache: createMemoryCache(),
+            engine: inlineEngine(),
+            onStatus: (s) => status.push(s),
+        })
+        expect(groupSets.map((s) => s.id)).toEqual(['own'])
+        const last = status[status.length - 1]
+        expect(last.errors.indicator).toMatch(/500/)
+        expect(last.phase).toBe('done')
+        expect(source.loads).toContain('objects:organisationUnit')
     })
 })

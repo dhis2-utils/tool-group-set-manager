@@ -79,6 +79,7 @@ describe('EngineStore', () => {
         expect(entry.summary).toEqual({
             population: 3,
             ok: 1,
+            unassigned: 0,
             missingError: 1,
             missingWarning: 0,
             conflict: 1,
@@ -122,6 +123,37 @@ describe('EngineStore', () => {
         expect(page.items[1].status).toBe(Status.Conflict)
         expect(page.items[1].groups).toEqual([0, 1])
         expect(page.items[0].parentId).toBe('A')
+    })
+
+    it('serves a later page as its own slice, without the rows before it', () => {
+        // What the objects table relies on to page by offset instead of
+        // re-requesting every row it already has with a bigger limit.
+        const store = loadedStore()
+        const scope = {
+            objectType: 'organisationUnit' as const,
+            rootId: 'root',
+        }
+        const first = store.objectsFor('own', scope, {}, 0, 2)
+        const second = store.objectsFor('own', scope, {}, 2, 2)
+        expect(first.total).toBe(6)
+        expect(second.total).toBe(6)
+        expect(first.items).toHaveLength(2)
+        expect(second.items).toHaveLength(2)
+        expect(second.items.map((i) => i.id)).toEqual(
+            store
+                .objectsFor('own', scope, {}, 0, 4)
+                .items.slice(2)
+                .map((i) => i.id)
+        )
+    })
+
+    it('resolves the level of one object by id', () => {
+        const store = loadedStore()
+        expect(store.levelOf('organisationUnit', 'a1')).toBe(3)
+        expect(store.levelOf('organisationUnit', 'A')).toBe(2)
+        // Unknown id, and a type with no hierarchy at all.
+        expect(store.levelOf('organisationUnit', 'nope')).toBeNull()
+        expect(store.levelOf('indicator', 'a1')).toBeNull()
     })
 
     it('reports hasData false for sets whose type is not loaded', () => {

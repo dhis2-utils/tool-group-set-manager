@@ -9,6 +9,7 @@ import { ObjectFilter } from '@/engine/queries'
 import { ObjectsResult, ScopeRef } from '@/engine/store'
 import { GroupSetMeta } from '@/engine/types'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
+import { interpolate } from '@/utils/interpolate'
 
 interface Props {
     set: GroupSetMeta
@@ -16,6 +17,8 @@ interface Props {
     filter: ObjectFilter
     search: string
 }
+
+type Row = ObjectsResult['items'][number]
 
 const PAGE = 200
 const ROW_HEIGHT = 36
@@ -34,48 +37,102 @@ const INITIAL_RECT = { width: 800, height: 600 }
 
 // A second argument to i18n.t makes this project's i18next-scanner treat
 // the call as unextractable (see the matching comment in
-// GroupSetCard.tsx), so the count is spliced in with plain JS templating
-// and the two full strings are chosen between rather than pluralised via
-// i18next's own count option.
+// GroupSetCard.tsx), so the two full strings are chosen between on the
+// count rather than pluralised via i18next's own count option, and the
+// number goes into a placeholder inside the string rather than being glued
+// to a translated fragment (src/utils/interpolate.ts).
 const objectsCountLabel = (count: number) =>
     count === 1
-        ? `1 ${i18n.t('object')}`
-        : `${count.toLocaleString()} ${i18n.t('objects')}`
+        ? i18n.t('1 object')
+        : interpolate(i18n.t('{count} objects'), {
+              count: count.toLocaleString(),
+          })
+
+const searchNote = (loaded: number) =>
+    interpolate(i18n.t('Search matches the {count} rows loaded so far'), {
+        count: loaded.toLocaleString(),
+    })
+
+/**
+ * What has been loaded for one filter. `offset` is the offset of the page
+ * currently being requested, and `rows` holds every page before it, so
+ * `rows.length === offset` exactly while a request is outstanding and
+ * `rows.length > offset` once its page has landed. That is what paces the
+ * paging: one page in flight at a time, appended on arrival.
+ */
+interface Loaded {
+    key: string
+    rows: Row[]
+    total: number | null
+    offset: number
+}
+
+const emptyLoad = (key: string): Loaded => ({
+    key,
+    rows: [],
+    total: null,
+    offset: 0,
+})
 
 export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
-    const [limit, setLimit] = useState(PAGE)
-    // Keyed on everything that identifies *which* page this is a request
-    // for -- set, scope and filter, but deliberately not `limit` itself,
-    // which is what changes as paging grows it. A filter/scope/set change
-    // resets paging back to the first page.
+    // Identifies *which* list this is a page of. A set, scope or filter
+    // change starts a new list from offset 0.
     const filterKey = JSON.stringify([set.id, scope, filter])
-    useEffect(() => {
-        setLimit(PAGE)
-    }, [filterKey])
+    const [loaded, setLoaded] = useState<Loaded>(() => emptyLoad(filterKey))
+    // Reset during render, not from an effect. An effect would run after the
+    // append effect below has already had a chance to fold the *previous*
+    // filter's last page into the new filter's (empty) list; deriving the
+    // reset here means the very first render after a filter change already
+    // requests offset 0 and already renders no rows.
+    const current = loaded.key === filterKey ? loaded : emptyLoad(filterKey)
+    if (current !== loaded) {
+        setLoaded(current)
+    }
 
-    // `useEngineQuery` itself is what makes a slow, superseded response for
-    // a *previous filter* harmless: its effect is keyed on the full args
-    // (so a filter, scope or limit change re-runs it), and its cleanup sets
-    // a `cancelled` flag that the in-flight promise's `.then()` checks
-    // before calling `setState` -- see src/hooks/useEngineQuery.ts. So a
-    // request for a superseded filter can never land once a newer one has
-    // started. `objectsFor` also always returns the *complete* row list
-    // for whatever key was requested (offset 0 through `limit`), never a
-    // delta to append, so there is nothing to append stale rows onto.
+    // One page at a time, by offset -- never offset 0 with an ever-growing
+    // limit. Growing the limit made every "load more" re-send and re-resolve
+    // every row already on screen, so reaching row ten thousand of a
+    // 266,000-row list moved a quarter of a million row objects across the
+    // worker boundary instead of ten thousand.
+    //
+    // `useEngineQuery` is what makes a slow, superseded response harmless:
+    // its effect is keyed on the full args (so a filter, scope or offset
+    // change re-runs it) and its cleanup sets a `cancelled` flag the
+    // in-flight promise checks before calling `setState` -- see
+    // src/hooks/useEngineQuery.ts.
     const { data, isLoading, error } = useEngineQuery<ObjectsResult>(
         'objectsFor',
-        [set.id, scope, filter, 0, limit]
+        [set.id, scope, filter, current.offset, PAGE]
     )
 
+    // Each resolved request yields a fresh result object, so identity is
+    // what tells "a page that has not been appended yet" from "the page
+    // already appended, still being returned by the hook".
+    const appended = useRef<ObjectsResult | null>(null)
+    useEffect(() => {
+        if (!data || appended.current === data) {
+            return
+        }
+        appended.current = data
+        setLoaded((prev) =>
+            prev.key === filterKey
+                ? {
+                      ...prev,
+                      rows: [...prev.rows, ...data.items],
+                      total: data.total,
+                  }
+                : prev
+        )
+    }, [data, filterKey])
+
     const rows = useMemo(() => {
-        const items = data?.items ?? []
         const q = search.trim().toLowerCase()
         return q
-            ? items.filter((r) =>
+            ? current.rows.filter((r) =>
                   (r.displayName ?? r.id).toLowerCase().includes(q)
               )
-            : items
-    }, [data, search])
+            : current.rows
+    }, [current.rows, search])
 
     const parentRef = useRef<HTMLDivElement>(null)
     const virtualizer = useVirtualizer({
@@ -88,49 +145,41 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
     const virtualItems = virtualizer.getVirtualItems()
     const lastVisible = virtualItems[virtualItems.length - 1]?.index ?? 0
 
-    // Loading more must request exactly one page at a time, never a
-    // stampede to the end: `data` does not update until the in-flight
-    // fetch for the *current* `limit` actually resolves, but `lastVisible`
-    // and `rows.length` (both derived from the still-stale `data`) don't
-    // change meanwhile either -- so as long as this effect's decision were
-    // keyed on `limit` alone, the first near-the-end scroll would re-fire
-    // it on every render `limit` itself causes, ratcheting `limit` to the
-    // full total before a single response returns (confirmed: this is
-    // exactly what happened before this guard existed).
-    //
-    // `caughtUpWithLimit` is the fix: a response only counts as "settled"
-    // once it has actually returned as many items as the current `limit`
-    // asked for (or hit the true end of the list first). While a bigger
-    // request is outstanding, `data` is still whatever the *previous*,
-    // smaller `limit` returned, so `loadedCount` lags `limit` and this
-    // stays false -- which is precisely the signal that holds off
-    // requesting yet another page before this one has landed. Combined
-    // with the `!isLoading` check (belt-and-braces for the same
-    // "outstanding fetch" case), the effect now only ever asks for one
-    // more page per settled result, no matter how many times it re-fires
-    // for unrelated reasons (`lastVisible` ticking, `limit` changing) in
-    // between.
-    const loadedCount = data?.items.length ?? 0
-    const caughtUpWithLimit =
-        data !== undefined &&
-        (loadedCount === limit || loadedCount === data.total)
+    const loadedCount = current.rows.length
+    const searchActive = search.trim() !== ''
+    // Two things this must not do. It must not measure "near the end"
+    // against the search-filtered `rows`: a search matching a handful of the
+    // loaded rows leaves the last visible index permanently within 50 of
+    // that short list, so every settled response asked for another page
+    // until the whole 266,000-row result set had been fetched, one worker
+    // round-trip per page. And it must not page while a search is active at
+    // all: the search only looks at rows already loaded, so paging in
+    // service of it would be paging the entire list in the hope of a match.
+    // The list is complete again the moment the search box is cleared.
+    const requestNextPage =
+        !searchActive &&
+        !isLoading &&
+        current.total !== null &&
+        loadedCount < current.total &&
+        // The page for the current offset has landed (see Loaded).
+        loadedCount > current.offset &&
+        lastVisible >= loadedCount - 50
 
     useEffect(() => {
-        if (
-            !isLoading &&
-            caughtUpWithLimit &&
-            data &&
-            lastVisible >= rows.length - 50 &&
-            limit < data.total
-        ) {
-            setLimit((l) => l + PAGE)
+        if (!requestNextPage) {
+            return
         }
-    }, [isLoading, caughtUpWithLimit, data, lastVisible, rows.length, limit])
+        setLoaded((prev) =>
+            prev.key === filterKey && prev.rows.length > prev.offset
+                ? { ...prev, offset: prev.rows.length }
+                : prev
+        )
+    }, [requestNextPage, filterKey])
 
     if (error) {
         return <NoticeBox error>{error}</NoticeBox>
     }
-    if (!data) {
+    if (current.total === null) {
         return <CircularLoader small />
     }
     const isOrgUnit = set.objectType === 'organisationUnit'
@@ -145,14 +194,12 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
     const gridStyle = {
         gridTemplateColumns: isOrgUnit ? undefined : '3fr 130px 2fr',
     }
-    const trimmedSearch = search.trim()
     return (
         <div>
             <p className={styles.count}>
-                {objectsCountLabel(data.total)}
-                {trimmedSearch &&
-                    ` · ${i18n.t('search matches loaded rows only')}`}
-                {isLoading && ` · ${i18n.t('updating…')}`}
+                {objectsCountLabel(current.total)}
+                {searchActive && ` · ${searchNote(loadedCount)}`}
+                {isLoading && ` · ${i18n.t('Loading more rows…')}`}
             </p>
             <div className={styles.head} style={gridStyle}>
                 <span>{i18n.t('Name')}</span>

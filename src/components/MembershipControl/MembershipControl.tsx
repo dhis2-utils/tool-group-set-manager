@@ -3,6 +3,7 @@ import { SingleSelect, SingleSelectOption } from '@dhis2/ui'
 import React from 'react'
 import styles from './MembershipControl.module.css'
 import { GroupMeta } from '@/engine/types'
+import { interpolate } from '@/utils/interpolate'
 
 interface Props {
     groups: GroupMeta[]
@@ -14,13 +15,13 @@ interface Props {
 
 const SEGMENTED_MAX = 5
 
-// A second argument to i18n.t (interpolation options, including
-// defaultValue_plural) makes this project's i18next-scanner treat the
-// whole call as unextractable -- see the matching comment in
-// GroupSetCard.tsx. The dynamic group name is spliced in with plain JS
-// templating instead.
+// One complete, translatable sentence with a placeholder, filled in
+// afterwards -- not two translated fragments joined around the group name in
+// English word order, which no translator can reorder. See
+// src/utils/interpolate.ts for why the i18n.t call itself still takes a
+// single bare string.
 const keepLabel = (name: string) =>
-    `${i18n.t('Keep')} ${name} ${i18n.t('and remove the others')}`
+    interpolate(i18n.t('Keep {group} and remove the others'), { group: name })
 
 export const MembershipControl = ({
     groups,
@@ -79,18 +80,15 @@ export const MembershipControl = ({
                 disabled={disabled}
                 selected={selected}
                 placeholder={
-                    // A colon inside an i18n.t() string is read by this
-                    // project's i18next-scanner as a namespace separator
-                    // (its default `nsSeparator`), which splits "Conflict:
-                    // choose group to keep" into namespace "Conflict" plus
-                    // key " choose group to keep" and warns that the
-                    // namespace doesn't exist -- confirmed against the
-                    // scanner's own output while running `pnpm start` for
-                    // the browser check. Spliced outside the call instead,
-                    // the same way GroupSetDetail.tsx builds "Scope:
-                    // {name}".
+                    // One whole string per case rather than two translated
+                    // fragments joined by a colon. (The colon is gone as
+                    // well: this project's i18next-scanner reads a colon
+                    // inside an i18n.t() string as its default namespace
+                    // separator and warns that the namespace does not exist
+                    // -- confirmed against the scanner's own output while
+                    // running `pnpm start` for the browser check.)
                     isConflict
-                        ? `${i18n.t('Conflict')}: ${i18n.t('choose group to keep')}`
+                        ? i18n.t('Conflict, choose the group to keep')
                         : i18n.t('Choose group')
                 }
                 onChange={({ selected: value }) => onChange(Number(value))}
@@ -103,7 +101,9 @@ export const MembershipControl = ({
                         value={String(i)}
                         label={
                             current.includes(i) && isConflict
-                                ? `${g.displayName} (${i18n.t('current')})`
+                                ? interpolate(i18n.t('{group} (current)'), {
+                                      group: g.displayName,
+                                  })
                                 : g.displayName
                         }
                     />
@@ -114,7 +114,9 @@ export const MembershipControl = ({
                     className={styles.conflictNames}
                     title={conflictGroupNames.join(', ')}
                 >
-                    {`${i18n.t('Conflict')}: ${conflictGroupNames.join(' + ')}`}
+                    {interpolate(i18n.t('Conflict between {groups}'), {
+                        groups: conflictGroupNames.join(', '),
+                    })}
                 </span>
             )}
         </span>

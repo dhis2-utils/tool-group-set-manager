@@ -10,8 +10,10 @@ import { ObjectFilter } from '@/engine/queries'
 import { ObjectRef, ScopeRef } from '@/engine/store'
 import { Status } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
+import { useEngineQuery } from '@/hooks/useEngineQuery'
 import { useScope } from '@/hooks/useScope'
 import { useUserScope } from '@/hooks/useUserScope'
+import { interpolate } from '@/utils/interpolate'
 import { useApiDataQuery } from '@/utils/useApiDataQuery'
 
 interface LevelsResponse {
@@ -20,16 +22,35 @@ interface LevelsResponse {
 
 type DetailTab = 'overview' | 'objects'
 
+/** Used only while nothing at all is known about the scope's level yet. */
+const DEFAULT_LEVEL = 1
+
 export const GroupSetDetail = () => {
     const { setId = '' } = useParams()
     const { groupSets } = useEngine()
-    const { rootId, rootName } = useScope()
+    const { rootId, rootName, rootLevel } = useScope()
     const { roots } = useUserScope()
     const set = groupSets.find((s) => s.id === setId)
     const [tab, setTab] = useState<DetailTab>('overview')
     const [filter, setFilter] = useState<ObjectFilter>({})
 
-    const scopeLevel = roots.find((r) => r.id === rootId)?.level ?? 1
+    // The scope's own level, needed so the row level list starts *below* the
+    // scope and the matrix cannot key rows on org units outside it. The
+    // selector carries the level with the selection; a scope stored before it
+    // did, or restored some other way, falls back to the user's own roots and
+    // then to the engine, which holds the hierarchy. Only that last fallback
+    // costs a call, and only in the case where the first two know nothing.
+    const rootLevelFromUserRoots =
+        roots.find((r) => r.id === rootId)?.level ?? null
+    const needsEngineLevel =
+        rootId !== null && rootLevel === null && rootLevelFromUserRoots === null
+    const { data: engineLevel } = useEngineQuery<number | null>(
+        'levelOf',
+        ['organisationUnit', rootId],
+        needsEngineLevel
+    )
+    const scopeLevel =
+        rootLevel ?? rootLevelFromUserRoots ?? engineLevel ?? DEFAULT_LEVEL
     const [rowLevel, setRowLevel] = useState(scopeLevel + 1)
     const { data: levelsData } = useApiDataQuery<LevelsResponse>({
         queryKey: ['organisationUnitLevels'],
@@ -97,6 +118,14 @@ export const GroupSetDetail = () => {
             next.group = column.index
         } else if (column.kind === 'missing') {
             next.statuses = [Status.MissingError, Status.MissingWarning]
+        } else if (column.kind === 'unassigned') {
+            // "In no group, and that is allowed here": the engine records
+            // those as Status.Ok with no group, so both halves are needed --
+            // status alone would also list every object that *is* in a
+            // group, and group alone would also list the missing ones on a
+            // set where being in no group is an error.
+            next.group = -1
+            next.statuses = [Status.Ok]
         } else if (column.kind === 'conflict') {
             next.statuses = [Status.Conflict]
         }
@@ -121,9 +150,11 @@ export const GroupSetDetail = () => {
                             {set.groups.map((g) => g.displayName).join(' · ')}
                         </Tag>
                         {set.objectType === 'organisationUnit' && (
-                            <Tag
-                                neutral
-                            >{`${i18n.t('Scope')}: ${rootName}`}</Tag>
+                            <Tag neutral>
+                                {interpolate(i18n.t('Scope ({name})'), {
+                                    name: rootName,
+                                })}
+                            </Tag>
                         )}
                     </div>
                 </div>

@@ -56,11 +56,39 @@ async function loadType(
     })
 }
 
-export async function loadGroupSets(fetcher: Fetcher): Promise<GroupSetMeta[]> {
-    const perType = await Promise.all(
+export interface GroupSetsResult {
+    sets: GroupSetMeta[]
+    /** object type -> why its group sets could not be read */
+    errors: Partial<Record<ObjectType, string>>
+}
+
+/**
+ * Spec 6.4: load failures are per object type. A bare Promise.all here made
+ * one non-200 response (a type the user may not read, say) reject the whole
+ * dashboard with a single "Loading failed" box, undoing the per-type
+ * isolation the rest of the loader goes to trouble to provide -- so each
+ * type settles on its own and the failed ones are reported alongside the
+ * sets that did load.
+ */
+export async function loadGroupSets(
+    fetcher: Fetcher
+): Promise<GroupSetsResult> {
+    const settled = await Promise.allSettled(
         OBJECT_TYPES.map((type) => loadType(fetcher, type))
     )
-    return perType.flat()
+    const sets: GroupSetMeta[] = []
+    const errors: Partial<Record<ObjectType, string>> = {}
+    settled.forEach((outcome, i) => {
+        const type = OBJECT_TYPES[i]
+        if (outcome.status === 'fulfilled') {
+            sets.push(...outcome.value)
+        } else {
+            const reason: unknown = outcome.reason
+            errors[type] =
+                reason instanceof Error ? reason.message : String(reason)
+        }
+    })
+    return { sets, errors }
 }
 
 export function groupIdsFor(sets: GroupSetMeta[], type: ObjectType): string[] {

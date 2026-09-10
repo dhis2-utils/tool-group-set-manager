@@ -69,6 +69,7 @@ interface SetState {
 const EMPTY_SUMMARY: SetSummary = {
     population: 0,
     ok: 0,
+    unassigned: 0,
     missingError: 0,
     missingWarning: 0,
     conflict: 0,
@@ -224,6 +225,7 @@ export class EngineStore {
                     set,
                     summary: summarize(
                         state.status,
+                        state.membership,
                         t.hierarchy,
                         this.scopeRoot(t, scope)
                     ),
@@ -254,6 +256,24 @@ export class EngineStore {
 
     indexOf(objectType: ObjectType, id: string): number {
         return this.types.get(objectType)?.indexOf.get(id) ?? -1
+    }
+
+    /**
+     * The hierarchy level of one object, or null when the type has no
+     * hierarchy or the id is unknown. The scope selector carries the level of
+     * the org unit it selected, but a scope restored from storage before that
+     * was stored -- or one whose id is not among the user's own roots -- has
+     * no level to carry, and every level-dependent screen (the matrix row
+     * level above all) needs one. The engine already holds the hierarchy, so
+     * it can answer without another metadata request.
+     */
+    levelOf(objectType: ObjectType, id: string): number | null {
+        const t = this.types.get(objectType)
+        if (!t || !t.hierarchy) {
+            return null
+        }
+        const idx = t.indexOf.get(id)
+        return idx === undefined ? null : t.hierarchy.level[idx]
     }
 
     private setState(setId: string): { state: SetState; t: TypeIndex } {
