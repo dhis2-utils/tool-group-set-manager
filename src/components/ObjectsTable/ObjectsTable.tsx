@@ -105,24 +105,33 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
         [set.id, scope, filter, current.offset, PAGE]
     )
 
-    // Each resolved request yields a fresh result object, so identity is
-    // what tells "a page that has not been appended yet" from "the page
-    // already appended, still being returned by the hook".
-    const appended = useRef<ObjectsResult | null>(null)
+    // A result is appended only when it is *the page this list is waiting
+    // for*: the same page it asked for (`data.offset`, echoed by the store)
+    // and one it has not already taken (the `rows.length === offset`
+    // invariant above holds only while that page is outstanding). Both
+    // checks are needed because `useEngineQuery` re-issues the identical
+    // request whenever the engine's load phase or type changes -- pressing
+    // Reload with this tab open fires several -- and each re-issue resolves
+    // to a fresh result object. Keying on object identity alone therefore
+    // appended the page already held once per phase change, duplicating
+    // rows and React keys and pushing the row count past `total`.
     useEffect(() => {
-        if (!data || appended.current === data) {
+        if (!data) {
             return
         }
-        appended.current = data
-        setLoaded((prev) =>
-            prev.key === filterKey
+        setLoaded((prev) => {
+            const isAwaitedPage =
+                prev.key === filterKey &&
+                data.offset === prev.offset &&
+                prev.rows.length === prev.offset
+            return isAwaitedPage
                 ? {
                       ...prev,
                       rows: [...prev.rows, ...data.items],
                       total: data.total,
                   }
                 : prev
-        )
+        })
     }, [data, filterKey])
 
     const rows = useMemo(() => {

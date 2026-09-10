@@ -15,16 +15,22 @@ interface SqlViewRow {
 }
 
 /**
- * A MATERIALIZED_VIEW returns whatever rows were written the last time
- * someone executed it, with nothing in the response to say how old they are.
- * Reading org unit hierarchy and group memberships from one would let the app
- * report confident counts from arbitrarily old data, which is worse than
- * being slow. Executing it first was the alternative, but that needs the SQL
- * view execute authority (which a plain reader does not have) and can cost
- * the server a full refresh on every app start, so the app declines the view
- * and falls back to the metadata API, which is always current.
+ * The SQL view types this app will read. A MATERIALIZED_VIEW returns
+ * whatever rows were written the last time someone executed it, with nothing
+ * in the response to say how old they are, so reading the org unit hierarchy
+ * or group memberships from one would mean confident counts from arbitrarily
+ * old data -- worse than being slow. Executing it first was the alternative,
+ * but that needs the SQL view execute authority (which a plain reader does
+ * not have) and can cost the server a full refresh on every app start, so
+ * the app declines the view and falls back to the metadata API, which is
+ * always current.
+ *
+ * This is an allow list rather than a MATERIALIZED_VIEW deny list because a
+ * response with no `type` at all (a trimmed or older payload) must not slip
+ * a materialised view through: the whole point of the check is that stale
+ * rows are invisible to the user, so an unknown type is unusable.
  */
-const MATERIALIZED = 'MATERIALIZED_VIEW'
+const USABLE_TYPES = ['VIEW', 'QUERY']
 
 export async function findSqlViews(
     fetcher: Fetcher
@@ -37,7 +43,12 @@ export async function findSqlViews(
     const byCode = new Map(body.sqlViews.map((v) => [v.code, v]))
     const pick = (code: string) => {
         const v = byCode.get(code)
-        if (!v || !v.access.data?.read || v.type === MATERIALIZED) {
+        if (
+            !v ||
+            !v.access.data?.read ||
+            v.type === undefined ||
+            !USABLE_TYPES.includes(v.type)
+        ) {
             return null
         }
         return v.id

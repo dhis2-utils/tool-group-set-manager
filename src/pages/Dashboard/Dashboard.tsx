@@ -16,6 +16,7 @@ import { DashboardEntry } from '@/engine/store'
 import { OBJECT_TYPES, ObjectType } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useScope } from '@/hooks/useScope'
+import { interpolate } from '@/utils/interpolate'
 import { TYPE_LABEL } from '@/utils/objectTypeLabels'
 
 const hasIssues = (e: DashboardEntry) =>
@@ -34,15 +35,13 @@ const byWorstFirst = (a: DashboardEntry, b: DashboardEntry) =>
 // See the matching comment in GroupSetCard.tsx: a single i18n.t(key, {
 // count, defaultValue_plural }) call neither pluralises at runtime with
 // this i18next version nor gets picked up by this project's i18n extractor
-// at all (any second argument makes a call invisible to it), so this stays
-// two fully literal, argument-free i18n.t calls with the count spliced in
-// separately.
+// at all (any second argument makes a call invisible to it). So this is two
+// argument-free calls chosen on the count, each a complete string with the
+// number in a {count} placeholder rather than glued to a translated word.
 const hiddenSetsLabel = (count: number) =>
-    `${count} ${
-        count === 1
-            ? i18n.t('set without issues hidden')
-            : i18n.t('sets without issues hidden')
-    }`
+    count === 1
+        ? i18n.t('1 set without issues hidden')
+        : interpolate(i18n.t('{count} sets without issues hidden'), { count })
 
 // Spec 8a accepts that the SQL view path shows untranslated organisation
 // unit names specifically because the app says which source served it, so

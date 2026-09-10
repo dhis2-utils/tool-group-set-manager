@@ -43,6 +43,8 @@ const makeItems = (
 
 interface FakeResult {
     total: number
+    /** echoed back by the real store, so the fake echoes it too */
+    offset: number
     items: ReturnType<typeof makeItems>
 }
 
@@ -60,8 +62,19 @@ interface FakeResult {
  */
 function createControllableEngineQuery() {
     const resolvers = new Map<string, (result: FakeResult) => void>()
+    // The real hook re-runs its effect when the engine's load phase or type
+    // changes, re-issuing the *identical* request; `rerun()` below is that
+    // (src/hooks/useEngineQuery.ts's status?.phase/status?.type deps).
+    const epochSetters = new Set<React.Dispatch<React.SetStateAction<number>>>()
     const useFakeQuery = (_method: string, args: unknown[]) => {
         const key = JSON.stringify(args)
+        const [epoch, setEpoch] = React.useState(0)
+        React.useEffect(() => {
+            epochSetters.add(setEpoch)
+            return () => {
+                epochSetters.delete(setEpoch)
+            }
+        }, [])
         const [state, setState] = React.useState<{
             data: FakeResult | undefined
             isLoading: boolean
@@ -80,18 +93,23 @@ function createControllableEngineQuery() {
             return () => {
                 cancelled = true
             }
-        }, [key])
+        }, [key, epoch])
         return { data: state.data, isLoading: state.isLoading, error: null }
     }
-    const resolve = (args: unknown[], result: FakeResult) => {
+    // The offset is stamped on from the request itself, exactly as the store
+    // echoes back the offset it was asked for.
+    const resolve = (args: unknown[], result: Omit<FakeResult, 'offset'>) => {
         const key = JSON.stringify(args)
         const resolver = resolvers.get(key)
         if (!resolver) {
             throw new Error(`no pending request for ${key}`)
         }
-        resolver(result)
+        resolver({ ...result, offset: args[3] as number })
     }
-    return { useFakeQuery, resolve }
+    const rerun = () => {
+        epochSetters.forEach((set) => set((e) => e + 1))
+    }
+    return { useFakeQuery, resolve, rerun }
 }
 
 const lastCallArgs = () =>
@@ -162,7 +180,7 @@ it('renders rows with status and membership', async () => {
         groups: i === 1 ? [0, 1] : [0],
     }))
     mockUseEngineQuery.mockReturnValue({
-        data: { total: 3, items },
+        data: { total: 3, offset: 0, items },
         isLoading: false,
         error: null,
     })
@@ -359,4 +377,42 @@ it('does not let a slow response for the previous filter land once a new filter 
         })
     })
     expect(screen.getByText('Fresh 0')).toBeInTheDocument()
+})
+
+it('ignores a repeat of the page it already holds, however often the request is re-issued', async () => {
+    // `useEngineQuery` re-issues the identical request whenever the engine's
+    // load phase or type changes -- pressing Reload with this tab open fires
+    // several in a row -- and each re-issue resolves to a fresh result
+    // object. Appending on result identity alone therefore added the page
+    // already held once per phase change: duplicate rows, duplicate React
+    // keys, and a row count past the total, until a filter change reset it.
+    const { useFakeQuery, resolve, rerun } = createControllableEngineQuery()
+    mockUseEngineQuery.mockImplementation(useFakeQuery)
+
+    const { rerender } = render(
+        <ObjectsTable set={set} scope={scope} filter={{}} search="" />
+    )
+    const firstPageArgs = lastCallArgs()
+    await act(async () => {
+        resolve(firstPageArgs, { total: 1000, items: makeItems(200) })
+    })
+
+    // The search note is what reports the loaded row count; "Item" matches
+    // every loaded row, so it counts them all.
+    rerender(<ObjectsTable set={set} scope={scope} filter={{}} search="Item" />)
+    expect(screen.getByText(/200 rows loaded so far/)).toBeInTheDocument()
+
+    // Two more phase changes, each re-requesting and re-resolving offset 0.
+    for (let i = 0; i < 2; i++) {
+        act(() => {
+            rerun()
+        })
+        await act(async () => {
+            resolve(firstPageArgs, { total: 1000, items: makeItems(200) })
+        })
+    }
+
+    expect(screen.getByText(/200 rows loaded so far/)).toBeInTheDocument()
+    expect(screen.getAllByText('Item 5')).toHaveLength(1)
+    expect(pageRequests()).toEqual(['0/200'])
 })

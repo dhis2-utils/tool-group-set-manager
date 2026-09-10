@@ -3,6 +3,7 @@ import { Card, Tag } from '@dhis2/ui'
 import React from 'react'
 import styles from './GroupSetCard.module.css'
 import { DashboardEntry } from '@/engine/store'
+import { interpolate } from '@/utils/interpolate'
 
 interface Props {
     entry: DashboardEntry
@@ -20,18 +21,21 @@ interface Props {
 // the installed scanner, makes the whole call invisible to extraction, so
 // the plural string never even reaches the .pot file to be translated.
 // Both are avoided by keeping every i18n.t call a single bare string
-// argument, choosing between two such calls on `count === 1`, and
-// splicing the number in around the translated word with plain JS
-// templating instead of i18next's own count-interpolation option.
+// argument and choosing between two such calls on `count === 1`. Each of
+// those strings is complete, punctuation and all, with the number in a
+// {count} placeholder that interpolate() fills in afterwards -- a number
+// glued to a separately translated word is the fragment pattern
+// CLAUDE.md's "Translatable strings" section rules out, because no
+// translator can move the number relative to the noun.
 const groupsLabel = (count: number) =>
-    `${count} ${count === 1 ? i18n.t('group') : i18n.t('groups')}`
+    count === 1
+        ? i18n.t('1 group')
+        : interpolate(i18n.t('{count} groups'), { count })
 
 const readOnlyLabel = (count: number) =>
-    `${count} ${
-        count === 1
-            ? i18n.t('group read-only for you')
-            : i18n.t('groups read-only for you')
-    }`
+    count === 1
+        ? i18n.t('1 group read-only for you')
+        : interpolate(i18n.t('{count} groups read-only for you'), { count })
 
 export const GroupSetCard = ({ entry, onOpen }: Props) => {
     const { set, summary, hasData } = entry

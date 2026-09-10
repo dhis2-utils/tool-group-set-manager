@@ -3,9 +3,10 @@ import { selectSource } from './selectSource'
 const jsonResponse = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status })
 
-const readableView = (id: string, code: string) => ({
+const readableView = (id: string, code: string, type = 'VIEW') => ({
     id,
     code,
+    type,
     access: { data: { read: true } },
 })
 
@@ -52,6 +53,27 @@ describe('selectSource', () => {
                         id: 'v3',
                         code: 'GSI_ORGUNIT_MEMBERSHIPS',
                         access: { data: { read: false } },
+                    },
+                ],
+            })
+        const result = await selectSource(fetcher)
+        expect(result.source.kind).toBe('metadata')
+        expect(result.sqlViews).toBeNull()
+    })
+
+    it('falls back to metadata when a view reports no type at all', async () => {
+        // A trimmed or older response carrying no `type` must not let a
+        // materialised view through: an unknown type is unusable, because
+        // the staleness the check exists to catch is invisible to the user.
+        const fetcher = async () =>
+            jsonResponse({
+                sqlViews: [
+                    readableView('v1', 'GSI_ORGUNITS'),
+                    readableView('v2', 'GSI_ORGUNIT_NAMES'),
+                    {
+                        id: 'v3',
+                        code: 'GSI_ORGUNIT_MEMBERSHIPS',
+                        access: { data: { read: true } },
                     },
                 ],
             })

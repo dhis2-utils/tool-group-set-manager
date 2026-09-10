@@ -47,6 +47,15 @@ export interface MatrixResult {
 
 export interface ObjectsResult {
     total: number
+    /**
+     * The offset this page was asked for, echoed back. A caller that appends
+     * pages has to know which page a result is, and nothing else in the
+     * payload says: the same request is re-issued whenever the engine's load
+     * phase changes, so "a result arrived" is not the same as "the next page
+     * arrived". Without this a repeat of the page already held was appended
+     * a second time, duplicating rows and overshooting `total`.
+     */
+    offset: number
     items: (ObjectRef & { status: Status; groups: number[] })[]
 }
 
@@ -322,6 +331,7 @@ export class EngineStore {
         const slice = all.subarray(offset, offset + limit)
         return {
             total: all.length,
+            offset,
             items: Array.from(slice, (index) => ({
                 ...this.ref(t, index),
                 status: state.status[index] as Status,
