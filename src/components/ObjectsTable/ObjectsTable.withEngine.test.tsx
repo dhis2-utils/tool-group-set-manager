@@ -18,6 +18,9 @@ interface Pending {
     resolve: (result: unknown) => void
 }
 const mockPending: Pending[] = []
+// Read at render time, so mutating it and re-rendering is exactly what an
+// engine load phase change looks like to the hook.
+let mockPhase = 'done'
 jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => ({
         client: {
@@ -27,7 +30,7 @@ jest.mock('@/hooks/useEngine', () => ({
                 }),
         },
         status: {
-            phase: 'done',
+            phase: mockPhase,
             type: null,
             progress: null,
             fromCache: {},
@@ -87,6 +90,7 @@ const settle = async (label: string, total: number, count = 200) => {
 
 beforeEach(() => {
     mockPending.length = 0
+    mockPhase = 'done'
 })
 
 it('replaces the rows when the filter changes without scrolling, and still accepts the new filter pages', async () => {
@@ -123,4 +127,38 @@ it('replaces the rows when the filter changes without scrolling, and still accep
         fireEvent.scroll(scrollEl)
     })
     await waitFor(() => expect(screen.getByText('New 380')).toBeInTheDocument())
+})
+
+it('keeps the rows and does not duplicate the held page when the engine load phase changes', async () => {
+    // The join the two earlier fixes each covered only one half of. The hook
+    // re-issues the identical query on every load phase and type change --
+    // pressing Reload fires several -- and must keep its data through them
+    // (the mask is keyed on the query, not on the phase), while the table
+    // must recognise the re-resolved page as one it already holds and not
+    // append it again. Covered before only by the hook's own unit test and
+    // by the table's hand-rolled fake; this drives both for real.
+    const { rerender } = render(
+        <ObjectsTable set={set} scope={scope} filter={{}} search="" />
+    )
+    await settle('Row', 1000)
+    expect(screen.getByText('Row 0')).toBeInTheDocument()
+    expect(mockPending).toHaveLength(1)
+
+    mockPhase = 'names'
+    rerender(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
+
+    // The same query, re-issued -- and the rows stay on screen throughout.
+    expect(mockPending).toHaveLength(2)
+    expect(lastPending().args[3]).toBe(0)
+    expect(screen.getByText('Row 0')).toBeInTheDocument()
+
+    await settle('Row', 1000)
+    expect(screen.getByText('Row 0')).toBeInTheDocument()
+
+    // The page already held was not appended a second time: the search note
+    // counts the loaded rows, and "Row" matches every one of them.
+    rerender(<ObjectsTable set={set} scope={scope} filter={{}} search="Row" />)
+    expect(screen.getByText(/200 rows loaded so far/)).toBeInTheDocument()
+    expect(screen.getAllByText('Row 5')).toHaveLength(1)
+    expect(screen.getByText(/1,000 objects/)).toBeInTheDocument()
 })

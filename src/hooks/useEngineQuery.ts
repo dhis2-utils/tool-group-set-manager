@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useEngine } from './useEngine'
 import { EngineMethod } from '@/engine/protocol'
 
@@ -6,13 +6,23 @@ interface EngineQueryState<T> {
     data: T | undefined
     isLoading: boolean
     error: string | null
-    /**
-     * The arguments key (`JSON.stringify(args)`) that produced `data`, or
-     * null when there is none. `data` is already cleared the moment the
-     * arguments change, so a consumer never needs this to stay safe -- it is
-     * here so one that wants certainty can check rather than infer.
-     */
-    dataKey: string | null
+}
+
+/**
+ * What the hook actually stores. `settledKey` is the query key of the last
+ * *settled* result, whether it settled as data or as an error -- the catch
+ * below stamps it too, and must, or the freshness mask at the end of this
+ * hook would swallow every error before a consumer could render it.
+ *
+ * It stays internal deliberately. Its one correct reading is subtle enough
+ * to be worth not exposing ("the key of the last settled result", not "the
+ * key that produced the data"), and with the mask in place a consumer can
+ * never be handed a result for arguments it has stopped asking about, so
+ * there is nothing left for a caller to check. If a consumer ever does need
+ * to distinguish, widen the return type then, with this comment attached.
+ */
+interface QueryState<T> extends EngineQueryState<T> {
+    settledKey: string | null
 }
 
 export function useEngineQuery<T>(
@@ -21,13 +31,18 @@ export function useEngineQuery<T>(
     enabled = true
 ): EngineQueryState<T> {
     const { client, status } = useEngine()
-    const [state, setState] = useState<EngineQueryState<T>>({
+    const [state, setState] = useState<QueryState<T>>({
         data: undefined,
         isLoading: enabled,
         error: null,
-        dataKey: null,
+        settledKey: null,
     })
     const argsKey = JSON.stringify(args)
+    // The method belongs in the key as much as the arguments do: a call site
+    // that switched method while passing identical arguments would otherwise
+    // have its old result read as fresh. No call site does that today, so
+    // this is closing the hole rather than fixing a live fault.
+    const queryKey = `${method}:${argsKey}`
     // Whether a client exists, not the client object itself: `client` goes
     // from null to a real EngineClient exactly once (EngineProvider's own
     // creation effect runs after this hook's, so the first render or two
@@ -54,11 +69,11 @@ export function useEngineQuery<T>(
         // asked about. The guarantee consumers rely on is the derivation at
         // the end of this hook, not this line -- see the comment there.
         setState((s) =>
-            s.dataKey === argsKey
+            s.settledKey === queryKey
                 ? { ...s, isLoading: true }
                 : {
                       data: undefined,
-                      dataKey: null,
+                      settledKey: null,
                       isLoading: true,
                       error: null,
                   }
@@ -69,7 +84,7 @@ export function useEngineQuery<T>(
                 if (!cancelled) {
                     setState({
                         data,
-                        dataKey: argsKey,
+                        settledKey: queryKey,
                         isLoading: false,
                         error: null,
                     })
@@ -79,7 +94,10 @@ export function useEngineQuery<T>(
                 if (!cancelled) {
                     setState({
                         data: undefined,
-                        dataKey: argsKey,
+                        // Stamped on the error path too: without it the mask
+                        // below would hide the error and leave the consumer
+                        // loading forever.
+                        settledKey: queryKey,
                         isLoading: false,
                         error: e instanceof Error ? e.message : String(e),
                     })
@@ -90,8 +108,17 @@ export function useEngineQuery<T>(
         }
         // status.phase/type re-run the query as data arrives in the worker.
         // `client` is deliberately omitted in favour of `hasClient` -- see
-        // the comment on its declaration above.
-    }, [hasClient, method, argsKey, enabled, status?.phase, status?.type])
+        // the comment on its declaration above. `queryKey` covers both
+        // `method` and `argsKey`, which are listed anyway for the linter.
+    }, [
+        hasClient,
+        method,
+        argsKey,
+        queryKey,
+        enabled,
+        status?.phase,
+        status?.type,
+    ])
 
     // A result belongs to the arguments it was asked for, and that is
     // enforced here, during render, rather than by clearing state in the
@@ -105,18 +132,24 @@ export function useEngineQuery<T>(
     // because its loaded row count no longer matched the offset. Masking the
     // stale result during render means the consumer never sees it at all.
     //
-    // The test is the arguments key and nothing else. This effect also
-    // re-runs on every engine load phase and type change; those re-runs ask
-    // the same question, so the answer already on screen is still that
-    // question's answer, and blanking it would flash a loader over an
-    // already rendered matrix several times per load.
-    if (state.dataKey !== argsKey) {
-        return {
-            data: undefined,
-            dataKey: null,
-            isLoading: enabled,
-            error: null,
-        }
-    }
-    return state
+    // The test is the query key and nothing else. This effect also re-runs
+    // on every engine load phase and type change; those re-runs ask the same
+    // question, so the answer already on screen is still that question's
+    // answer, and blanking it would flash a loader over an already rendered
+    // matrix several times per load.
+    return useMemo(
+        () =>
+            state.settledKey === queryKey
+                ? {
+                      data: state.data,
+                      isLoading: state.isLoading,
+                      error: state.error,
+                  }
+                : {
+                      data: undefined,
+                      isLoading: enabled,
+                      error: null,
+                  },
+        [state, queryKey, enabled]
+    )
 }

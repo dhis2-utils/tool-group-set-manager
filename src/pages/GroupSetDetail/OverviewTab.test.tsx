@@ -66,7 +66,6 @@ it('keeps the matrix on screen while the same query is re-run during a load', ()
         data: result,
         isLoading: true,
         error: null,
-        dataKey: 'k',
     })
     renderTab()
     expect(screen.getByText('Bo')).toBeInTheDocument()
@@ -80,7 +79,6 @@ it('shows the loader, not stale numbers, when the arguments change', () => {
         data: undefined,
         isLoading: true,
         error: null,
-        dataKey: null,
     })
     const { container } = renderTab()
     expect(screen.queryByText('Bo')).not.toBeInTheDocument()
