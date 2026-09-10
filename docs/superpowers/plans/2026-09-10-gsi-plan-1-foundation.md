@@ -6,7 +6,7 @@
 
 **Architecture:** Pure TypeScript engine (`src/engine`) with typed-array indexes runs in a Web Worker; a data layer (`src/data`) loads objects and memberships from SQL views when present or from the metadata API otherwise, and caches raw arrays in IndexedDB; React pages (`src/pages`) talk to the worker through a promise-based client. Writes, history and the integrity overlay are Plans 2 and 3.
 
-**Tech Stack:** `@dhis2/cli-app-scripts` 12 (Vite), TypeScript, pnpm, React 18, `@dhis2/ui` 10, `@dhis2/app-runtime` 3, react-router-dom (hash router), `@tanstack/react-query@4`, `@tanstack/react-table@8`, `@tanstack/react-virtual@3`, `idb` 8, Jest + React Testing Library.
+**Tech Stack:** `@dhis2/cli-app-scripts` 12 (Vite), TypeScript, pnpm, React 18, `@dhis2/ui` 10, `@dhis2/app-runtime` 3, react-router-dom (hash router), `@tanstack/react-query@4`, `@tanstack/react-virtual@3`, `idb` 8, Jest + React Testing Library.
 
 **Spec:** `docs/superpowers/specs/2026-09-10-group-set-integrity-tool-design.md`
 
@@ -50,7 +50,7 @@ src/engine/protocol.ts            request/response message types
 src/engine/worker.ts              worker entry: dispatches protocol messages to EngineStore
 src/engine/client.ts              EngineClient: promise API over postMessage
 src/engine/perf.test.ts           300K synthetic tree budget test
-src/data/types.ts                 ObjectsPayload, MembershipsPayload, GroupSetsPayload
+src/data/endpoints.ts             ENDPOINTS: collection/group/member/groupSet paths per type
 src/data/csv.ts                   parseCsv (3 plain columns)
 src/data/sources/DataSource.ts    interface
 src/data/sources/metadataSource.ts
@@ -98,7 +98,7 @@ rsync -a --exclude .git --exclude docs gsi-scaffold/ ./ && rm -rf gsi-scaffold
 ```bash
 pnpm update --latest @dhis2/app-runtime @dhis2/ui @dhis2/cli-app-scripts
 pnpm add --save-dev @dhis2/api-types @testing-library/jest-dom @testing-library/react @testing-library/user-event @types/jest eslint-import-resolver-typescript
-pnpm add @tanstack/react-query@4 @tanstack/react-table@8 @tanstack/react-virtual@3 react-router-dom idb
+pnpm add @tanstack/react-query@4 @tanstack/react-virtual@3 react-router-dom idb
 ```
 
 If native binaries fail to load later (`@rollup/rollup-linux-*` missing), add to `pnpm-workspace.yaml`:
@@ -2931,7 +2931,11 @@ const groupSetsBody = {
         },
     ],
     dataElementGroupSets: [],
-    indicatorGroupSets: [],
+    // An indicator set with a group is needed so the indicator type is actually
+    // loaded; types without group sets are skipped before any request is made.
+    indicatorGroupSets: [
+        { id: 'igs', displayName: 'IGS', compulsory: false, access: { write: false }, indicatorGroups: [{ id: 'ig1', displayName: 'IG1', access: { write: false } }] },
+    ],
     categoryOptionGroupSets: [],
 }
 
@@ -2970,6 +2974,8 @@ describe('loadAll', () => {
         await loadAll({ source: second, fetcher, cache, engine: inlineEngine(), onStatus: (s) => status.push(s) })
         expect(second.loads.filter((l) => l.endsWith('organisationUnit'))).toEqual([])
         expect(status[status.length - 1].fromCache.organisationUnit).toBe(true)
+        // The indicator type has a group set too, so it is loaded, not skipped.
+        expect(second.loads).toContain('objects:indicator')
     })
 
     it('records an error for a failing type and still loads the others', async () => {
