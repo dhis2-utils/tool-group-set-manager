@@ -135,26 +135,18 @@ export async function loadAll(
                 await deps.engine.call('setNames', type, names)
             }
 
-            // A total of zero means the collection is (as far as the server
-            // is concerned) empty. That's indistinguishable from a total
-            // endpoint that hiccupped, and caching it would mean the next
-            // load "validates" against that same zero forever. Empty
-            // results earn nothing from caching anyway, so they're simply
-            // never written.
             const total = await objectTotal(deps.fetcher, type).catch(
                 () => objects.ids.length
             )
-            if (total > 0) {
-                const entry: CachedType = {
-                    objects,
-                    memberships,
-                    names,
-                    groupIds,
-                    objectTotal: total,
-                    savedAt: Date.now(),
-                }
-                await deps.cache.put(type, entry)
+            const entry: CachedType = {
+                objects,
+                memberships,
+                names,
+                groupIds,
+                objectTotal: total,
+                savedAt: Date.now(),
             }
+            await deps.cache.put(type, entry)
         } catch (error) {
             status.errors[type] =
                 error instanceof Error ? error.message : String(error)
@@ -178,5 +170,5 @@ async function tryCache(
         return undefined
     }
     const total = await objectTotal(deps.fetcher, type).catch(() => -1)
-    return total > 0 && total === cached.objectTotal ? cached : undefined
+    return total === cached.objectTotal ? cached : undefined
 }

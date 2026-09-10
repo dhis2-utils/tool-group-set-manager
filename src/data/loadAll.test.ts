@@ -167,8 +167,11 @@ describe('loadAll', () => {
             second.loads.filter((l) => l.endsWith('organisationUnit'))
         ).toEqual([])
         expect(status[status.length - 1].fromCache.organisationUnit).toBe(true)
-        // The indicator type has a group set too, so it is loaded, not skipped.
-        expect(second.loads).toContain('objects:indicator')
+        // The indicator type has a group set too, so it is loaded (not
+        // skipped) on the first run and reused from the cache on the
+        // second, exactly like organisation units.
+        expect(status[status.length - 1].fromCache.indicator).toBe(true)
+        expect(second.loads.filter((l) => l.endsWith('indicator'))).toEqual([])
     })
 
     it('records an error for a failing type and still loads the others', async () => {
