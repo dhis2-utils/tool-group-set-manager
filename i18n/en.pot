@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-10T16:39:39.724Z\n"
-"PO-Revision-Date: 2026-09-10T16:39:39.724Z\n"
+"POT-Creation-Date: 2026-09-10T17:11:16.650Z\n"
+"PO-Revision-Date: 2026-09-10T17:11:16.651Z\n"
 
 msgid "group"
 msgstr "group"
@@ -77,6 +77,24 @@ msgstr "Choose the organisation unit to work in"
 msgid "Cancel"
 msgstr "Cancel"
 
+msgid "Organisation unit"
+msgstr "Organisation unit"
+
+msgid "Conflict"
+msgstr "Conflict"
+
+msgid "Total"
+msgstr "Total"
+
+msgid "All objects"
+msgstr "All objects"
+
+msgid "Above the row level"
+msgstr "Above the row level"
+
+msgid "A compulsory group set is checked at every level, including this one"
+msgstr "A compulsory group set is checked at every level, including this one"
+
 msgid "set without issues hidden"
 msgstr "set without issues hidden"
 
@@ -91,6 +109,36 @@ msgstr "Loading failed"
 
 msgid "This type's summary could not be computed"
 msgstr "This type's summary could not be computed"
+
+msgid "Group set not found or not loaded yet."
+msgstr "Group set not found or not loaded yet."
+
+msgid "Dashboard"
+msgstr "Dashboard"
+
+msgid "Not available yet"
+msgstr "Not available yet"
+
+msgid "Set properties…"
+msgstr "Set properties…"
+
+msgid "Fix issues…"
+msgstr "Fix issues…"
+
+msgid "Overview"
+msgstr "Overview"
+
+msgid "Objects"
+msgstr "Objects"
+
+msgid "Objects list coming next"
+msgstr "Objects list coming next"
+
+msgid "Rows"
+msgstr "Rows"
+
+msgid "level"
+msgstr "level"
 
 msgid "Organisation unit group sets"
 msgstr "Organisation unit group sets"

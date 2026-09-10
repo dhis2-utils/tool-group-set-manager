@@ -5,6 +5,7 @@ import { createHashRouter, RouterProvider } from 'react-router-dom'
 import { EngineProvider } from '@/hooks/useEngine'
 import { ScopeProvider } from '@/hooks/useScope'
 import { Dashboard } from '@/pages/Dashboard/Dashboard'
+import { GroupSetDetail } from '@/pages/GroupSetDetail/GroupSetDetail'
 import { SyncUrlWithGlobalShell } from '@/utils/SyncUrlWithGlobalShell'
 
 const queryClient = new QueryClient({
@@ -14,7 +15,10 @@ const queryClient = new QueryClient({
 const router = createHashRouter([
     {
         element: <SyncUrlWithGlobalShell />,
-        children: [{ path: '/', element: <Dashboard /> }],
+        children: [
+            { path: '/', element: <Dashboard /> },
+            { path: '/sets/:setId', element: <GroupSetDetail /> },
+        ],
     },
 ])
 

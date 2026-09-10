@@ -1,0 +1,26 @@
+.wrap {
+    overflow-x: auto;
+}
+.cell {
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+}
+.cell:hover {
+    background: var(--colors-blue050);
+}
+.error {
+    color: var(--colors-red600);
+    font-weight: 500;
+}
+.zero {
+    color: var(--colors-grey500);
+}
+.hint {
+    font-size: 11px;
+    color: var(--colors-grey600);
+    font-weight: 400;
+}
+.totalRow td {
+    font-weight: 500;
+    background: var(--colors-grey100);
+}
