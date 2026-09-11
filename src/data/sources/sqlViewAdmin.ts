@@ -1,13 +1,5 @@
 import { fetchJson, Fetcher } from './DataSource'
-import { SQL_VIEW_DEFINITIONS } from './sqlViewSource'
-
-/**
- * The SQL view types this app will read (see selectSource.ts, whose
- * `USABLE_TYPES` this must stay consistent with -- a status page that calls
- * a view "usable" but which `selectSource` would then refuse would be
- * actively misleading).
- */
-const USABLE_TYPES = ['VIEW', 'QUERY']
+import { SQL_VIEW_DEFINITIONS, USABLE_SQL_VIEW_TYPES } from './sqlViewSource'
 
 interface SqlViewRow {
     id: string
@@ -75,7 +67,7 @@ export async function checkSqlViews(fetcher: Fetcher): Promise<SqlViewCheck[]> {
                 v &&
                 readable &&
                 v.type !== undefined &&
-                USABLE_TYPES.includes(v.type)
+                USABLE_SQL_VIEW_TYPES.includes(v.type)
             )
             // Only probe when the metadata bar already passes: a view with
             // the wrong code, type or sharing is already known unusable,

@@ -111,11 +111,26 @@ const emptyLoad = (key: string): Loaded => ({
  * the sole member of produces no changes at all, which the caller reads as
  * "nothing to write".
  */
-function computeMembershipChanges(
-    row: Row,
+export function computeMembershipChanges(
+    row: Pick<Row, 'id' | 'groups'>,
     groups: GroupMeta[],
     chosenIndex: number
 ): GroupChange[] {
+    // M6: the same rule `planAssignment` applies in the engine -- a move is
+    // blocked when the target needs an addition and is not writable, or
+    // when any group the object must leave is not writable. The membership
+    // control disables those options too, but an invariant about what may
+    // be written belongs in the layer that builds the write, not only in
+    // the one that renders the choice.
+    const target = groups[chosenIndex]
+    const needsAddition = !row.groups.includes(chosenIndex)
+    const deletionPositions = row.groups.filter((p) => p !== chosenIndex)
+    if (
+        (needsAddition && !target?.canWrite) ||
+        deletionPositions.some((p) => groups[p] && !groups[p].canWrite)
+    ) {
+        return []
+    }
     const changes: GroupChange[] = []
     row.groups.forEach((pos) => {
         if (pos !== chosenIndex) {
@@ -129,8 +144,7 @@ function computeMembershipChanges(
             }
         }
     })
-    if (!row.groups.includes(chosenIndex)) {
-        const target = groups[chosenIndex]
+    if (needsAddition) {
         if (target) {
             changes.push({
                 groupId: target.id,
@@ -264,9 +278,15 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
             // means the assignment itself did not land -- the only case
             // reported as a failure.
             if (result.unaccounted.length > 0) {
+                // M2: a single-object move is a deletion plus an addition,
+                // and a partial write can land the deletions without the
+                // addition -- leaving the object in no group at all, which
+                // is the violation this app exists to find. "Try again"
+                // alone did not say that, so the state the user may now be
+                // looking at is named.
                 setFailureAlert(
                     i18n.t(
-                        'The group change could not be fully applied. Reload and try again.'
+                        'The group change could not be fully applied, so this object may now be in no group at all. Reload and check it before trying again.'
                     )
                 )
             }
@@ -286,6 +306,27 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
             if (info) {
                 setInfoAlert(info)
             }
+        } catch (e) {
+            // M1: the same guard both dialogs have. `write()` does the
+            // server write first and only then invalidates the cache,
+            // records History and tells the engine -- so a rejection here
+            // means the change may well be on the server. Swallowing it
+            // (this was a bare try/finally) left the user with an
+            // unhandled rejection and no signal at all.
+            //
+            // Deliberately no retry offer, here or in either dialog (the
+            // parked "Retry not offered when write() rejects" item): a
+            // rejection says nothing about which batches landed, so a
+            // retry would resend an unknown amount of an unknown change.
+            // Re-reading is the only honest next step.
+            setFailureAlert(
+                interpolate(
+                    i18n.t(
+                        'The result could not be confirmed — the change may have reached the server. Reload and check History to see what happened. ({message})'
+                    ),
+                    { message: e instanceof Error ? e.message : String(e) }
+                )
+            )
         } finally {
             setWritingRowIds((prev) => {
                 const next = new Set(prev)

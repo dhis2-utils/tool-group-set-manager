@@ -484,6 +484,81 @@ describe('BulkFixDialog preview step', () => {
         expect(downloadName).toBe('Ownership.csv')
         clickSpy.mockRestore()
     })
+
+    it('builds the After lookup once for the whole export, not once per row (I2)', async () => {
+        // The cost of the CSV must not grow with population x changed ids:
+        // on the 200k-org-unit instance this app targets, a per-row
+        // `Array.includes` over the change's id arrays is ~99 s of blocking
+        // main-thread work. Counting the scans is what pins that -- a
+        // prepared lookup scans each change's arrays a fixed number of
+        // times regardless of how many rows the export pages through.
+        let includesCalls = 0
+        const counted = (ids: string[]): string[] => {
+            const arr = [...ids]
+            Object.defineProperty(arr, 'includes', {
+                value: (...args: [string]) => {
+                    includesCalls += 1
+                    return Array.prototype.includes.apply(arr, args)
+                },
+            })
+            return arr
+        }
+        const changes = [
+            {
+                groupId: 'g2',
+                additions: counted(['a1', 'a2', 'a3']),
+                deletions: counted(['a4']),
+            },
+        ]
+        mockUseEngineQuery.mockImplementation((method: string) => {
+            if (method === 'planAssignment') {
+                return {
+                    data: plan({ changes, affected: 3 }),
+                    isLoading: false,
+                    error: null,
+                }
+            }
+            return {
+                data: { total: 0, offset: 0, items: [] },
+                isLoading: false,
+                error: null,
+            }
+        })
+        const rows = Array.from({ length: 20 }, (_, i) => ({
+            index: i,
+            id: `a${i}`,
+            displayName: `A${i}`,
+            level: 3,
+            parentId: null,
+            status: 1,
+            groups: [0],
+        }))
+        mockClientCall.mockResolvedValue({ total: 20, offset: 0, items: rows })
+        Object.defineProperty(URL, 'createObjectURL', {
+            value: jest.fn(() => 'blob:mock'),
+            writable: true,
+        })
+        Object.defineProperty(URL, 'revokeObjectURL', {
+            value: jest.fn(),
+            writable: true,
+        })
+        const clickSpy = jest
+            .spyOn(HTMLAnchorElement.prototype, 'click')
+            .mockImplementation(() => undefined)
+
+        await goToPreview('Beta')
+        includesCalls = 0
+        await act(async () => {
+            fireEvent.click(
+                await screen.findByRole('button', { name: /download.*csv/i })
+            )
+        })
+        await waitFor(() => expect(clickSpy).toHaveBeenCalled())
+
+        // One change, twenty rows: a per-row scan would be 40.
+        expect(includesCalls).toBeLessThanOrEqual(2)
+        clickSpy.mockRestore()
+    })
 })
 
 describe('BulkFixDialog Critical fix: move-to-catch-all never touches a correctly categorised object', () => {

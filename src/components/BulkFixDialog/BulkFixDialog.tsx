@@ -18,6 +18,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import styles from './BulkFixDialog.module.css'
 import {
     afterIds,
+    afterIdsPrepared,
+    prepareChanges,
     ChangeSetPreview,
     ChangeSetPreviewObjects,
     PreviewRow,
@@ -381,6 +383,9 @@ export const BulkFixDialog = ({
             ]
             // I5: the same `populationFilter` the plan and the sample use,
             // so the CSV can never list a row the plan disagrees with.
+            // I2: the After lookup is built once here, not per row -- see
+            // `prepareChanges`.
+            const prepared = prepareChanges(plan.changes)
             let offset = 0
             let total = Infinity
             while (offset < total) {
@@ -403,7 +408,7 @@ export const BulkFixDialog = ({
                             set.groups
                         ),
                         namesOf(
-                            afterIds(item, set.groups, plan.changes),
+                            afterIdsPrepared(item, set.groups, prepared),
                             set.groups
                         ),
                     ])
@@ -497,9 +502,9 @@ export const BulkFixDialog = ({
         })
             .then((result) => {
                 setWriteResult(result)
-                // I5: merge over only the groups this retry actually
-                // reported on -- every other group's earlier, real outcome
-                // must survive on the panel.
+                // I5/I1: merge per batch -- every other group's earlier,
+                // real outcome, and every batch of THIS group the server
+                // already confirmed, must survive on the panel.
                 setMergedOutcomes((prev) =>
                     mergeOutcomes(prev, result.outcomes)
                 )

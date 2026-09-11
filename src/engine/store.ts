@@ -244,46 +244,66 @@ export class EngineStore {
             })
             t.membersByGroup.set(change.groupId, Array.from(set))
         })
-        this.evaluate()
+        // M5: only the group sets that actually contain one of the groups
+        // this change named can have changed -- a set's membership and
+        // status are derived from its own groups' member lists and nothing
+        // else. Re-evaluating every set of the type meant a full rebuild
+        // of seven sets over 266,000 org units for one inline row
+        // assignment, paid per click.
+        const touchedGroups = new Set(changes.map((c) => c.groupId))
+        this.groupSets.forEach((set) => {
+            if (
+                set.objectType === objectType &&
+                set.groups.some((g) => touchedGroups.has(g.id))
+            ) {
+                this.evaluateOne(set)
+            }
+        })
     }
 
     /** Rebuilds membership and status for every set whose object type is loaded. */
     evaluate(): void {
         this.sets.clear()
         this.groupSets.forEach((set) => {
-            const t = this.types.get(set.objectType)
-            if (!t) {
-                return
-            }
-            const groupMembers = set.groups.map((g) => {
-                const ids = t.membersByGroup.get(g.id) ?? []
-                const out: number[] = []
-                ids.forEach((id) => {
-                    const idx = t.indexOf.get(id)
-                    if (idx !== undefined) {
-                        out.push(idx)
-                    }
-                })
-                return Int32Array.from(out)
-            })
-            const membership = buildSetMembership(t.ids.length, groupMembers)
-            const population = populationFor(
-                set,
-                t.ids.length,
-                membership,
-                t.attrs,
-                this.config
-            )
-            const level = t.hierarchy ? t.hierarchy.level : null
-            const status = evaluateSet(
-                set,
-                membership,
-                population,
-                level,
-                this.config
-            )
-            this.sets.set(set.id, { set, membership, status })
+            this.evaluateOne(set)
         })
+    }
+
+    /** One set's rebuild -- see `evaluate` and, for why it is callable on
+     * its own, `applyChangeSet`. */
+    private evaluateOne(set: GroupSetMeta): void {
+        const t = this.types.get(set.objectType)
+        if (!t) {
+            return
+        }
+        const groupMembers = set.groups.map((g) => {
+            const ids = t.membersByGroup.get(g.id) ?? []
+            const out: number[] = []
+            ids.forEach((id) => {
+                const idx = t.indexOf.get(id)
+                if (idx !== undefined) {
+                    out.push(idx)
+                }
+            })
+            return Int32Array.from(out)
+        })
+        const membership = buildSetMembership(t.ids.length, groupMembers)
+        const population = populationFor(
+            set,
+            t.ids.length,
+            membership,
+            t.attrs,
+            this.config
+        )
+        const level = t.hierarchy ? t.hierarchy.level : null
+        const status = evaluateSet(
+            set,
+            membership,
+            population,
+            level,
+            this.config
+        )
+        this.sets.set(set.id, { set, membership, status })
     }
 
     /**
@@ -371,6 +391,23 @@ export class EngineStore {
 
     indexOf(objectType: ObjectType, id: string): number {
         return this.types.get(objectType)?.indexOf.get(id) ?? -1
+    }
+
+    /**
+     * I3: the batched form. History's Export resolves every id in a change
+     * set, and a national fix's change set is unbounded -- the writer's own
+     * doc comment names a hundred thousand memberships. One `indexOf` call
+     * per id is a hundred thousand sequential worker round-trips and
+     * minutes of frozen UI; the map is already here, so one call answers
+     * the lot. Unknown ids (and an unloaded type) give -1 in place, so the
+     * result is positionally aligned with `ids`.
+     */
+    indexesOf(objectType: ObjectType, ids: string[]): number[] {
+        const t = this.types.get(objectType)
+        if (!t) {
+            return ids.map(() => -1)
+        }
+        return ids.map((id) => t.indexOf.get(id) ?? -1)
     }
 
     /**

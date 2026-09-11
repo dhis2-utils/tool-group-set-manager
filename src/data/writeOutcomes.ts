@@ -126,15 +126,28 @@ export function outcomeText(
 }
 
 /**
- * A retry only ever resends the groups its own `changes` named -- so the
- * outcomes for every OTHER group must survive untouched, or the panel
- * would silently drop a group's real, permanent result. `next` replaces
- * `prev` only for the groups it actually reports on.
+ * A retry only ever resends the batches the previous write left
+ * `unaccounted` -- a *subset* of the batches of the groups it names. So
+ * merging must be done per batch, not per group (I1): every batch the
+ * server already confirmed in full is real and permanent, and the panel
+ * must never un-report it.
+ *
+ * Concretely: a group whose batch A was confirmed 500/500 and whose batch B
+ * errored is retried for B alone. Replacing all of the group's outcomes
+ * with the retry's would leave only B, so a retry that failed again would
+ * render as "the group failed" and the 500 memberships that really are on
+ * the server would vanish from the report. What is kept instead is every
+ * confirmed batch of every group, plus the outcomes of any group the retry
+ * did not report on at all; only the unconfirmed batches of the groups the
+ * retry names are replaced by what it reports.
  */
 export function mergeOutcomes(
     prev: BatchOutcome[],
     next: BatchOutcome[]
 ): BatchOutcome[] {
     const nextGroupIds = new Set(next.map((o) => o.groupId))
-    return [...prev.filter((o) => !nextGroupIds.has(o.groupId)), ...next]
+    const kept = prev.filter(
+        (o) => !nextGroupIds.has(o.groupId) || isFullyApplied(o)
+    )
+    return [...kept, ...next]
 }

@@ -1,4 +1,5 @@
 import { GroupChange } from './changeSet'
+import * as rules from './rules'
 import { EngineStore } from './store'
 import { GroupSetMeta, Status } from './types'
 
@@ -975,5 +976,125 @@ describe('EngineStore.planRevert', () => {
         // Must not emit an addition to a group no longer in the set.
         expect(plan.changes).toEqual([])
         expect(plan.affected).toBe(0)
+    })
+})
+
+describe('EngineStore.indexesOf', () => {
+    it('resolves many ids in one call, in order, with -1 for unknown ids', () => {
+        const store = loadedStore()
+
+        expect(
+            store.indexesOf('organisationUnit', ['a2', 'nope', 'root'])
+        ).toEqual([
+            store.indexOf('organisationUnit', 'a2'),
+            -1,
+            store.indexOf('organisationUnit', 'root'),
+        ])
+    })
+
+    it('returns -1 for every id of a type that is not loaded', () => {
+        const store = loadedStore()
+
+        expect(store.indexesOf('indicator', ['i1', 'i2'])).toEqual([-1, -1])
+    })
+})
+
+describe('EngineStore.applyChangeSet re-evaluation (M5)', () => {
+    /**
+     * On a 266k-org-unit instance with seven sets, re-evaluating every set
+     * of the type for one inline row assignment is a full rebuild per
+     * click. A change can only affect the sets that contain one of the
+     * groups it names, so only those are rebuilt.
+     */
+    function twoSetStore(): EngineStore {
+        const store = new EngineStore()
+        store.loadObjects({
+            objectType: 'organisationUnit',
+            ids: ['root', 'a1', 'a2'],
+            names: ['Root', 'a1', 'a2'],
+            level: Uint8Array.from([1, 2, 2]),
+            parentIds: [null, 'root', 'root'],
+            domainType: null,
+            categoryIdsOfOption: null,
+        })
+        store.setGroupSets([
+            {
+                id: 'setA',
+                displayName: 'Set A',
+                objectType: 'organisationUnit',
+                compulsory: true,
+                dataDimension: true,
+                canWrite: true,
+                groups: [
+                    { id: 'a1g', displayName: 'A1', canWrite: true },
+                    { id: 'a2g', displayName: 'A2', canWrite: true },
+                ],
+            },
+            {
+                id: 'setB',
+                displayName: 'Set B',
+                objectType: 'organisationUnit',
+                compulsory: true,
+                dataDimension: true,
+                canWrite: true,
+                groups: [{ id: 'b1g', displayName: 'B1', canWrite: true }],
+            },
+        ])
+        store.loadMemberships({
+            objectType: 'organisationUnit',
+            groups: [
+                { groupId: 'a1g', memberIds: ['a1'] },
+                { groupId: 'a2g', memberIds: ['a2'] },
+                { groupId: 'b1g', memberIds: ['a1', 'a2'] },
+            ],
+        })
+        store.evaluate()
+        return store
+    }
+
+    it('re-evaluates only the sets whose groups the change named', () => {
+        const store = twoSetStore()
+        const spy = jest.spyOn(rules, 'evaluateSet')
+
+        store.applyChangeSet('organisationUnit', [
+            { groupId: 'a1g', additions: [], deletions: ['a1'] },
+            { groupId: 'a2g', additions: ['a1'], deletions: [] },
+        ])
+
+        expect(spy.mock.calls.map((c) => c[0].id)).toEqual(['setA'])
+        spy.mockRestore()
+    })
+
+    it('still applies the change to the set it named', () => {
+        const store = twoSetStore()
+        store.applyChangeSet('organisationUnit', [
+            { groupId: 'a1g', additions: [], deletions: ['a1'] },
+            { groupId: 'a2g', additions: ['a1'], deletions: [] },
+        ])
+
+        const page = store.objectsFor(
+            'setA',
+            { objectType: 'organisationUnit', rootId: null },
+            { group: 1 },
+            0,
+            10
+        )
+        expect(page.items.map((i) => i.id).sort()).toEqual(['a1', 'a2'])
+    })
+
+    it('leaves a set the change did not name untouched and still queryable', () => {
+        const store = twoSetStore()
+        store.applyChangeSet('organisationUnit', [
+            { groupId: 'a1g', additions: [], deletions: ['a1'] },
+        ])
+
+        const page = store.objectsFor(
+            'setB',
+            { objectType: 'organisationUnit', rootId: null },
+            { group: 0 },
+            0,
+            10
+        )
+        expect(page.items.map((i) => i.id).sort()).toEqual(['a1', 'a2'])
     })
 })

@@ -22,6 +22,23 @@ jest.mock('@/components/BulkFixDialog/BulkFixDialog', () => ({
     ),
 }))
 
+// Same stand-in treatment as BulkFixDialog: this file pins the wiring,
+// SetPropertiesDialog.test.tsx pins the dialog's own behaviour.
+jest.mock('@/components/SetPropertiesDialog/SetPropertiesDialog', () => ({
+    SetPropertiesDialog: ({
+        onClose,
+        onApplied,
+    }: {
+        onClose: () => void
+        onApplied: () => void
+    }) => (
+        <div>
+            <button onClick={onClose}>mock-properties-close</button>
+            <button onClick={onApplied}>mock-properties-applied</button>
+        </div>
+    ),
+}))
+
 // babel-plugin-jest-hoist only allows a jest.mock() factory to reference
 // out-of-scope variables whose names start with "mock" (see the matching
 // comment in Dashboard.test.tsx and useEngineQuery.test.tsx).
@@ -120,6 +137,7 @@ jest.mock('@/hooks/useUserScope', () => {
 })
 
 afterEach(() => {
+    mockGroupSets[0].canWrite = true
     mockResolveRoots = null
     mockEngine.client = null
     mockScope.rootId = 'root1'
@@ -254,5 +272,37 @@ describe('bulk fix dialog wiring (D4/D5)', () => {
                 screen.queryByText('mock-dialog-close')
             ).not.toBeInTheDocument()
         )
+    })
+})
+
+describe('set properties wiring (I4)', () => {
+    it('opens the Set properties dialog from the header and reloads once a change applies', async () => {
+        renderDetail()
+
+        fireEvent.click(await screen.findByText('Set properties…'))
+        fireEvent.click(await screen.findByText('mock-properties-applied'))
+
+        // The properties decide what counts as a violation on every screen
+        // for this set, so the snapshot they are computed from must be
+        // re-read -- and, as with the bulk fix dialog, applying must not
+        // dismiss the dialog.
+        expect(mockReload).toHaveBeenCalledWith(false)
+        expect(screen.getByText('mock-properties-applied')).toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('mock-properties-close'))
+        await waitFor(() =>
+            expect(
+                screen.queryByText('mock-properties-close')
+            ).not.toBeInTheDocument()
+        )
+    })
+
+    it('does not offer Set properties on a group set the user cannot write to', async () => {
+        mockGroupSets[0].canWrite = false
+        renderDetail()
+
+        expect(await screen.findByText('Set properties…')).toBeDisabled()
+        fireEvent.click(screen.getByText('Set properties…'))
+        expect(screen.queryByText('mock-properties-close')).toBeNull()
     })
 })

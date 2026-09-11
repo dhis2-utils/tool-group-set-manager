@@ -35,6 +35,7 @@ export type EngineMethod =
     | 'resolve'
     | 'resolveParents'
     | 'indexOf'
+    | 'indexesOf'
     | 'levelOf'
     | 'reset'
     | 'dropType'

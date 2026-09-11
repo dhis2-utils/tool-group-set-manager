@@ -488,7 +488,7 @@ export const History = () => {
     // *recorded* change set (never the revert plan), with the change
     // set's own metadata carried on every row so the file is
     // self-describing once downloaded. Object names are resolved through
-    // the engine's plain `indexOf`/`resolve` (not `objectsFor`, which needs
+    // the engine's plain `indexesOf`/`resolve` (not `objectsFor`, which needs
     // a group set the engine still knows about -- Export must work even
     // for D4's "group set no longer exists" rows).
     const handleExport = async (cs: ChangeSet) => {
@@ -504,17 +504,21 @@ export const History = () => {
             if (client && ids.length > 0) {
                 const indexes: number[] = []
                 const idOfIndexPos: string[] = []
-                for (const id of ids) {
-                    const idx = await client.call<number>(
-                        'indexOf',
-                        cs.objectType,
-                        id
-                    )
+                // I3: one round-trip for every id, not one per id. A change
+                // set is unbounded (see `useMembershipWrite`), and a
+                // sequential `indexOf` per id was minutes of frozen UI on a
+                // national fix.
+                const allIndexes = await client.call<number[]>(
+                    'indexesOf',
+                    cs.objectType,
+                    ids
+                )
+                allIndexes.forEach((idx, i) => {
                     if (idx >= 0) {
                         indexes.push(idx)
-                        idOfIndexPos.push(id)
+                        idOfIndexPos.push(ids[i])
                     }
-                }
+                })
                 if (indexes.length > 0) {
                     const resolved = await client.call<ObjectRef[]>(
                         'resolve',

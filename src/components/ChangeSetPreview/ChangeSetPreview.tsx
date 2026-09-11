@@ -77,25 +77,61 @@ function namesOf(positions: number[], groups: GroupMeta[]): string {
  * (for its own After column) and imports this rather than keeping a
  * second copy that could quietly drift from what the preview shows.
  */
-export function afterIds(
+export interface PreparedChange {
+    groupId: string
+    additions: Set<string>
+    deletions: Set<string>
+}
+
+/**
+ * I2: the id arrays of a national fix hold the whole population, so
+ * testing membership with `Array.includes` once per row is quadratic --
+ * measured at roughly 99 seconds of blocking main-thread work for a
+ * 200,000-object CSV export. A caller that applies the same `changes` to
+ * many rows builds this once, outside its row loop, and the per-row cost
+ * becomes a hash lookup per change.
+ */
+export function prepareChanges(changes: GroupChange[]): PreparedChange[] {
+    return changes.map((change) => ({
+        groupId: change.groupId,
+        additions: new Set(change.additions),
+        deletions: new Set(change.deletions),
+    }))
+}
+
+/** `afterIds` against an already-prepared `changes` -- see `prepareChanges`. */
+export function afterIdsPrepared(
     row: PreviewRow,
     groups: GroupMeta[],
-    changes: GroupChange[]
+    prepared: PreparedChange[]
 ): string[] {
     const ids = new Set(
         row.groups
             .map((p) => groups[p]?.id)
             .filter((id): id is string => Boolean(id))
     )
-    changes.forEach((change) => {
-        if (change.deletions.includes(row.id)) {
+    prepared.forEach((change) => {
+        if (change.deletions.has(row.id)) {
             ids.delete(change.groupId)
         }
-        if (change.additions.includes(row.id)) {
+        if (change.additions.has(row.id)) {
             ids.add(change.groupId)
         }
     })
     return Array.from(ids)
+}
+
+/**
+ * The one-shot form, for a caller with a single row (or a bounded sample)
+ * in hand. Anything looping over a population must prepare once and call
+ * `afterIdsPrepared` instead.
+ */
+export function afterIds(
+    row: PreviewRow,
+    groups: GroupMeta[],
+    changes: GroupChange[]
+): string[] {
+    return afterIdsPrepared(row, groups, prepareChanges(changes))
 }
 
 function afterLabel(

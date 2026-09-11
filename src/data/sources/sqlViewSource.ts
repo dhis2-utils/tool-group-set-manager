@@ -10,6 +10,21 @@ export interface SqlViewIds {
     orgUnitMemberships: string
 }
 
+/**
+ * M4: the SQL view types this app will read, declared once. Both the
+ * reader's source selection (`selectSource`) and the Settings status/repair
+ * screen (`sqlViewAdmin`) must agree on this: a status page that calls a
+ * view "usable" -- or offers to repair it -- when the reader would then
+ * refuse it is actively misleading, and a comment asking two copies to stay
+ * in step is not a mechanism.
+ *
+ * It is an allow list rather than a `MATERIALIZED_VIEW` deny list because a
+ * response with no `type` at all (a trimmed or older payload) must not slip
+ * a materialised view through: the whole point of the check is that stale
+ * rows are invisible to the user, so an unknown type is unusable.
+ */
+export const USABLE_SQL_VIEW_TYPES = ['VIEW', 'QUERY']
+
 export const SQL_VIEW_CODES = {
     orgUnits: 'GSI_ORGUNITS',
     orgUnitNames: 'GSI_ORGUNIT_NAMES',

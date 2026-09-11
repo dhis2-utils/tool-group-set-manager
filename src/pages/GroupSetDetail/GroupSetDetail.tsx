@@ -6,6 +6,7 @@ import styles from './GroupSetDetail.module.css'
 import { ObjectsTab } from './ObjectsTab'
 import { OverviewTab } from './OverviewTab'
 import { BulkFixDialog } from '@/components/BulkFixDialog/BulkFixDialog'
+import { SetPropertiesDialog } from '@/components/SetPropertiesDialog/SetPropertiesDialog'
 import { MatrixColumn } from '@/components/SummaryMatrix/SummaryMatrix'
 import { ObjectFilter } from '@/engine/queries'
 import { ObjectRef, ScopeRef } from '@/engine/store'
@@ -53,6 +54,9 @@ export const GroupSetDetail = () => {
     const [bulkFixFilter, setBulkFixFilter] = useState<ObjectFilter | null>(
         null
     )
+    // I4: spec 3.5's "Set properties" action. The dialog itself does the
+    // confirm-then-report work; this only decides when it is on screen.
+    const [propertiesOpen, setPropertiesOpen] = useState(false)
 
     // The scope's own level, needed so the row level list starts *below* the
     // scope and the matrix cannot key rows on org units outside it. The
@@ -185,7 +189,18 @@ export const GroupSetDetail = () => {
                     </div>
                 </div>
                 <div className={styles.actions}>
-                    <Button small disabled title={i18n.t('Not available yet')}>
+                    <Button
+                        small
+                        disabled={!set.canWrite}
+                        title={
+                            set.canWrite
+                                ? undefined
+                                : i18n.t(
+                                      'You do not have permission to change this group set'
+                                  )
+                        }
+                        onClick={() => setPropertiesOpen(true)}
+                    >
                         {i18n.t('Set properties…')}
                     </Button>
                     <Button
@@ -229,6 +244,20 @@ export const GroupSetDetail = () => {
                     onFilter={setFilter}
                     levels={levels}
                     onBulkFix={() => setBulkFixFilter(filter)}
+                />
+            )}
+            {propertiesOpen && (
+                <SetPropertiesDialog
+                    set={set}
+                    onClose={() => setPropertiesOpen(false)}
+                    // Group set metadata is re-read on every load (it is
+                    // never cached -- only object and membership payloads
+                    // are), so a non-forced reload is enough to bring the
+                    // patched `compulsory`/`dataDimension` back, and with
+                    // them every count that depends on them.
+                    onApplied={() => {
+                        void reload(false)
+                    }}
                 />
             )}
             {bulkFixFilter !== null && (

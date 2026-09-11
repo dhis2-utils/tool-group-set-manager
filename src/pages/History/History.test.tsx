@@ -390,8 +390,8 @@ describe('History', () => {
     it('I4: Export downloads a per-membership-change CSV of the recorded change set', async () => {
         mockChangeSets.changeSets = [changeSet()]
         mockClientCall.mockImplementation((method: string) => {
-            if (method === 'indexOf') {
-                return Promise.resolve(0)
+            if (method === 'indexesOf') {
+                return Promise.resolve([0])
             }
             if (method === 'resolve') {
                 return Promise.resolve([
@@ -449,9 +449,9 @@ describe('History', () => {
         await waitFor(() => expect(clickSpy).toHaveBeenCalled())
 
         expect(mockClientCall).toHaveBeenCalledWith(
-            'indexOf',
+            'indexesOf',
             'organisationUnit',
-            'a1'
+            ['a1']
         )
         expect(downloadName).toBe('Ownership-cs1.csv')
         expect(csvText).toContain('changeSetId')
@@ -463,6 +463,62 @@ describe('History', () => {
         expect(csvText).toContain('added')
         expect(csvText).toContain('removed')
         blobSpy.mockRestore()
+        clickSpy.mockRestore()
+    })
+
+    it('I3: Export resolves every id in one worker round-trip, not one per id', async () => {
+        // A change set is unbounded -- a national fix records a hundred
+        // thousand ids -- so the number of worker round-trips must not grow
+        // with it.
+        const ids = Array.from({ length: 50 }, (_, i) => `a${i}`)
+        mockChangeSets.changeSets = [
+            changeSet({
+                changes: [
+                    { groupId: 'pub', additions: [], deletions: ids },
+                    { groupId: 'other', additions: ids, deletions: [] },
+                ],
+            }),
+        ]
+        mockClientCall.mockImplementation((method: string, ...args) => {
+            if (method === 'indexesOf') {
+                return Promise.resolve((args[1] as string[]).map((_, i) => i))
+            }
+            if (method === 'resolve') {
+                return Promise.resolve(
+                    (args[1] as number[]).map((index) => ({
+                        index,
+                        id: ids[index],
+                        displayName: `Facility ${ids[index]}`,
+                        level: 3,
+                        parentId: null,
+                    }))
+                )
+            }
+            return Promise.resolve(undefined)
+        })
+        Object.defineProperty(URL, 'createObjectURL', {
+            value: jest.fn(() => 'blob:mock'),
+            writable: true,
+        })
+        Object.defineProperty(URL, 'revokeObjectURL', {
+            value: jest.fn(),
+            writable: true,
+        })
+        const clickSpy = jest
+            .spyOn(HTMLAnchorElement.prototype, 'click')
+            .mockImplementation(() => undefined)
+
+        render(<History />)
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+        })
+        await waitFor(() => expect(clickSpy).toHaveBeenCalled())
+
+        const engineCalls = mockClientCall.mock.calls.filter(
+            (c) => c[0] === 'indexesOf' || c[0] === 'indexOf'
+        )
+        expect(engineCalls).toHaveLength(1)
+        expect(engineCalls[0]).toEqual(['indexesOf', 'organisationUnit', ids])
         clickSpy.mockRestore()
     })
 })

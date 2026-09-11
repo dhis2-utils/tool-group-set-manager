@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
-import { ObjectsTable } from './ObjectsTable'
+import { computeMembershipChanges, ObjectsTable } from './ObjectsTable'
 
 // babel-plugin-jest-hoist only allows a jest.mock() factory to reference
 // out-of-scope variables whose names start with "mock" (see the matching
@@ -895,5 +895,85 @@ describe('interactive membership control', () => {
         expect(
             await screen.findByText(/could not be recorded in History/)
         ).toBeInTheDocument()
+    })
+
+    describe('a rejected write is reported, not swallowed (M1/M2)', () => {
+        it('tells the user the change may be real when write() itself rejects', async () => {
+            mockWrite.mockRejectedValue(new Error('cache blew up'))
+            renderWithRows([conflictRow])
+            fireEvent.click(screen.getAllByRole('button')[1])
+            await act(async () => {
+                fireEvent.click(screen.getByText('Assign'))
+            })
+
+            // The server write happens before anything that can reject (cache
+            // invalidation, History), so silence would leave a user whose
+            // change did land believing nothing happened.
+            expect(
+                await screen.findByText(/could not be confirmed/i)
+            ).toBeInTheDocument()
+            // And the row must be usable again rather than stuck disabled.
+            await waitFor(() =>
+                expect(screen.getAllByRole('button')[1]).not.toBeDisabled()
+            )
+        })
+
+        it('names the state a partial move can leave the object in (M2)', async () => {
+            mockWrite.mockResolvedValue({
+                outcomes: [
+                    {
+                        groupId: 'a',
+                        requested: 1,
+                        accepted: 0,
+                        error: 'HTTP 500',
+                    },
+                ],
+                applied: [],
+                unaccounted: [
+                    { groupId: 'a', additions: [], deletions: ['o1'] },
+                ],
+                changeSet: {} as never,
+            })
+            renderWithRows([conflictRow])
+            fireEvent.click(screen.getAllByRole('button')[1])
+            await act(async () => {
+                fireEvent.click(screen.getByText('Assign'))
+            })
+
+            // A move whose deletions landed and whose addition did not leaves
+            // the object in no group at all -- the very violation this app
+            // exists to find, so the message must name it.
+            expect(await screen.findByText(/in no group/i)).toBeInTheDocument()
+        })
+    })
+})
+
+describe('computeMembershipChanges re-checks canWrite itself (M6)', () => {
+    const row = { id: 'o1', groups: [0, 1] }
+    const writable = [
+        { id: 'a', displayName: 'Public', canWrite: true },
+        { id: 'b', displayName: 'Private', canWrite: true },
+    ]
+
+    it('plans the move when every group involved is writable', () => {
+        expect(computeMembershipChanges(row, writable, 1)).toEqual([
+            { groupId: 'a', additions: [], deletions: ['o1'] },
+        ])
+    })
+
+    it('plans nothing when the chosen target is read-only', () => {
+        // `planAssignment` enforces this in the engine for the bulk path;
+        // the per-object path enforced it only through the control's
+        // per-option `disabled`, so the invariant lived in the rendering
+        // layer alone.
+        const groups = [writable[0], { ...writable[1], canWrite: false }]
+        expect(
+            computeMembershipChanges({ id: 'o1', groups: [0] }, groups, 1)
+        ).toEqual([])
+    })
+
+    it('plans nothing when a group the object must leave is read-only', () => {
+        const groups = [{ ...writable[0], canWrite: false }, writable[1]]
+        expect(computeMembershipChanges(row, groups, 1)).toEqual([])
     })
 })
