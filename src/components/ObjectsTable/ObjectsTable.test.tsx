@@ -576,4 +576,93 @@ describe('interactive membership control', () => {
             screen.getByText(/could not be fully applied/)
         ).toBeInTheDocument()
     })
+
+    // I2: the earlier single-row version of this test could not distinguish
+    // "disabled by row id" from "disabled by the table-wide isWriting flag"
+    // -- both read identically with one row on screen. A second row pins
+    // the actual guarantee: only the row that asked for the write is
+    // disabled.
+    it('disables only the row being written to, not the whole table, while a write is outstanding', async () => {
+        let resolveWrite!: (value: unknown) => void
+        mockWrite.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveWrite = resolve
+                })
+        )
+        const otherRow = {
+            index: 1,
+            id: 'o2',
+            displayName: 'Facility 2',
+            level: 4,
+            parentId: 'p',
+            status: 1,
+            groups: [0],
+        }
+        renderWithRows([conflictRow, otherRow])
+
+        // Start a write on the first (conflict) row.
+        fireEvent.click(screen.getAllByRole('button')[1])
+        fireEvent.click(screen.getByText('Assign'))
+        await waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1))
+
+        // Row 1's controls are disabled...
+        const buttons = screen.getAllByRole('button')
+        expect(buttons[0]).toBeDisabled()
+        expect(buttons[1]).toBeDisabled()
+        // ...but row 2's are not, and remain clickable.
+        expect(buttons[2]).not.toBeDisabled()
+        expect(buttons[3]).not.toBeDisabled()
+        fireEvent.click(buttons[3])
+        expect(screen.getByText('Confirm group change')).toBeInTheDocument()
+
+        await act(async () => {
+            resolveWrite({
+                outcomes: [{ groupId: 'a', requested: 1, accepted: 1 }],
+                applied: [{ groupId: 'a', additions: [], deletions: ['o1'] }],
+                unaccounted: [],
+                changeSet: {} as never,
+            })
+        })
+    })
+
+    // M2: `engineError`/`historyError` mean the server change is real --
+    // never reported as a failure -- but must not be silently dropped
+    // either.
+    it('reports engineError as a non-critical notice that the change was saved', async () => {
+        mockWrite.mockResolvedValue({
+            outcomes: [{ groupId: 'a', requested: 1, accepted: 1 }],
+            applied: [{ groupId: 'a', additions: [], deletions: ['o1'] }],
+            unaccounted: [],
+            changeSet: {} as never,
+            engineError: 'worker crashed',
+        })
+        renderWithRows([conflictRow])
+        fireEvent.click(screen.getAllByRole('button')[1])
+        fireEvent.click(screen.getByText('Assign'))
+
+        const notice = await screen.findByText(/was saved to the server/)
+        expect(notice).toBeInTheDocument()
+        // Not the critical failure banner -- the change is real.
+        expect(
+            screen.queryByText(/could not be fully applied/)
+        ).not.toBeInTheDocument()
+    })
+
+    it('reports historyError as a non-critical notice that the change was saved', async () => {
+        mockWrite.mockResolvedValue({
+            outcomes: [{ groupId: 'a', requested: 1, accepted: 1 }],
+            applied: [{ groupId: 'a', additions: [], deletions: ['o1'] }],
+            unaccounted: [],
+            changeSet: {} as never,
+            historyError: 'dataStore down',
+        })
+        renderWithRows([conflictRow])
+        fireEvent.click(screen.getAllByRole('button')[1])
+        fireEvent.click(screen.getByText('Assign'))
+
+        expect(
+            await screen.findByText(/could not be recorded in History/)
+        ).toBeInTheDocument()
+    })
 })

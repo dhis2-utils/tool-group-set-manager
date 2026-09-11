@@ -133,6 +133,37 @@ function computeMembershipChanges(
  * to write to, since every move removes the object from at least one of
  * them.
  */
+/**
+ * M2: `engineError` and `historyError` are independent, and a single write
+ * can surface both at once (the engine call and the history save are two
+ * separate steps after the same confirmed server write). Each full
+ * sentence names, first, that the server change is real, and then what
+ * specifically did not follow it -- never joined fragments, and never
+ * reusing the failure wording, since nothing here failed to reach the
+ * server.
+ */
+function engineHistoryMessage(
+    engineError: boolean,
+    historyError: boolean
+): string | undefined {
+    if (engineError && historyError) {
+        return i18n.t(
+            'The change was saved to the server, but the screen could not be updated and it could not be recorded in History. Reload to see it.'
+        )
+    }
+    if (engineError) {
+        return i18n.t(
+            'The change was saved to the server, but the screen could not be updated to show it. Reload to see it.'
+        )
+    }
+    if (historyError) {
+        return i18n.t(
+            'The change was saved to the server, but could not be recorded in History.'
+        )
+    }
+    return undefined
+}
+
 function disabledReasonFor(row: Row, groups: GroupMeta[]): string | undefined {
     const unwritable = row.groups
         .map((pos) => groups[pos])
@@ -146,18 +177,39 @@ function disabledReasonFor(row: Row, groups: GroupMeta[]): string | undefined {
 
 export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
     const { write } = useMembershipWrite()
-    // D5: one write in flight per table, tracked by which row asked for it
-    // so only that row's controls are disabled -- not the whole table --
-    // and a second click on the *same* row while its write is still
-    // outstanding is ignored rather than queued.
-    const [writingRowId, setWritingRowId] = useState<string | null>(null)
-    const [confirm, setConfirm] = useState<{ row: Row; index: number } | null>(
-        null
+    // D5/I2: tracked per row, as a set of row ids currently writing, so
+    // that only the row(s) actually writing are disabled -- never the
+    // whole table -- and a different row's control stays fully live (can
+    // start its own write) while another row's is outstanding. A second
+    // click on the *same* row while its own write is still outstanding is
+    // ignored rather than queued.
+    const [writingRowIds, setWritingRowIds] = useState<ReadonlySet<string>>(
+        () => new Set()
     )
-    const [alert, setAlert] = useState<string | null>(null)
+    // M1: the change is computed once, on click, and carried through to the
+    // write on confirm rather than recomputed from `row`/`index` a second
+    // time -- nothing changes `row.groups` between the two (D4: no
+    // optimistic update), so the two computations could never disagree
+    // today, but carrying one result is what keeps that true by
+    // construction rather than by coincidence.
+    const [confirm, setConfirm] = useState<{
+        row: Row
+        index: number
+        changes: GroupChange[]
+    } | null>(null)
+    // A failure ( `unaccounted`, nothing confirmed) is reported as
+    // critical; `engineError`/`historyError` are reported as informational
+    // -- see M2 below -- so the two need separate slots rather than one
+    // shared banner fighting over its own severity.
+    const [failureAlert, setFailureAlert] = useState<string | null>(null)
+    const [infoAlert, setInfoAlert] = useState<string | null>(null)
 
     const handleGroupChoice = (row: Row, index: number) => {
-        if (writingRowId !== null) {
+        // D5/I2: per row, not per table -- a second click on the row
+        // that is currently writing is ignored, but a different row's
+        // control is fully live (its `disabled` prop below is never set
+        // by another row's in-flight write).
+        if (writingRowIds.has(row.id)) {
             return
         }
         const changes = computeMembershipChanges(row, set.groups, index)
@@ -165,20 +217,16 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
             // Already the sole member of the chosen group: a no-op, per D1.
             return
         }
-        setConfirm({ row, index })
+        setConfirm({ row, index, changes })
     }
 
     const handleConfirm = async () => {
         if (!confirm) {
             return
         }
-        const { row, index } = confirm
-        const changes = computeMembershipChanges(row, set.groups, index)
+        const { row, index, changes } = confirm
         setConfirm(null)
-        if (changes.length === 0) {
-            return
-        }
-        setWritingRowId(row.id)
+        setWritingRowIds((prev) => new Set(prev).add(row.id))
         try {
             const name = row.displayName ?? row.id
             const groupName = set.groups[index].displayName
@@ -192,20 +240,38 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
                 }),
                 targetGroupId: set.groups[index].id,
             })
-            // `engineError` and `historyError` both mean the server change
-            // already happened -- see useMembershipWrite's own doc comment
-            // -- so neither is reported here as a failed write. Only
             // `unaccounted` (a batch the server did not confirm at all)
-            // means the assignment itself did not fully land.
+            // means the assignment itself did not land -- the only case
+            // reported as a failure.
             if (result.unaccounted.length > 0) {
-                setAlert(
+                setFailureAlert(
                     i18n.t(
                         'The group change could not be fully applied. Reload and try again.'
                     )
                 )
             }
+            // M2: `engineError` and `historyError` both mean the server
+            // change already happened -- see useMembershipWrite's own doc
+            // comment -- so neither is a failure. But silently dropping
+            // them left a user whose change landed but wasn't reflected,
+            // or wasn't recorded to History, with no signal at all. A
+            // single, complete, non-critical sentence names what it is --
+            // the change was saved -- and what did not follow it, chosen
+            // between the three possible cases rather than built from
+            // joined fragments (both can be true from the one write).
+            const info = engineHistoryMessage(
+                Boolean(result.engineError),
+                Boolean(result.historyError)
+            )
+            if (info) {
+                setInfoAlert(info)
+            }
         } finally {
-            setWritingRowId(null)
+            setWritingRowIds((prev) => {
+                const next = new Set(prev)
+                next.delete(row.id)
+                return next
+            })
         }
     }
 
@@ -386,7 +452,7 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
                                         current={r.groups}
                                         disabled={
                                             Boolean(disabledReason) ||
-                                            writingRowId === r.id
+                                            writingRowIds.has(r.id)
                                         }
                                         disabledReason={disabledReason}
                                         onChange={(index) =>
@@ -428,9 +494,14 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
                     </ModalActions>
                 </Modal>
             )}
-            {alert && (
-                <AlertBar critical onHidden={() => setAlert(null)}>
-                    {alert}
+            {failureAlert && (
+                <AlertBar critical onHidden={() => setFailureAlert(null)}>
+                    {failureAlert}
+                </AlertBar>
+            )}
+            {infoAlert && (
+                <AlertBar onHidden={() => setInfoAlert(null)}>
+                    {infoAlert}
                 </AlertBar>
             )}
         </div>

@@ -9,13 +9,19 @@ interface Props {
     groups: GroupMeta[]
     /** group positions the object currently belongs to */
     current: number[]
+    /**
+     * Whole-control disable, for the case where no move is possible at
+     * all: one of the object's *current* groups is read-only for the
+     * user, so there is no group it could be moved to without first
+     * failing to leave one it is already in. See `disabledReason`.
+     */
     disabled: boolean
     /**
-     * Why the control is disabled, named for the user (D2) -- typically
-     * that a group involved is read-only for them. Reuses the control's
-     * existing `title` mechanism (the segmented buttons' own tooltip, or a
-     * wrapper title around the dropdown) rather than adding a new visual
-     * element to a virtualised row. Ignored while `disabled` is false.
+     * Why the whole control is disabled, named for the user (D2). Reuses
+     * the control's existing `title` mechanism (the segmented buttons'
+     * own tooltip, or a wrapper title around the dropdown) rather than
+     * adding a new visual element to a virtualised row. Ignored while
+     * `disabled` is false.
      */
     disabledReason?: string
     onChange: (groupIndex: number) => void
@@ -30,6 +36,16 @@ const SEGMENTED_MAX = 5
 // single bare string.
 const keepLabel = (name: string) =>
     interpolate(i18n.t('Keep {group} and remove the others'), { group: name })
+
+// I1: a read-only *target* is a per-option fact, independent of whether the
+// control as a whole is enabled -- an object whose current groups are all
+// writable can still not be moved into a specific group it has no write
+// access to. Disabling only that option (rather than the whole control, or
+// leaving it clickable) is what stops a doomed write that could otherwise
+// remove the object from every writable group it holds while the addition
+// to the read-only target is rejected, leaving it in no group at all.
+const readOnlyTargetLabel = (name: string) =>
+    interpolate(i18n.t('{group} is read-only for you'), { group: name })
 
 export const MembershipControl = ({
     groups,
@@ -48,20 +64,23 @@ export const MembershipControl = ({
                             ? 'conflict'
                             : 'selected'
                         : 'none'
+                    const optionDisabled = disabled || !g.canWrite
+                    const title =
+                        disabled && disabledReason
+                            ? disabledReason
+                            : !g.canWrite
+                              ? readOnlyTargetLabel(g.displayName)
+                              : isConflict
+                                ? keepLabel(g.displayName)
+                                : g.displayName
                     return (
                         <button
                             key={g.id}
                             type="button"
                             className={styles.segButton}
                             data-state={state}
-                            disabled={disabled}
-                            title={
-                                disabled && disabledReason
-                                    ? disabledReason
-                                    : isConflict
-                                      ? keepLabel(g.displayName)
-                                      : g.displayName
-                            }
+                            disabled={optionDisabled}
+                            title={title}
                             onClick={() => onChange(i)}
                         >
                             {g.displayName}
@@ -109,19 +128,32 @@ export const MembershipControl = ({
                 filterable={groups.length > 10}
                 noMatchText={i18n.t('No group matches')}
             >
-                {groups.map((g, i) => (
-                    <SingleSelectOption
-                        key={g.id}
-                        value={String(i)}
-                        label={
-                            current.includes(i) && isConflict
-                                ? interpolate(i18n.t('{group} (current)'), {
-                                      group: g.displayName,
-                                  })
-                                : g.displayName
-                        }
-                    />
-                ))}
+                {groups.map((g, i) => {
+                    const baseLabel =
+                        current.includes(i) && isConflict
+                            ? interpolate(i18n.t('{group} (current)'), {
+                                  group: g.displayName,
+                              })
+                            : g.displayName
+                    // I1: same per-option disable as the segmented branch --
+                    // a read-only target must not be choosable even while
+                    // the rest of the control is enabled.
+                    return (
+                        <SingleSelectOption
+                            key={g.id}
+                            value={String(i)}
+                            disabled={!g.canWrite}
+                            label={
+                                g.canWrite
+                                    ? baseLabel
+                                    : interpolate(
+                                          i18n.t('{group} (read-only for you)'),
+                                          { group: baseLabel }
+                                      )
+                            }
+                        />
+                    )
+                })}
             </SingleSelect>
             {conflictGroupNames.length > 0 && (
                 <span

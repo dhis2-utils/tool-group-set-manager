@@ -1,12 +1,12 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
 import { MembershipControl } from './MembershipControl'
 
-const groups = (n: number) =>
+const groups = (n: number, unwritable: number[] = []) =>
     Array.from({ length: n }, (_, i) => ({
         id: `g${i}`,
         displayName: `Group ${i}`,
-        canWrite: true,
+        canWrite: !unwritable.includes(i),
     }))
 
 it('renders a segmented control for up to five groups and marks conflicts', () => {
@@ -113,4 +113,43 @@ it('names the reason a disabled dropdown control cannot be used', () => {
     expect(
         screen.getByTitle('Group 1 is read-only for you')
     ).toBeInTheDocument()
+})
+
+it('disables only the read-only option in the segmented control, leaving the rest clickable (I1)', () => {
+    const onChange = jest.fn()
+    render(
+        <MembershipControl
+            groups={groups(3, [1])}
+            current={[0]}
+            disabled={false}
+            onChange={onChange}
+        />
+    )
+    const buttons = screen.getAllByRole('button')
+    expect(buttons[0]).not.toBeDisabled()
+    expect(buttons[1]).toBeDisabled()
+    expect(buttons[1]).toHaveAttribute('title', 'Group 1 is read-only for you')
+    expect(buttons[2]).not.toBeDisabled()
+
+    fireEvent.click(buttons[2])
+    expect(onChange).toHaveBeenCalledWith(2)
+})
+
+it('disables the corresponding option in the dropdown for a read-only target group (I1)', () => {
+    render(
+        <MembershipControl
+            groups={groups(6, [2])}
+            current={[0]}
+            disabled={false}
+            onChange={() => undefined}
+        />
+    )
+    act(() => {
+        fireEvent.click(screen.getByTestId('dhis2-uicore-select-input'))
+    })
+    const option = screen
+        .getAllByTestId('dhis2-uicore-singleselectoption')
+        .find((el) => el.textContent === 'Group 2 (read-only for you)')
+    expect(option).toBeDefined()
+    expect(option?.className).toMatch(/disabled/)
 })
