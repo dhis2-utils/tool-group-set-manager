@@ -323,7 +323,7 @@ describe('History', () => {
         await waitFor(() =>
             expect(
                 screen.getByText(
-                    '1 object was skipped because a group involved is read-only for you'
+                    '1 object was skipped because it has moved since this change, its group has left the set, or a group involved is read-only for you'
                 )
             ).toBeInTheDocument()
         )

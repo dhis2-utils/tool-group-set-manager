@@ -295,6 +295,10 @@ const RevertDialog = ({ changeSet, onClose, onApplied }: RevertDialogProps) => {
         sample,
         skippedCount: plan?.skippedCount ?? 0,
         skippedSample,
+        // A revert skips for three different reasons, not just the
+        // read-only one an assignment plan has; see ChangeSetPreview's
+        // `skipReason`.
+        skipReason: 'revert',
     }
 
     const settled =

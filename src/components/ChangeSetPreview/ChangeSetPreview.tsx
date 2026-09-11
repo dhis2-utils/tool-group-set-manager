@@ -23,15 +23,25 @@ export interface ChangeSetPreviewObjects {
     /** the first page of the population, Name/Now/After sample rows */
     sample: PreviewRow[]
     /**
-     * How many objects the plan could not touch because a group involved
-     * is read-only. Kept apart from `skippedSample` (I4): the exact count
-     * is cheap and always shown, but the ids themselves are capped
-     * upstream (`SKIPPED_SAMPLE_LIMIT` in `src/engine/store.ts`), so this
-     * component must never assume `skippedSample.length === skippedCount`.
+     * How many objects the plan could not touch. Kept apart from
+     * `skippedSample` (I4): the exact count is cheap and always shown, but
+     * the ids themselves are capped upstream (`SKIPPED_SAMPLE_LIMIT` in
+     * `src/engine/store.ts`), so this component must never assume
+     * `skippedSample.length === skippedCount`.
      */
     skippedCount: number
     /** a bounded sample of the skipped objects, resolved to display names */
     skippedSample: SkippedRow[]
+    /**
+     * Why those objects were skipped, which differs by caller and must not
+     * be guessed. An assignment plan skips for exactly one reason, so it
+     * says so. A revert skips for three -- the object has moved since, its
+     * group has left the set, or a group involved is read-only -- and
+     * naming only the last of those told the user the wrong thing in the
+     * dominant case. Defaults to the assignment reason so existing callers
+     * keep their precise wording.
+     */
+    skipReason?: 'readOnly' | 'revert'
 }
 
 interface Props {
@@ -103,8 +113,23 @@ function afterLabel(
     return names.length > 0 ? names.join(', ') : noGroupLabel()
 }
 
-const skippedMessage = (count: number) =>
-    count === 1
+const skippedMessage = (
+    count: number,
+    reason: 'readOnly' | 'revert' = 'readOnly'
+) => {
+    if (reason === 'revert') {
+        return count === 1
+            ? i18n.t(
+                  '1 object was skipped because it has moved since this change, its group has left the set, or a group involved is read-only for you'
+              )
+            : interpolate(
+                  i18n.t(
+                      '{count} objects were skipped because they have moved since this change, their group has left the set, or a group involved is read-only for you'
+                  ),
+                  { count: count.toLocaleString() }
+              )
+    }
+    return count === 1
         ? i18n.t(
               '1 object was skipped because a group involved is read-only for you'
           )
@@ -114,6 +139,7 @@ const skippedMessage = (count: number) =>
               ),
               { count: count.toLocaleString() }
           )
+}
 
 export const ChangeSetPreview = ({ changes, groups, objects }: Props) => {
     return (
@@ -153,7 +179,12 @@ export const ChangeSetPreview = ({ changes, groups, objects }: Props) => {
             )}
             {objects.skippedCount > 0 && (
                 <div className={styles.callout}>
-                    <p>{skippedMessage(objects.skippedCount)}</p>
+                    <p>
+                        {skippedMessage(
+                            objects.skippedCount,
+                            objects.skipReason
+                        )}
+                    </p>
                     {objects.skippedSample.length > 0 && (
                         <p>
                             {objects.skippedSample
