@@ -461,4 +461,82 @@ describe('EngineStore', () => {
         const store = loadedStore()
         expect(store.resolveParents('organisationUnit', [999])).toEqual([null])
     })
+
+    it('applyChangeSet moves an object between groups and is reflected without a reload', () => {
+        const store = loadedStore()
+        // b1 starts in priv only (Ok). Move it: out of priv, into pub,
+        // where it now joins a1 -- giving pub two members and priv none.
+        store.applyChangeSet('organisationUnit', [
+            { groupId: 'priv', additions: [], deletions: ['b1'] },
+            { groupId: 'pub', additions: ['b1'], deletions: [] },
+        ])
+        const page = store.objectsFor(
+            'own',
+            { objectType: 'organisationUnit', rootId: null },
+            {},
+            0,
+            10
+        )
+        const b1 = page.items.find((i) => i.id === 'b1')
+        expect(b1?.status).toBe(Status.Ok)
+        expect(b1?.groups).toEqual([0]) // pub only, no longer priv
+        const a2 = page.items.find((i) => i.id === 'a2')
+        // a2 was already in both groups (Conflict) and is untouched.
+        expect(a2?.status).toBe(Status.Conflict)
+    })
+
+    it('applyChangeSet ignores object ids the engine does not know', () => {
+        const store = loadedStore()
+        // A change set restored from the dataStore weeks later may name an
+        // object that has since been deleted. Applying it must not throw,
+        // and must not affect the dashboard.
+        const before = store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: null,
+        })[0].summary
+        expect(() =>
+            store.applyChangeSet('organisationUnit', [
+                {
+                    groupId: 'pub',
+                    additions: ['deleted-object'],
+                    deletions: [],
+                },
+            ])
+        ).not.toThrow()
+        const after = store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: null,
+        })[0].summary
+        expect(after).toEqual(before)
+    })
+
+    it('applyChangeSet ignores group ids that belong to no loaded set', () => {
+        const store = loadedStore()
+        // A change set may name a group that has since been removed from
+        // its set. Applying it must not throw, and must not fabricate a
+        // group nobody loaded.
+        const before = store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: null,
+        })[0].summary
+        expect(() =>
+            store.applyChangeSet('organisationUnit', [
+                { groupId: 'removed-group', additions: ['a1'], deletions: [] },
+            ])
+        ).not.toThrow()
+        const after = store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: null,
+        })[0].summary
+        expect(after).toEqual(before)
+    })
+
+    it('applyChangeSet on a type with nothing loaded is a no-op, not a throw', () => {
+        const store = new EngineStore()
+        expect(() =>
+            store.applyChangeSet('organisationUnit', [
+                { groupId: 'pub', additions: ['a1'], deletions: [] },
+            ])
+        ).not.toThrow()
+    })
 })

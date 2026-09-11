@@ -1,3 +1,4 @@
+import { GroupChange } from './changeSet'
 import { buildHierarchy, Hierarchy } from './hierarchy'
 import { buildSetMembership, groupsOf, SetMembership } from './membership'
 import { ObjectAttributes, populationFor } from './population'
@@ -187,6 +188,42 @@ export class EngineStore {
      */
     setConfig(config: EngineConfig): void {
         this.config = config
+        this.evaluate()
+    }
+
+    /**
+     * Applies a confirmed write to the raw member lists and re-evaluates,
+     * so the screen reflects it without a reload. Used both right after a
+     * write (the server's own confirmation) and when restoring a change set
+     * from the dataStore, weeks later -- which is why unknown ids are
+     * ignored rather than treated as errors.
+     */
+    applyChangeSet(objectType: ObjectType, changes: GroupChange[]): void {
+        const t = this.types.get(objectType)
+        if (!t) {
+            return // Nothing loaded for this type; nothing to apply to.
+        }
+        changes.forEach((change) => {
+            // A change set may name a group that has since been removed
+            // from its set (or was never part of one this type loaded);
+            // skip it rather than fabricating a group nobody loaded.
+            const members = t.membersByGroup.get(change.groupId)
+            if (!members) {
+                return
+            }
+            const set = new Set(members)
+            change.deletions.forEach((id) => set.delete(id))
+            change.additions.forEach((id) => {
+                // A change set may also name an object id that no longer
+                // exists (deleted since the change was made); ignore it,
+                // same as evaluate() already ignores unknown ids in a
+                // membership payload loaded from the server.
+                if (t.indexOf.has(id)) {
+                    set.add(id)
+                }
+            })
+            t.membersByGroup.set(change.groupId, Array.from(set))
+        })
         this.evaluate()
     }
 

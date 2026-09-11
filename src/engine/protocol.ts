@@ -26,6 +26,7 @@ export type EngineMethod =
     | 'setConfig'
     | 'setNames'
     | 'evaluate'
+    | 'applyChangeSet'
     | 'dashboard'
     | 'matrixFor'
     | 'objectsFor'
