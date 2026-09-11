@@ -24,9 +24,12 @@ export interface Cache {
     get(type: ObjectType): Promise<CachedType | undefined>
     put(type: ObjectType, value: CachedType): Promise<void>
     /**
-     * Removes only the one type's cached payload. A membership write does
-     * not bump a group's `lastUpdated` (see
-     * docs/superpowers/notes/2026-09-plan2-write-api-findings.md section 3),
+     * Removes only the one type's cached payload. On 2.43 a membership
+     * write does not bump a group's `lastUpdated` (see
+     * docs/superpowers/notes/2026-09-plan2-write-api-findings.md section 3;
+     * 2.40 does bump it -- see
+     * docs/superpowers/notes/2026-09-plan2-write-compatibility.md section 4
+     * -- but the app cannot assume that of every server it runs against),
      * so the app must invalidate precisely what it changed itself rather
      * than rely on the next load noticing -- and `clear()` is too broad for
      * that: on a large instance, discarding all four types' payloads to fix

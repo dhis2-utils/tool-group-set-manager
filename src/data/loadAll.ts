@@ -56,9 +56,15 @@ async function objectTotal(
 
 /**
  * The `lastUpdated` stamp of every group of the type, keyed by id (spec 4.4).
- * Adding or removing a member updates the group, so this is what tells a
- * cached membership payload apart from the current one -- the group id list
- * and the object total are both unchanged by a move between groups.
+ * Whether a membership write bumps this stamp is version-dependent -- 2.40
+ * does, 2.43 does not (see
+ * docs/superpowers/notes/2026-09-plan2-write-compatibility.md section 4) --
+ * but `tryCache` below treats any stamp it cannot fetch, or any mismatch, as
+ * a reason to reload rather than trust the cache, so this is still what
+ * tells a cached membership payload apart from the current one on either
+ * version: the group id list and the object total are both unchanged by a
+ * move between groups, so only the stamp (where the server bumps it) or a
+ * forced reload can catch that move.
  */
 export async function groupStamps(
     fetcher: Fetcher,
