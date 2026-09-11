@@ -1,0 +1,40 @@
+.lines {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0 0 16px;
+    padding: 0;
+    list-style: none;
+}
+
+.line {
+    display: flex;
+    gap: 8px;
+    font-variant-numeric: tabular-nums;
+}
+
+.count {
+    font-weight: 500;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 16px;
+}
+
+.table th,
+.table td {
+    text-align: left;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--colors-grey300, #dcdcdc);
+    font-size: 13px;
+}
+
+.callout {
+    background: var(--colors-orange050, #fdf3e7);
+    border: 1px solid var(--colors-orange300, #f0b26b);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 13px;
+}

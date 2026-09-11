@@ -1,4 +1,4 @@
-import { parseCsv } from './csv'
+import { parseCsv, toCsv } from './csv'
 
 describe('parseCsv', () => {
     it('splits rows and columns', () => {
@@ -21,5 +21,31 @@ describe('parseCsv', () => {
             ['uid', 'note'],
             ['x1', 'line1\nline2'],
         ])
+    })
+})
+
+describe('toCsv', () => {
+    it('joins plain fields with commas and rows with CRLF', () => {
+        expect(
+            toCsv([
+                ['a', 'b', 'c'],
+                ['1', '2', '3'],
+            ])
+        ).toBe('a,b,c\r\n1,2,3\r\n')
+    })
+
+    it('quotes a field containing a comma, a quote and a newline, doubling the quote', () => {
+        expect(toCsv([['x1', 'Clinic, "A"\nnext line']])).toBe(
+            'x1,"Clinic, ""A""\nnext line"\r\n'
+        )
+    })
+
+    it('round-trips through parseCsv', () => {
+        const rows = [
+            ['uid', 'name', 'note'],
+            ['a1', 'Plain', ''],
+            ['a2', 'Has, comma', 'Quote " here\nand a newline'],
+        ]
+        expect(parseCsv(toCsv(rows))).toEqual(rows)
     })
 })

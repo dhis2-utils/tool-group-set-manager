@@ -579,3 +579,101 @@ describe('EngineStore', () => {
         ).not.toThrow()
     })
 })
+
+describe('EngineStore.planAssignment', () => {
+    const scope = { objectType: 'organisationUnit' as const, rootId: null }
+
+    function storeWithGroups(pubWritable: boolean, privWritable: boolean) {
+        const set: GroupSetMeta = {
+            ...ownership,
+            groups: [
+                { id: 'pub', displayName: 'Public', canWrite: pubWritable },
+                { id: 'priv', displayName: 'Private', canWrite: privWritable },
+            ],
+        }
+        const store = new EngineStore()
+        store.loadObjects({
+            objectType: 'organisationUnit',
+            ids: ['root', 'A', 'B', 'a1', 'a2', 'b1'],
+            names: ['Root', 'A', 'B', 'a1', 'a2', 'b1'],
+            level: Uint8Array.from([1, 2, 2, 3, 3, 3]),
+            parentIds: [null, 'root', 'root', 'A', 'A', 'B'],
+            domainType: null,
+            categoryIdsOfOption: null,
+        })
+        store.setGroupSets([set])
+        store.loadMemberships({
+            objectType: 'organisationUnit',
+            groups: [
+                { groupId: 'pub', memberIds: ['a1', 'a2'] },
+                { groupId: 'priv', memberIds: ['a2', 'b1'] },
+            ],
+        })
+        store.evaluate()
+        return store
+    }
+
+    it('moves everyone to the target, deleting from other groups they hold', () => {
+        const store = storeWithGroups(true, true)
+        const plan = store.planAssignment('own', scope, { level: 3 }, 'pub')
+        // a1 is already the sole member of pub: no change contributed.
+        // a2 is in pub+priv already: needs only a deletion from priv.
+        // b1 is in priv only: needs an addition to pub and a deletion from priv.
+        expect(plan.affected).toBe(2)
+        expect(plan.skipped).toEqual([])
+        const pubChange = plan.changes.find((c) => c.groupId === 'pub')
+        const privChange = plan.changes.find((c) => c.groupId === 'priv')
+        expect(pubChange?.additions.sort()).toEqual(['b1'])
+        expect(pubChange?.deletions ?? []).toEqual([])
+        expect(privChange?.deletions.sort()).toEqual(['a2', 'b1'])
+        expect(privChange?.additions ?? []).toEqual([])
+    })
+
+    it('an object already the sole member of the target contributes no change', () => {
+        const store = storeWithGroups(true, true)
+        const plan = store.planAssignment('own', scope, {}, 'pub', ['a1'])
+        expect(plan.affected).toBe(0)
+        expect(plan.changes).toEqual([])
+        expect(plan.skipped).toEqual([])
+    })
+
+    it('skips an object that would need a deletion from a read-only group', () => {
+        const store = storeWithGroups(true, false)
+        const plan = store.planAssignment('own', scope, { level: 3 }, 'pub')
+        // a2 and b1 both need a deletion from priv, which is read-only.
+        expect(plan.skipped.sort()).toEqual(['a2', 'b1'])
+        expect(plan.affected).toBe(0)
+        expect(plan.changes).toEqual([])
+    })
+
+    it('skips an object that would need an addition to a read-only target', () => {
+        const store = storeWithGroups(false, true)
+        const plan = store.planAssignment('own', scope, { level: 3 }, 'pub')
+        // a1 needs no change (already sole member of pub) regardless of
+        // pub being read-only. a2 is already in pub too, so it only needs
+        // a deletion from priv, which is writable -- not blocked by pub's
+        // read-only status. b1 needs an addition to the read-only pub, so
+        // it is skipped.
+        expect(plan.skipped).toEqual(['b1'])
+        expect(plan.affected).toBe(1)
+        const privChange = plan.changes.find((c) => c.groupId === 'priv')
+        expect(privChange?.deletions).toEqual(['a2'])
+        expect(plan.changes.find((c) => c.groupId === 'pub')).toBeUndefined()
+    })
+
+    it('restricts the plan to a given selection of object ids', () => {
+        const store = storeWithGroups(true, true)
+        const plan = store.planAssignment('own', scope, {}, 'pub', ['b1'])
+        expect(plan.affected).toBe(1)
+        expect(plan.skipped).toEqual([])
+        const pubChange = plan.changes.find((c) => c.groupId === 'pub')
+        const privChange = plan.changes.find((c) => c.groupId === 'priv')
+        expect(pubChange?.additions).toEqual(['b1'])
+        expect(privChange?.deletions).toEqual(['b1'])
+    })
+
+    it('throws for an unknown target group id', () => {
+        const store = storeWithGroups(true, true)
+        expect(() => store.planAssignment('own', scope, {}, 'nope')).toThrow()
+    })
+})

@@ -1,5 +1,10 @@
 import i18n from '@dhis2/d2-i18n'
-import { InputField, SingleSelectField, SingleSelectOption } from '@dhis2/ui'
+import {
+    Button,
+    InputField,
+    SingleSelectField,
+    SingleSelectOption,
+} from '@dhis2/ui'
 import React, { useState } from 'react'
 import styles from './GroupSetDetail.module.css'
 import { ObjectsTable } from '@/components/ObjectsTable/ObjectsTable'
@@ -13,6 +18,8 @@ interface Props {
     filter: ObjectFilter
     onFilter: (filter: ObjectFilter) => void
     levels: { level: number; displayName: string }[]
+    /** Opens the bulk fix dialog against this tab's current filter. */
+    onBulkFix: () => void
 }
 
 type StatusChoice = 'all' | 'ok' | 'missing' | 'conflict'
@@ -43,7 +50,14 @@ const statusesOf = (c: StatusChoice): Status[] | undefined => {
     }
 }
 
-export const ObjectsTab = ({ set, scope, filter, onFilter, levels }: Props) => {
+export const ObjectsTab = ({
+    set,
+    scope,
+    filter,
+    onFilter,
+    levels,
+    onBulkFix,
+}: Props) => {
     const [search, setSearch] = useState('')
     const isOrgUnit = set.objectType === 'organisationUnit'
     // `levels` resolves asynchronously and can later narrow (the same
@@ -172,6 +186,9 @@ export const ObjectsTab = ({ set, scope, filter, onFilter, levels }: Props) => {
                         {i18n.t('Clear area filter')}
                     </button>
                 )}
+                <Button small onClick={onBulkFix}>
+                    {i18n.t('Bulk fix…')}
+                </Button>
             </div>
             <ObjectsTable
                 set={set}

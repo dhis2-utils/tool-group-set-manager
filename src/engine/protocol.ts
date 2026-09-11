@@ -30,6 +30,7 @@ export type EngineMethod =
     | 'dashboard'
     | 'matrixFor'
     | 'objectsFor'
+    | 'planAssignment'
     | 'resolve'
     | 'resolveParents'
     | 'indexOf'

@@ -1,0 +1,18 @@
+.actionOptions {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.targetRow {
+    max-width: 320px;
+}
+
+.summary {
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.error {
+    color: var(--colors-red600);
+}

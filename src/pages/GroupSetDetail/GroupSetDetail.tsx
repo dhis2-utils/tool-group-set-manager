@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router-dom'
 import styles from './GroupSetDetail.module.css'
 import { ObjectsTab } from './ObjectsTab'
 import { OverviewTab } from './OverviewTab'
+import { BulkFixDialog } from '@/components/BulkFixDialog/BulkFixDialog'
 import { MatrixColumn } from '@/components/SummaryMatrix/SummaryMatrix'
 import { ObjectFilter } from '@/engine/queries'
 import { ObjectRef, ScopeRef } from '@/engine/store'
@@ -33,6 +34,13 @@ export const GroupSetDetail = () => {
     const set = groupSets.find((s) => s.id === setId)
     const [tab, setTab] = useState<DetailTab>('overview')
     const [filter, setFilter] = useState<ObjectFilter>({})
+    // The filter a bulk fix was opened for -- the header's own "Fix
+    // issues…" button opens it unfiltered (every object in the set), and
+    // ObjectsTab's button opens it against whatever the Objects tab is
+    // currently filtered to. `null` means the dialog is closed.
+    const [bulkFixFilter, setBulkFixFilter] = useState<ObjectFilter | null>(
+        null
+    )
 
     // The scope's own level, needed so the row level list starts *below* the
     // scope and the matrix cannot key rows on org units outside it. The
@@ -168,7 +176,7 @@ export const GroupSetDetail = () => {
                     <Button small disabled title={i18n.t('Not available yet')}>
                         {i18n.t('Set properties…')}
                     </Button>
-                    <Button small disabled title={i18n.t('Not available yet')}>
+                    <Button small onClick={() => setBulkFixFilter({})}>
                         {i18n.t('Fix issues…')}
                     </Button>
                 </div>
@@ -203,6 +211,16 @@ export const GroupSetDetail = () => {
                     filter={filter}
                     onFilter={setFilter}
                     levels={levels}
+                    onBulkFix={() => setBulkFixFilter(filter)}
+                />
+            )}
+            {bulkFixFilter !== null && (
+                <BulkFixDialog
+                    set={set}
+                    scope={scope}
+                    filter={bulkFixFilter}
+                    onClose={() => setBulkFixFilter(null)}
+                    onApplied={() => setBulkFixFilter(null)}
                 />
             )}
         </div>

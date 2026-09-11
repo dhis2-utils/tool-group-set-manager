@@ -46,6 +46,15 @@ export interface MatrixResult {
     groups: GroupMeta[]
 }
 
+export interface AssignmentPlan {
+    /** additions to the target, deletions from every other group of the set */
+    changes: GroupChange[]
+    /** how many objects the plan moves */
+    affected: number
+    /** ids skipped because a group they are in, or the target, is read-only */
+    skipped: string[]
+}
+
 export interface ObjectsResult {
     total: number
     /**
@@ -397,6 +406,117 @@ export class EngineStore {
                 row: r.object >= 0 ? this.ref(t, r.object) : null,
             })),
         }
+    }
+
+    /**
+     * D2/D3: computes the change a bulk fix would write, entirely inside
+     * the worker -- the caller gets ids and counts back, never a resolved
+     * population with display names. `selection`, when given, replaces the
+     * scope+filter population outright (D1); when absent the population is
+     * every object `objectsFor` would return for the same scope and filter.
+     *
+     * An object already the sole member of the target needs no write and
+     * contributes nothing. Otherwise it needs a deletion from every other
+     * group it currently holds and, unless it already holds the target, an
+     * addition to the target. Either operation touching a group the caller
+     * cannot write to (the target itself, for the addition; any other held
+     * group, for a deletion) skips the *whole* object rather than issuing
+     * the writable half of it, which would otherwise silently leave the
+     * object in more than one group, or in none.
+     */
+    planAssignment(
+        setId: string,
+        scope: ScopeRef,
+        filter: ObjectFilter,
+        targetGroupId: string,
+        selection?: string[]
+    ): AssignmentPlan {
+        const { state, t } = this.setState(setId)
+        const targetIndex = state.set.groups.findIndex(
+            (g) => g.id === targetGroupId
+        )
+        if (targetIndex < 0) {
+            throw new Error(
+                `Unknown target group ${targetGroupId} in set ${setId}`
+            )
+        }
+        const targetWritable = state.set.groups[targetIndex].canWrite
+
+        let indexes: ArrayLike<number>
+        if (selection) {
+            const resolved: number[] = []
+            selection.forEach((id) => {
+                const idx = t.indexOf.get(id)
+                if (idx !== undefined) {
+                    resolved.push(idx)
+                }
+            })
+            indexes = resolved
+        } else {
+            indexes = listObjects(
+                state.status,
+                state.membership,
+                t.hierarchy,
+                this.scopeRoot(t, scope),
+                filter
+            )
+        }
+
+        const additions = new Set<string>()
+        const deletionsByGroup = new Map<number, Set<string>>()
+        const skipped: string[] = []
+        let affected = 0
+
+        Array.from(indexes, (idx) => idx).forEach((idx) => {
+            const id = t.ids[idx]
+            const positions = groupsOf(state.membership, idx)
+            if (positions.length === 1 && positions[0] === targetIndex) {
+                return // Already the sole member of the target: no change.
+            }
+            const needsAddition = !positions.includes(targetIndex)
+            const deletionPositions = positions.filter((p) => p !== targetIndex)
+            if (needsAddition && !targetWritable) {
+                skipped.push(id)
+                return
+            }
+            const blockedDeletion = deletionPositions.some(
+                (p) => !state.set.groups[p].canWrite
+            )
+            if (blockedDeletion) {
+                skipped.push(id)
+                return
+            }
+            if (needsAddition) {
+                additions.add(id)
+            }
+            deletionPositions.forEach((p) => {
+                let ids = deletionsByGroup.get(p)
+                if (!ids) {
+                    ids = new Set()
+                    deletionsByGroup.set(p, ids)
+                }
+                ids.add(id)
+            })
+            affected++
+        })
+
+        const changes: GroupChange[] = []
+        if (additions.size > 0) {
+            changes.push({
+                groupId: targetGroupId,
+                additions: Array.from(additions),
+                deletions: [],
+            })
+        }
+        deletionsByGroup.forEach((ids, position) => {
+            changes.push({
+                groupId: state.set.groups[position].id,
+                additions: [],
+                deletions: Array.from(ids),
+            })
+        })
+
+        return { changes, affected, skipped }
     }
 
     objectsFor(

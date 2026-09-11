@@ -1,0 +1,152 @@
+import i18n from '@dhis2/d2-i18n'
+import React from 'react'
+import styles from './ChangeSetPreview.module.css'
+import { GroupChange } from '@/engine/changeSet'
+import { GroupMeta } from '@/engine/types'
+import { interpolate } from '@/utils/interpolate'
+
+export interface PreviewRow {
+    id: string
+    displayName: string | null
+    /** group positions (indexes into `groups`) the object currently holds */
+    groups: number[]
+}
+
+export interface SkippedRow {
+    id: string
+    displayName: string | null
+}
+
+export interface ChangeSetPreviewObjects {
+    /** size of the population the plan was computed over */
+    total: number
+    /** the first page of the population, Name/Now/After sample rows */
+    sample: PreviewRow[]
+    /** objects the plan could not touch because a group involved is read-only */
+    skipped: SkippedRow[]
+}
+
+interface Props {
+    changes: GroupChange[]
+    groups: GroupMeta[]
+    objects: ChangeSetPreviewObjects
+}
+
+const noGroupLabel = () => i18n.t('No group')
+
+/**
+ * Every group name the row currently belongs to, joined for display. Used
+ * as-is for the Now column, and also as the starting point for After,
+ * which then applies `changes` on top of it -- so After can never disagree
+ * with what `changes` will actually write (D3).
+ */
+function namesOf(positions: number[], groups: GroupMeta[]): string {
+    const names = positions
+        .map((p) => groups[p]?.displayName)
+        .filter((n): n is string => Boolean(n))
+    return names.length > 0 ? names.join(', ') : noGroupLabel()
+}
+
+/**
+ * The group ids a row would end up in after `changes` is applied, derived
+ * from the row's own current groups plus that same `changes` -- never a
+ * second, independent guess at the outcome. This is what keeps the After
+ * column unable to disagree with what will actually be written.
+ */
+function afterIds(
+    row: PreviewRow,
+    groups: GroupMeta[],
+    changes: GroupChange[]
+): string[] {
+    const ids = new Set(
+        row.groups
+            .map((p) => groups[p]?.id)
+            .filter((id): id is string => Boolean(id))
+    )
+    changes.forEach((change) => {
+        if (change.deletions.includes(row.id)) {
+            ids.delete(change.groupId)
+        }
+        if (change.additions.includes(row.id)) {
+            ids.add(change.groupId)
+        }
+    })
+    return Array.from(ids)
+}
+
+function afterLabel(
+    row: PreviewRow,
+    groups: GroupMeta[],
+    changes: GroupChange[]
+): string {
+    const ids = afterIds(row, groups, changes)
+    if (ids.length === 0) {
+        return noGroupLabel()
+    }
+    const names = ids
+        .map((id) => groups.find((g) => g.id === id)?.displayName)
+        .filter((n): n is string => Boolean(n))
+    return names.length > 0 ? names.join(', ') : noGroupLabel()
+}
+
+const skippedMessage = (count: number) =>
+    count === 1
+        ? i18n.t(
+              '1 object was skipped because a group involved is read-only for you'
+          )
+        : interpolate(
+              i18n.t(
+                  '{count} objects were skipped because a group involved is read-only for you'
+              ),
+              { count: count.toLocaleString() }
+          )
+
+export const ChangeSetPreview = ({ changes, groups, objects }: Props) => {
+    return (
+        <div>
+            <ul className={styles.lines}>
+                {changes.map((change) => {
+                    const group = groups.find((g) => g.id === change.groupId)
+                    return (
+                        <li key={change.groupId} className={styles.line}>
+                            <span>{group?.displayName ?? change.groupId}</span>
+                            <span className={styles.count}>
+                                {`+${change.additions.length} / -${change.deletions.length}`}
+                            </span>
+                        </li>
+                    )
+                })}
+            </ul>
+            {objects.sample.length > 0 && (
+                <table className={styles.table}>
+                    <thead>
+                        <tr>
+                            <th>{i18n.t('Object')}</th>
+                            <th>{i18n.t('Now')}</th>
+                            <th>{i18n.t('After')}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {objects.sample.map((row) => (
+                            <tr key={row.id}>
+                                <td>{row.displayName ?? row.id}</td>
+                                <td>{namesOf(row.groups, groups)}</td>
+                                <td>{afterLabel(row, groups, changes)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            )}
+            {objects.skipped.length > 0 && (
+                <div className={styles.callout}>
+                    <p>{skippedMessage(objects.skipped.length)}</p>
+                    <p>
+                        {objects.skipped
+                            .map((s) => s.displayName ?? s.id)
+                            .join(', ')}
+                    </p>
+                </div>
+            )}
+        </div>
+    )
+}
