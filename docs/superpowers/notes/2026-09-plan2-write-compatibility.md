@@ -35,7 +35,7 @@ Request in both columns:
 |---|---|---|
 | Valid add+delete | `{"httpStatus":"OK","httpStatusCode":200,"status":"OK","response":{"responseType":"TypeReport","status":"OK","stats":{"created":0,"updated":1,"deleted":1,"ignored":0,"total":2},"objectReports":[]}}` | `{"httpStatus":"OK","httpStatusCode":200,"status":"OK","response":{"status":"OK","stats":{"created":0,"updated":1,"deleted":1,"ignored":0,"total":2},"objectReports":[],"responseType":"TypeReport"}}` |
 | Membership after (`GET .../organisationUnitGroups/MAs88nJc9nL.json?fields=organisationUnits[id,name]`) | `{"organisationUnits":[{"name":"Bucksal Clinic","id":"vRC0stJ5y9Q"},{"name":"Fatibra CHP","id":"jfV49JGnYKF"},{"name":"UNIMUS MCHP","id":"UugO8xDeLQD"},{"name":"Massah Memorial Maternity MCHP","id":"ptc0SQi05E4"},{"name":"Needy CHC","id":"UOJlcpPnBat"},{"name":"Adonkia CHP","id":"Rp268JB6Ne4"},{"name":"Sam Lean's MCHP","id":"H0OkaM4ReRK"},{"name":"Elshadai MCHP","id":"sK498nBOLfQ"},{"name":"Kpolies Clinic","id":"bM4Ky73uMao"},{"name":"Holy Mary Hospital","id":"jk1TtiBM5hz"},{"name":"Lyn Maternity MCHP","id":"k6DIO9LIEk9"}]}` — `Rp268JB6Ne4` (the addition) present, `uROAmk9ymNE` (the deletion) absent, 11 entries | `{"organisationUnits":[{"name":"Bucksal Clinic","id":"vRC0stJ5y9Q"},{"name":"Fatibra CHP","id":"jfV49JGnYKF"},{"name":"UNIMUS MCHP","id":"UugO8xDeLQD"},{"name":"Massah Memorial Maternity MCHP","id":"ptc0SQi05E4"},{"name":"Needy CHC","id":"UOJlcpPnBat"},{"name":"Adonkia CHP","id":"Rp268JB6Ne4"},{"name":"Sam Lean's MCHP","id":"H0OkaM4ReRK"},{"name":"Elshadai MCHP","id":"sK498nBOLfQ"},{"name":"Kpolies Clinic","id":"bM4Ky73uMao"},{"name":"Holy Mary Hospital","id":"jk1TtiBM5hz"},{"name":"Lyn Maternity MCHP","id":"k6DIO9LIEk9"}]}` — byte-identical to the 2.40 column |
-| Reverted back to the seed's 11 members (`GET` after the matching reverse batch) | `{"organisationUnits":[{"name":"Kindoyal Hospital","id":"uROAmk9ymNE"},{"name":"Bucksal Clinic","id":"vRC0stJ5y9Q"},{"name":"Fatibra CHP","id":"jfV49JGnYKF"},{"name":"UNIMUS MCHP","id":"UugO8xDeLQD"},{"name":"Massah Memorial Maternity MCHP","id":"ptc0SQi05E4"},{"name":"Needy CHC","id":"UOJlcpPnBat"},{"name":"Sam Lean's MCHP","id":"H0OkaM4ReRK"},{"name":"Elshadai MCHP","id":"sK498nBOLfQ"},{"name":"Kpolies Clinic","id":"bM4Ky73uMao"},{"name":"Holy Mary Hospital","id":"jk1TtiBM5hz"},{"name":"Lyn Maternity MCHP","id":"k6DIO9LIEk9"}]}` | Byte-identical to the 2.40 column |
+| Reverted back to the seed's 11 members (fresh read this round, `GET .../organisationUnitGroups/MAs88nJc9nL.json?fields=organisationUnits[id,name]`) | `{"organisationUnits":[{"name":"Bucksal Clinic","id":"vRC0stJ5y9Q"},{"name":"Fatibra CHP","id":"jfV49JGnYKF"},{"name":"Elshadai MCHP","id":"sK498nBOLfQ"},{"name":"Kpolies Clinic","id":"bM4Ky73uMao"},{"name":"Holy Mary Hospital","id":"jk1TtiBM5hz"},{"name":"Kindoyal Hospital","id":"uROAmk9ymNE"},{"name":"UNIMUS MCHP","id":"UugO8xDeLQD"},{"name":"Massah Memorial Maternity MCHP","id":"ptc0SQi05E4"},{"name":"Needy CHC","id":"UOJlcpPnBat"},{"name":"Sam Lean's MCHP","id":"H0OkaM4ReRK"},{"name":"Lyn Maternity MCHP","id":"k6DIO9LIEk9"}]}` | `{"organisationUnits":[{"name":"Bucksal Clinic","id":"vRC0stJ5y9Q"},{"name":"Fatibra CHP","id":"jfV49JGnYKF"},{"name":"Elshadai MCHP","id":"sK498nBOLfQ"},{"name":"Kpolies Clinic","id":"bM4Ky73uMao"},{"name":"Holy Mary Hospital","id":"jk1TtiBM5hz"},{"name":"Kindoyal Hospital","id":"uROAmk9ymNE"},{"name":"UNIMUS MCHP","id":"UugO8xDeLQD"},{"name":"Massah Memorial Maternity MCHP","id":"ptc0SQi05E4"},{"name":"Needy CHC","id":"UOJlcpPnBat"},{"name":"Sam Lean's MCHP","id":"H0OkaM4ReRK"},{"name":"Lyn Maternity MCHP","id":"k6DIO9LIEk9"}]}` — same 11 ids as the 2.40 column (server-side ordering is not guaranteed identical between instances, but the id set is identical) |
 
 **No difference found.** Same envelope shape (`response.stats` with
 `created`/`updated`/`deleted`/`ignored`/`total`), same field order
@@ -194,34 +194,43 @@ Request: `PATCH /api/organisationUnitGroupSets/Bpx0589u8y0` with
 
 | | 2.40.12 | 2.43.1 |
 |---|---|---|
-| Pre-patch read (`GET .../Bpx0589u8y0.json?fields=id,compulsory,dataDimension`) | `{"dataDimension":true,"compulsory":true,"id":"Bpx0589u8y0"}` — this is the seed's own value, read before this task issued any patch | `{"dataDimension":true,"compulsory":true,"id":"Bpx0589u8y0"}` — same |
 | PATCH response | `{"httpStatus":"OK","httpStatusCode":200,"status":"OK","response":{"responseType":"ObjectReport","uid":"Bpx0589u8y0","klass":"org.hisp.dhis.organisationunit.OrganisationUnitGroupSet","errorReports":[]}}` | `{"httpStatus":"OK","httpStatusCode":200,"status":"OK","response":{"uid":"Bpx0589u8y0","klass":"org.hisp.dhis.organisationunit.OrganisationUnitGroupSet","errorReports":[],"responseType":"ObjectReport"}}` |
-| Post-patch read | `{"dataDimension":true,"compulsory":true,"id":"Bpx0589u8y0"}` | `{"dataDimension":true,"compulsory":true,"id":"Bpx0589u8y0"}` |
+| Read after that patch | `{"dataDimension":true,"compulsory":true,"id":"Bpx0589u8y0"}` | `{"dataDimension":true,"compulsory":true,"id":"Bpx0589u8y0"}` |
+| Read now, fresh this round (`GET .../Bpx0589u8y0.json?fields=id,compulsory,dataDimension`) | `{"dataDimension":true,"compulsory":true,"id":"Bpx0589u8y0"}` | `{"dataDimension":true,"compulsory":true,"id":"Bpx0589u8y0"}` |
 
-The seed's own values for this group set were already `compulsory: true,
-dataDimension: true` on both instances, read before this task issued its
-first patch to either. The patch in this check therefore set both flags to
-the value they already held — it exercises the PATCH call and its
-`application/json-patch+json` content type genuinely, but it is a no-op
-against the seed's state, not a mutation that then needed reverting.
+**What these reads actually establish, stated precisely:** the patch above
+set `compulsory`/`dataDimension` to `true`/`true` on both instances, and a
+fresh read taken just now (this fix round, reads only, no write issued)
+shows both flags still `true`/`true` on both. That is evidence the current
+values match what this task's own patch set them to — it is **not**
+evidence of what the seed originally held, because no read of this group
+set was taken before this task's first write to it on either instance.
+`task-5-controller-findings.md` separately records patching `compulsory` on
+this same 2.43 instance (`agent-gsi-p2`) before Task 12 ever ran, but it
+records only the post-patch read (`{"compulsory":true}`) and says the
+change was "reverted" without recording what value it was reverted *to* —
+so that earlier, 2.43-only patch does not establish the seed's original
+value either, and it says nothing about 2.40, which did not exist at the
+time.
 
-This matters because a *different* check earlier in this session's raw
-work (recorded in `task-12-report.md`, not repeated here) did briefly set
-both flags to `false` on 2.40 by mistake and then set them back to `true`
-before moving on — an in-session slip, not something left behind. The
-final state, re-verified after all other work in this record was finished,
-is:
+**The seed's original `compulsory`/`dataDimension` for this group set is
+not independently established in this record.** What is established: both
+instances currently agree with each other (`true`/`true`), and that is the
+value every patch issued against either of them (this task's, and Task 5's
+earlier 2.43-only one) has set. If a later plan needs the seed's true
+original value, it would have to come from the seed file itself or a
+never-patched instance, neither of which this task has access to.
 
-```
-2.40: GET .../Bpx0589u8y0.json?fields=id,compulsory,dataDimension
-  → {"dataDimension":true,"compulsory":true,"id":"Bpx0589u8y0"}
-2.43: GET .../Bpx0589u8y0.json?fields=id,compulsory,dataDimension
-  → {"dataDimension":true,"compulsory":true,"id":"Bpx0589u8y0"}
-```
+One in-session correction from the earlier (write-issuing) fix round,
+disclosed rather than hidden: raw work in that round briefly set both flags
+to `false` on 2.40 by mistake and set them back to `true` before moving on
+(recorded in `task-12-report.md`). That does not change the analysis above
+— both instances had already been patched to `true`/`true` before that
+slip, and both are confirmed `true`/`true` again now, per the fresh
+reads-only check this round.
 
-Both instances carry the seed's own values. **No difference found**, and
-both instances are confirmed unmutated relative to the seed for this
-check.
+**No difference found** between 2.40 and 2.43 in how the patch behaves or
+in the value each currently holds.
 
 ## 7. dataStore: create, update, list, delete
 
@@ -341,9 +350,17 @@ step:
 
 | State | 2.40.12 tally | 2.43.1 tally |
 |---|---|---|
-| A — clean seed, before any change | 15 conflicts (ids: `H0OkaM4ReRK, UOJlcpPnBat, UugO8xDeLQD, VrDA0Hn4Xc6, Z9ny6QeqsgX, bM4Ky73uMao, jCnyQOKQBFX, jfV49JGnYKF, jk1TtiBM5hz, k6DIO9LIEk9, kMTHqMgenme, ptc0SQi05E4, roQ2l7TX0eZ, sK498nBOLfQ, vRC0stJ5y9Q`), 1102 distinct org units across the 4 groups | Same 15 ids, same 1102 distinct org units |
-| B — after removing Bucksal Clinic from Public facilities | 14 conflicts — the same 15 ids minus `vRC0stJ5y9Q`, no other id changed | Same: the same 15 ids minus `vRC0stJ5y9Q` |
-| C — after re-adding it | 15 conflicts, ids identical to state A, `vRC0stJ5y9Q` back in the set | Same, ids identical to state A |
+| A — clean seed, before any change | 15 conflicts, 1102 distinct org units. ids: `H0OkaM4ReRK, UOJlcpPnBat, UugO8xDeLQD, VrDA0Hn4Xc6, Z9ny6QeqsgX, bM4Ky73uMao, jCnyQOKQBFX, jfV49JGnYKF, jk1TtiBM5hz, k6DIO9LIEk9, kMTHqMgenme, ptc0SQi05E4, roQ2l7TX0eZ, sK498nBOLfQ, vRC0stJ5y9Q` | 15 conflicts, 1102 distinct org units. ids: `H0OkaM4ReRK, UOJlcpPnBat, UugO8xDeLQD, VrDA0Hn4Xc6, Z9ny6QeqsgX, bM4Ky73uMao, jCnyQOKQBFX, jfV49JGnYKF, jk1TtiBM5hz, k6DIO9LIEk9, kMTHqMgenme, ptc0SQi05E4, roQ2l7TX0eZ, sK498nBOLfQ, vRC0stJ5y9Q` — identical set to the 2.40 column |
+| B — after removing Bucksal Clinic from Public facilities | 14 conflicts, 1102 distinct org units. ids: `H0OkaM4ReRK, UOJlcpPnBat, UugO8xDeLQD, VrDA0Hn4Xc6, Z9ny6QeqsgX, bM4Ky73uMao, jCnyQOKQBFX, jfV49JGnYKF, jk1TtiBM5hz, k6DIO9LIEk9, kMTHqMgenme, ptc0SQi05E4, roQ2l7TX0eZ, sK498nBOLfQ` | 14 conflicts, 1102 distinct org units. ids: `H0OkaM4ReRK, UOJlcpPnBat, UugO8xDeLQD, VrDA0Hn4Xc6, Z9ny6QeqsgX, bM4Ky73uMao, jCnyQOKQBFX, jfV49JGnYKF, jk1TtiBM5hz, k6DIO9LIEk9, kMTHqMgenme, ptc0SQi05E4, roQ2l7TX0eZ, sK498nBOLfQ` — identical set to the 2.40 column, `vRC0stJ5y9Q` absent from both |
+| C — after re-adding it | 15 conflicts, ids identical to state A (see above) | 15 conflicts, ids identical to state A (see above) |
+
+States A and C are re-confirmed with a fresh, read-only tally taken in fix
+round 2 (this round makes no writes); both instances currently sit in state
+C, matching state A exactly. State B was a transient state produced by a
+write in the earlier fix round and no longer exists on either server, so it
+cannot be re-read this round — the ids shown for it are the verbatim tally
+this record already captured on both instances at the moment that write was
+made, not a restatement.
 
 This matches the dashboard's 15 → 14 → 15 reading exactly, on both
 versions, but is derived independently of it: nothing here trusts the
