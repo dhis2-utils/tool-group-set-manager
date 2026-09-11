@@ -603,6 +603,35 @@ describe('parent column', () => {
         expect(screen.queryByText('-')).not.toBeInTheDocument()
     })
 
+    it('shows nothing, not the raw id, when the parent has no resolved name', async () => {
+        // D4 is why the column was dropped in Plan 1: it showed a raw id,
+        // which reads as noise. The root case above only proves the
+        // no-parent branch. This is the branch D4 exists for -- a parent
+        // object the engine DID resolve, whose `displayName` it could not
+        // fill in. A fallback to `parent.id` would pass every other test in
+        // this file.
+        const items = [
+            {
+                index: 0,
+                id: 'child0',
+                displayName: 'Ngelehun CHC',
+                level: 4,
+                parentId: 'unnamed0',
+                status: 1,
+                groups: [0],
+            },
+        ]
+        mockObjectsPage({ total: 1, offset: 0, items }, [
+            { id: 'unnamed0', displayName: null },
+        ])
+        render(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
+        await waitFor(() =>
+            expect(screen.getByText('Ngelehun CHC')).toBeInTheDocument()
+        )
+        expect(screen.getByTestId('parent-child0')).toBeEmptyDOMElement()
+        expect(screen.queryByText('unnamed0')).not.toBeInTheDocument()
+    })
+
     it('has no parent column at all for a flat object type', async () => {
         const flatSet = { ...set, objectType: 'dataElement' as const }
         const flatScope = { objectType: 'dataElement' as const, rootId: null }
