@@ -409,6 +409,69 @@ describe('loadAll', () => {
         expect(engine.store.resolve('organisationUnit', [0])).toEqual([])
     })
 
+    it('leaves no half-loaded type when a fresh load succeeds at the source but the engine call fails part way', async () => {
+        // No cache populated: this goes through the fresh-load branch.
+        // Resolving both source fetches before calling the engine (the
+        // existing "Commit to the engine only once both payloads are in
+        // hand" comment) protects against a *fetch* failure -- it does
+        // nothing if the engine call itself fails (e.g. the worker
+        // crashed) between loadObjects landing and loadMemberships
+        // landing, which is exactly what this test simulates.
+        const engine = inlineEngine()
+        const original = engine.call.bind(engine)
+        engine.call = ((method: string, ...args: unknown[]) =>
+            method === 'loadMemberships'
+                ? Promise.reject(new Error('worker died'))
+                : original(method, ...args)) as typeof engine.call
+
+        const status: LoadStatus[] = []
+        await loadAll({
+            source: fakeSource(),
+            fetcher,
+            cache: createMemoryCache(),
+            engine,
+            onStatus: (s) => status.push(s),
+        })
+
+        const last = status[status.length - 1]
+        expect(last.errors.organisationUnit).toMatch(/worker died/)
+        const [entry] = engine.store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: null,
+        })
+        expect(entry.hasData).toBe(false)
+        expect(engine.store.resolve('organisationUnit', [0])).toEqual([])
+    })
+
+    it('reports the original failure even when the rollback itself fails', async () => {
+        // If the engine is dead enough that loadMemberships fails, dropType
+        // might fail too. The user needs to see why the load actually
+        // failed, not a second error about the failed cleanup attempt.
+        const engine = inlineEngine()
+        const original = engine.call.bind(engine)
+        engine.call = ((method: string, ...args: unknown[]) => {
+            if (method === 'loadMemberships') {
+                return Promise.reject(new Error('worker died'))
+            }
+            if (method === 'dropType') {
+                return Promise.reject(new Error('rollback also failed'))
+            }
+            return original(method, ...args)
+        }) as typeof engine.call
+
+        const status: LoadStatus[] = []
+        await loadAll({
+            source: fakeSource(),
+            fetcher,
+            cache: createMemoryCache(),
+            engine,
+            onStatus: (s) => status.push(s),
+        })
+
+        const last = status[status.length - 1]
+        expect(last.errors.organisationUnit).toBe('worker died')
+    })
+
     it('records a type whose group sets could not be read and loads the rest', async () => {
         const failing = async (path: string) => {
             if (path.startsWith('indicatorGroupSets')) {

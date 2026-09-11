@@ -92,6 +92,43 @@ export function alignNames(ids: string[], named: NamedId[]): string[] {
     return ids.map((id) => byId.get(id) ?? id)
 }
 
+/**
+ * Runs a group of engine calls that commit one type (loadObjects,
+ * loadMemberships, and optionally setNames) and, if any of them rejects,
+ * rolls the type back with dropType so the engine is left exactly as it
+ * was before this type was attempted -- never holding objects with no
+ * membership data, which reads as every object missing from every group.
+ * Used by both the fresh-load and cached-reuse paths below: each resolves
+ * its payloads (from the network, or from the cache) before calling this,
+ * which protects against a *fetch* failure leaving the engine touched; this
+ * function is what protects against the engine calls themselves failing
+ * (e.g. a worker crash) between loadObjects landing and loadMemberships
+ * landing, which resolving payloads first does nothing to prevent.
+ *
+ * The rollback call is itself guarded: if the engine is dead enough that
+ * dropType also fails, the secondary failure is discarded and the
+ * original error is what gets reported -- an engine too broken to drop a
+ * type is not going to serve numbers from the half-loaded type either, so
+ * telling the user why the load actually failed matters more than telling
+ * them cleanup also failed.
+ */
+async function commitOrRollback(
+    engine: EngineLike,
+    type: ObjectType,
+    commit: () => Promise<void>
+): Promise<void> {
+    try {
+        await commit()
+    } catch (error) {
+        try {
+            await engine.call('dropType', type)
+        } catch {
+            // Swallowed on purpose -- see the doc comment above.
+        }
+        throw error
+    }
+}
+
 export async function loadAll(
     deps: Deps
 ): Promise<{ groupSets: GroupSetMeta[] }> {
@@ -140,16 +177,14 @@ export async function loadAll(
                 ? undefined
                 : await tryCache(deps, type, groupIds)
             if (reused) {
-                // loadMemberships requires the type to already exist, so
-                // these two calls can't be resolved-then-committed together
-                // the way the fresh-load path below is. If the second call
-                // fails after the first has landed, the engine would be
-                // left holding objects with no membership data for this
-                // type -- indistinguishable from every object being
-                // uncategorised. dropType undoes the first call so a
-                // failure here leaves the engine exactly as it was before
-                // this type was attempted, same as the fresh-load path.
-                try {
+                // The cached payloads are already fully resolved -- they
+                // came from the cache, not the network -- so there is no
+                // fetch step to protect here the way the fresh-load path
+                // below protects its source calls. Only the engine calls
+                // themselves can still fail (e.g. a worker crash) between
+                // loadObjects landing and loadMemberships landing;
+                // commitOrRollback is what protects against that.
+                await commitOrRollback(deps.engine, type, async () => {
                     await deps.engine.call('loadObjects', reused.objects)
                     await deps.engine.call(
                         'loadMemberships',
@@ -158,10 +193,7 @@ export async function loadAll(
                     if (reused.names) {
                         await deps.engine.call('setNames', type, reused.names)
                     }
-                } catch (error) {
-                    await deps.engine.call('dropType', type)
-                    throw error
-                }
+                })
                 status.fromCache[type] = true
                 // A cache hit is at the same point a freshly loaded type is
                 // right after its memberships land: data is in the engine
@@ -185,16 +217,21 @@ export async function loadAll(
                 (p) => emit({ phase: 'memberships', type, progress: p })
             )
 
-            // Commit to the engine only once both payloads are in hand. If
-            // memberships failed after objects had already landed, the
-            // engine would hold objects with no membership data, and the
-            // unconditional evaluate() below would then read every object as
-            // missing from every group of this type -- indistinguishable
-            // from a real integrity failure. Resolving both first means a
-            // failure anywhere above leaves the engine exactly as it was
-            // before this type was attempted.
-            await deps.engine.call('loadObjects', objects)
-            await deps.engine.call('loadMemberships', memberships)
+            // Resolving both source fetches before calling the engine at
+            // all protects against a *fetch* failure (loadMemberships
+            // throwing after loadObjects already returned) leaving the
+            // engine holding objects with no membership data -- which the
+            // unconditional evaluate() below would then read as every
+            // object missing from every group of this type,
+            // indistinguishable from a real integrity failure. It does
+            // nothing, though, if the engine calls themselves fail (e.g.
+            // the worker crashes) between loadObjects landing and
+            // loadMemberships landing -- commitOrRollback is what protects
+            // against that half.
+            await commitOrRollback(deps.engine, type, async () => {
+                await deps.engine.call('loadObjects', objects)
+                await deps.engine.call('loadMemberships', memberships)
+            })
             emit({ phase: 'evaluate', type })
             await deps.engine.call('evaluate')
 

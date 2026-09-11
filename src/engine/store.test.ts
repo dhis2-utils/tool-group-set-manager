@@ -452,4 +452,13 @@ describe('EngineStore', () => {
             null,
         ])
     })
+
+    it('resolveParents returns null for an out-of-range index', () => {
+        // A page request built from a stale total, or a race with a reload
+        // that shrank the type, can hand back an index past the end of the
+        // loaded array. It must degrade to null rather than throw or return
+        // a garbage ref.
+        const store = loadedStore()
+        expect(store.resolveParents('organisationUnit', [999])).toEqual([null])
+    })
 })
