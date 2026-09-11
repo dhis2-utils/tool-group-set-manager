@@ -122,11 +122,17 @@ beforeEach(() => {
     mockCacheRemove.mockClear()
 })
 
-it('invalidateType removes only that type from the cache', async () => {
+it('invalidateType calls the cache with only the given type', async () => {
     const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
     await act(async () => {
         await result.current.invalidateType('organisationUnit')
     })
+    // "only" here means the one call names only this type, not that some
+    // other type is left untouched -- that half is pinned against the real
+    // implementation in cache.test.ts ("removes only the named type,
+    // leaving the others untouched"), which this mock can't demonstrate on
+    // its own.
+    expect(mockCacheRemove).toHaveBeenCalledTimes(1)
     expect(mockCacheRemove).toHaveBeenCalledWith('organisationUnit')
 })
 

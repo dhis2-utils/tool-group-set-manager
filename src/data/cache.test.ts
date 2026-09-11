@@ -62,5 +62,11 @@ describe('IndexedDB-backed cache', () => {
             'http://server|indicator'
         )
         jest.dontMock('idb')
+        // Without this, a test added after this one that dynamically
+        // imports './cache' would silently get back the mocked module: the
+        // module registry, not just the mock factory, was reset at the top
+        // of this test, so `jest.dontMock` alone leaves the already-mocked
+        // instance cached under the un-mocked name.
+        jest.resetModules()
     })
 })

@@ -15,10 +15,14 @@ type Sharing = Record<string, unknown>
 
 // Used only when the set has no existing group to copy sharing from (spec:
 // "a set with no existing groups producing a group with sensible default
-// sharing rather than throwing"). Metadata-only access for everyone but the
-// owner, matching what the Maintenance app itself defaults a new object to.
+// sharing rather than throwing"). `rw------`: metadata read+write for the
+// owner only, and nothing -- neither metadata nor data -- for anyone else,
+// matching the Maintenance app's own default for a new object. (An earlier
+// version of this used `rwrw----`, which is metadata *and data* read+write
+// for every user; that granted public write on a group this app created and
+// was wrong, not merely permissive.)
 const DEFAULT_SHARING: Sharing = {
-    public: 'rwrw----',
+    public: 'rw------',
     users: {},
     userGroups: {},
 }
@@ -34,6 +38,9 @@ interface GroupSharingResponse {
 interface CreateResponse {
     response?: { uid?: string }
 }
+
+/** A DHIS2 list response keys its array by the collection's own resource name. */
+type ListResponse = Record<string, { id: string }[] | undefined>
 
 async function fetchGroupSetCode(
     fetcher: Fetcher,
@@ -60,14 +67,61 @@ async function fetchSiblingSharing(
 }
 
 /**
+ * Looks up a group named exactly `displayName` in the collection, so a
+ * retry after a failed add-to-set (see the doc comment on
+ * `createCatchAllGroup`) finds the group the previous attempt already
+ * created instead of creating a duplicate and failing a second time on
+ * `shortName`'s server-side uniqueness constraint.
+ */
+async function findExistingGroupId(
+    fetcher: Fetcher,
+    groupsEndpoint: string,
+    displayName: string
+): Promise<string | undefined> {
+    const filter = encodeURIComponent(`name:eq:${displayName}`)
+    const body = await fetchJson<ListResponse>(
+        fetcher,
+        `${groupsEndpoint}?filter=${filter}&fields=id&paging=false`
+    )
+    const matches = body[groupsEndpoint]
+    return matches && matches.length > 0 ? matches[0].id : undefined
+}
+
+/**
  * Creates a catch-all group for objects that are unassigned or need
  * reassigning within `set`, and adds it to the set. The name is
  * set-specific ("Other/unknown <set name>") because a single shared
- * "Other/unknown" group would collide across sets; `shortName` is truncated
- * to the 50 characters DHIS2 allows rather than left to be rejected by the
- * server. Sharing is copied from an existing group in the set so the new
- * group is visible to whoever could already see the others; a set with no
- * groups yet falls back to a sensible default rather than throwing.
+ * "Other/unknown" group would collide across sets.
+ *
+ * `shortName` is capped at the 50 characters DHIS2 allows, but a plain
+ * truncation is not safe: the server also enforces `shortName` uniqueness,
+ * and two group sets whose names agree in their first ~40-something
+ * characters would otherwise truncate to the *same* `shortName` and trade
+ * one rejected create for a different one. When the full name is too long,
+ * the tail is reserved for `set.id` instead: the first 38 characters, a
+ * space, then the 11-character id, for exactly 50 -- unique by
+ * construction, since group set ids are unique.
+ *
+ * Sharing is copied from an existing group in the set so the new group is
+ * visible to whoever could already see the others; a set with no groups
+ * yet falls back to a sensible default (`DEFAULT_SHARING`) rather than
+ * throwing.
+ *
+ * The create step is genuinely not idempotent -- DHIS2 enforces uniqueness
+ * on a group's `name`, `shortName` and `code`, and a retry rebuilds all
+ * three identically -- so a create that succeeds followed by an add-to-set
+ * that fails (a dropped connection, a 403 on the set) must not be retried
+ * by calling this function again naively: the second create would 409
+ * forever, orphaning the first group for good. Instead, every call looks
+ * up a group with this exact name *before* creating one, and reuses it if
+ * found. A retry after a failed add-to-set therefore skips the create
+ * entirely and only repeats the add, which DHIS2's collection endpoint
+ * accepts idempotently (adding an existing member again is a no-op, not
+ * an error).
+ *
+ * Thrown errors carry only an HTTP status and are not user-facing text;
+ * see the module doc comment on `setGroupSetProperties` for the same note
+ * about translating them before display.
  */
 export async function createCatchAllGroup(
     fetcher: Fetcher,
@@ -75,15 +129,53 @@ export async function createCatchAllGroup(
 ): Promise<{ id: string; displayName: string }> {
     const endpoint = ENDPOINTS[set.objectType]
     const displayName = `Other/unknown ${set.displayName}`
-    const shortName = displayName.slice(0, MAX_SHORT_NAME_LENGTH)
+    const shortName =
+        displayName.length <= MAX_SHORT_NAME_LENGTH
+            ? displayName
+            : `${displayName.slice(0, 38)} ${set.id}`
 
+    const existingId = await findExistingGroupId(
+        fetcher,
+        endpoint.groups,
+        displayName
+    )
+
+    const id =
+        existingId ??
+        (await createGroup(fetcher, endpoint, { set, displayName, shortName }))
+
+    const addResponse = await fetcher(
+        `${endpoint.groupSets}/${set.id}/${endpoint.groups}/${id}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' } }
+    )
+    if (!addResponse.ok) {
+        throw new Error(
+            `Failed to add the catch-all group ${id} to the set: HTTP ${addResponse.status}`
+        )
+    }
+
+    return { id, displayName }
+}
+
+async function createGroup(
+    fetcher: Fetcher,
+    endpoint: (typeof ENDPOINTS)[ObjectType],
+    names: { set: GroupSetMeta; displayName: string; shortName: string }
+): Promise<string> {
+    const { set, displayName, shortName } = names
     const sibling = set.groups[0]
-    const [code, sharing] = await Promise.all([
-        fetchGroupSetCode(fetcher, endpoint.groupSets, set.id),
-        sibling
-            ? fetchSiblingSharing(fetcher, endpoint.groups, sibling.id)
-            : Promise.resolve(DEFAULT_SHARING),
-    ])
+    // Fetched only when actually creating: a reused group (found by
+    // findExistingGroupId) needs neither, since it already has both.
+    const codePromise = fetchGroupSetCode(fetcher, endpoint.groupSets, set.id)
+    const sharingPromise = sibling
+        ? fetchSiblingSharing(fetcher, endpoint.groups, sibling.id)
+        : Promise.resolve(DEFAULT_SHARING)
+    // Promise.all surfaces only the first rejection; without these, a
+    // failure of the *other* promise would additionally log as an
+    // unhandled rejection when both reject.
+    codePromise.catch(() => undefined)
+    sharingPromise.catch(() => undefined)
+    const [code, sharing] = await Promise.all([codePromise, sharingPromise])
 
     const body: Record<string, unknown> = {
         name: displayName,
@@ -109,35 +201,29 @@ export async function createCatchAllGroup(
     if (!id) {
         throw new Error('Group create did not return an id')
     }
-
-    const addResponse = await fetcher(
-        `${endpoint.groupSets}/${set.id}/groups/${id}`,
-        { method: 'POST' }
-    )
-    if (!addResponse.ok) {
-        throw new Error(
-            `Failed to add the catch-all group to the set: HTTP ${addResponse.status}`
-        )
-    }
-
-    return { id, displayName }
+    return id
 }
 
 /**
  * Patches `compulsory` and/or `dataDimension` on a group set with a JSON
  * patch (`application/json-patch+json`), confirmed by
  * docs/superpowers/notes/2026-09-plan2-write-api-findings.md to take effect
- * immediately. `target.objectType` is required even though a group set id
+ * immediately. `set.objectType` is required even though a group set id
  * alone looks like it should be enough: the four object types each have
  * their own group-set collection (`organisationUnitGroupSets`,
  * `dataElementGroupSets`, ...), and there is no generic endpoint that would
- * let this function find the right one from `setId` alone. It is bundled
- * into one `target` object with `setId`, rather than added as its own
- * parameter, to stay within this project's `max-params` limit.
+ * let this function find the right one from an id alone. It takes the same
+ * `Pick<GroupSetMeta, 'id' | 'objectType'>` shape `createCatchAllGroup`
+ * takes as `set`, so a caller holding a `GroupSetMeta` passes it to either
+ * function the same way.
+ *
+ * Thrown errors carry only an HTTP status, not user-facing text; a caller
+ * that surfaces `e.message` in a dialog must translate it first rather than
+ * display it raw (this project's strings must all go through `i18n.t()`).
  */
 export async function setGroupSetProperties(
     fetcher: Fetcher,
-    target: { objectType: ObjectType; setId: string },
+    set: Pick<GroupSetMeta, 'id' | 'objectType'>,
     props: { compulsory?: boolean; dataDimension?: boolean }
 ): Promise<void> {
     const ops = Object.entries(props)
@@ -146,15 +232,15 @@ export async function setGroupSetProperties(
     if (ops.length === 0) {
         return
     }
-    const endpoint = ENDPOINTS[target.objectType]
-    const response = await fetcher(`${endpoint.groupSets}/${target.setId}`, {
+    const endpoint = ENDPOINTS[set.objectType]
+    const response = await fetcher(`${endpoint.groupSets}/${set.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json-patch+json' },
         body: JSON.stringify(ops),
     })
     if (!response.ok) {
         throw new Error(
-            `Failed to update group set ${target.setId}: HTTP ${response.status}`
+            `Failed to update group set ${set.id}: HTTP ${response.status}`
         )
     }
 }
