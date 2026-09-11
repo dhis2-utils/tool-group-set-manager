@@ -15,6 +15,22 @@ jest.mock('@/hooks/useEngine', () => ({
         reload: async () => undefined,
     }),
 }))
+jest.mock('@/hooks/useGsiConfig', () => ({
+    GsiConfigProvider: ({ children }: { children: React.ReactNode }) => (
+        <>{children}</>
+    ),
+    useGsiConfig: () => ({
+        config: {
+            requiredLevels: {},
+            catchAllGroup: {},
+            includeTracker: false,
+        },
+        isLoaded: true,
+        setRequiredLevels: async () => undefined,
+        setCatchAllGroup: async () => undefined,
+        setIncludeTracker: async () => undefined,
+    }),
+}))
 jest.mock('@/hooks/useScope', () => ({
     ScopeProvider: ({ children }: { children: React.ReactNode }) => (
         <>{children}</>

@@ -8,10 +8,44 @@ jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://server', apiVersion: 42 }),
 }))
 
+// Named mockLoadConfig for continuity with the rest of this file's setup
+// (every test still configures it with mockResolvedValue), but it now
+// backs useGsiConfig() rather than a direct datastore.loadConfig() call --
+// D1 moved BulkFixDialog onto the shared hook, which loads config the same
+// asynchronous way and only then reports isLoaded.
 const mockLoadConfig = jest.fn()
-jest.mock('@/data/datastore', () => ({
-    loadConfig: (...args: unknown[]) => mockLoadConfig(...args),
-}))
+jest.mock('@/hooks/useGsiConfig', () => {
+    const ReactLib = jest.requireActual('react')
+    return {
+        useGsiConfig: () => {
+            const [config, setConfig] = ReactLib.useState({
+                requiredLevels: {},
+                catchAllGroup: {},
+                includeTracker: false,
+            })
+            const [isLoaded, setIsLoaded] = ReactLib.useState(false)
+            ReactLib.useEffect(() => {
+                let cancelled = false
+                mockLoadConfig().then((loaded: unknown) => {
+                    if (!cancelled) {
+                        setConfig(loaded)
+                        setIsLoaded(true)
+                    }
+                })
+                return () => {
+                    cancelled = true
+                }
+            }, [])
+            return {
+                config,
+                isLoaded,
+                setRequiredLevels: async () => undefined,
+                setCatchAllGroup: async () => undefined,
+                setIncludeTracker: async () => undefined,
+            }
+        },
+    }
+})
 
 const mockCreateCatchAllGroup = jest.fn()
 jest.mock('@/data/metadataWrites', () => ({

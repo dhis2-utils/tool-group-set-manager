@@ -39,6 +39,14 @@ export const SyncUrlWithGlobalShell = () => {
                 >
                     {i18n.t('History')}
                 </NavLink>
+                <NavLink
+                    to="/settings"
+                    className={({ isActive }) =>
+                        isActive ? styles.active : styles.link
+                    }
+                >
+                    {i18n.t('Settings')}
+                </NavLink>
             </nav>
             <Outlet />
         </>

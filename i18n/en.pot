@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-11T13:02:52.314Z\n"
-"PO-Revision-Date: 2026-09-11T13:02:52.314Z\n"
+"POT-Creation-Date: 2026-09-11T13:22:40.737Z\n"
+"PO-Revision-Date: 2026-09-11T13:22:40.737Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -555,6 +555,87 @@ msgstr "Export"
 
 msgid "Load more"
 msgstr "Load more"
+
+msgid "Created 1 SQL view"
+msgstr "Created 1 SQL view"
+
+msgid "Created {count} SQL views"
+msgstr "Created {count} SQL views"
+
+msgid "Repaired 1 SQL view"
+msgstr "Repaired 1 SQL view"
+
+msgid "Repaired {count} SQL views"
+msgstr "Repaired {count} SQL views"
+
+msgid "1 SQL view could not be created or repaired"
+msgstr "1 SQL view could not be created or repaired"
+
+msgid "{count} SQL views could not be created or repaired"
+msgstr "{count} SQL views could not be created or repaired"
+
+msgid "SQL views"
+msgstr "SQL views"
+
+msgid "Usable"
+msgstr "Usable"
+
+msgid "Not usable yet"
+msgstr "Not usable yet"
+
+msgid "SQL views are set up"
+msgstr "SQL views are set up"
+
+msgid "The app is reading organisation unit data through the fast SQL view path."
+msgstr "The app is reading organisation unit data through the fast SQL view path."
+
+msgid "Create SQL views"
+msgstr "Create SQL views"
+
+msgid "SQL views are not set up"
+msgstr "SQL views are not set up"
+
+msgid ""
+"You do not have the required authority to create SQL views. Ask an "
+"administrator to create them, or grant the authority to add public SQL "
+"views."
+msgstr ""
+"You do not have the required authority to create SQL views. Ask an "
+"administrator to create them, or grant the authority to add public SQL "
+"views."
+
+msgid "The app could not determine whether you can create SQL views."
+msgstr "The app could not determine whether you can create SQL views."
+
+msgid "SQL view update complete"
+msgstr "SQL view update complete"
+
+msgid "SQL view update failed"
+msgstr "SQL view update failed"
+
+msgid "Required organisation unit levels"
+msgstr "Required organisation unit levels"
+
+msgid "Choose required levels"
+msgstr "Choose required levels"
+
+msgid "Choose catch-all group"
+msgstr "Choose catch-all group"
+
+msgid "Tracker data"
+msgstr "Tracker data"
+
+msgid "Include tracker attributes and data elements by default"
+msgstr "Include tracker attributes and data elements by default"
+
+msgid "Cache"
+msgstr "Cache"
+
+msgid "Clear cache"
+msgstr "Clear cache"
+
+msgid "Settings"
+msgstr "Settings"
 
 msgid "Organisation unit group sets"
 msgstr "Organisation unit group sets"

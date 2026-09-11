@@ -3,10 +3,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 import { createHashRouter, RouterProvider } from 'react-router-dom'
 import { EngineProvider } from '@/hooks/useEngine'
+import { GsiConfigProvider } from '@/hooks/useGsiConfig'
 import { ScopeProvider } from '@/hooks/useScope'
 import { Dashboard } from '@/pages/Dashboard/Dashboard'
 import { GroupSetDetail } from '@/pages/GroupSetDetail/GroupSetDetail'
 import { History } from '@/pages/History/History'
+import { Settings } from '@/pages/Settings/Settings'
 import { SyncUrlWithGlobalShell } from '@/utils/SyncUrlWithGlobalShell'
 
 const queryClient = new QueryClient({
@@ -20,6 +22,7 @@ const router = createHashRouter([
             { path: '/', element: <Dashboard /> },
             { path: '/sets/:setId', element: <GroupSetDetail /> },
             { path: '/history', element: <History /> },
+            { path: '/settings', element: <Settings /> },
         ],
     },
 ])
@@ -30,7 +33,9 @@ const App = () => (
         <CssVariables theme spacers colors elevations />
         <ScopeProvider>
             <EngineProvider>
-                <RouterProvider router={router} />
+                <GsiConfigProvider>
+                    <RouterProvider router={router} />
+                </GsiConfigProvider>
             </EngineProvider>
         </ScopeProvider>
     </QueryClientProvider>

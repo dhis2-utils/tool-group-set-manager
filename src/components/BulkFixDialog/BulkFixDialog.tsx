@@ -23,7 +23,6 @@ import {
     PreviewRow,
 } from '@/components/ChangeSetPreview/ChangeSetPreview'
 import { toCsv } from '@/data/csv'
-import { loadConfig } from '@/data/datastore'
 import { createFetcher } from '@/data/fetcher'
 import { createCatchAllGroup } from '@/data/metadataWrites'
 import {
@@ -38,6 +37,7 @@ import { AssignmentPlan, ObjectsResult, ScopeRef } from '@/engine/store'
 import { GroupSetMeta, Status } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
+import { useGsiConfig } from '@/hooks/useGsiConfig'
 import {
     MembershipWriteResult,
     useMembershipWrite,
@@ -208,18 +208,14 @@ export const BulkFixDialog = ({
     // previous attempt cannot linger over a fresh one.
     const [applyError, setApplyError] = useState<string | null>(null)
 
+    const { config: gsiConfig, isLoaded: gsiConfigLoaded } = useGsiConfig()
+
     useEffect(() => {
-        let cancelled = false
-        loadConfig(fetcher).then((config) => {
-            if (!cancelled) {
-                setConfiguredCatchAll(config.catchAllGroup[set.id])
-                setConfigLoaded(true)
-            }
-        })
-        return () => {
-            cancelled = true
+        if (gsiConfigLoaded) {
+            setConfiguredCatchAll(gsiConfig.catchAllGroup[set.id])
+            setConfigLoaded(true)
         }
-    }, [fetcher, set.id])
+    }, [gsiConfigLoaded, gsiConfig, set.id])
 
     const nameMatchId = useMemo(
         () =>
