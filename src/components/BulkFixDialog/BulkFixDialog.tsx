@@ -265,7 +265,12 @@ export const BulkFixDialog = ({
         error: planError,
     } = useEngineQuery<AssignmentPlan>(
         'planAssignment',
-        [set.id, scope, populationFilter, targetGroupId, selection],
+        // Fix round 2: `planAssignment` no longer takes `selection` as a
+        // separate argument that would bypass `populationFilter` -- a
+        // selection is already folded into `populationFilter.ids` above,
+        // so this is the one population definition, used here exactly as
+        // it is for the sample and the CSV below.
+        [set.id, scope, populationFilter, targetGroupId],
         previewEnabled
     )
 

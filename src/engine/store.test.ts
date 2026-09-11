@@ -613,6 +613,33 @@ describe('EngineStore.planAssignment', () => {
         return store
     }
 
+    it('filter.ids narrows the filter rather than replacing it: a correctly categorised id in the list is still excluded by statuses (fix round 2)', () => {
+        // Fix round 2's regression case, at the engine level: before this
+        // round `planAssignment` took a separate `selection` parameter
+        // that replaced the filter outright, so a caller that forced
+        // `statuses` to violations-only (as BulkFixDialog does for "move
+        // to catch-all") got that restriction silently bypassed whenever
+        // a selection was also given. `ids` is a *predicate* alongside
+        // `statuses`, so both apply together.
+        const store = storeWithGroups(true, true)
+        // a1 is Status.Ok (sole member of pub); a2 is Status.Conflict (in
+        // both pub and priv). Both ids are requested, but only a
+        // violation (a2) is in scope once `statuses` is combined in.
+        const plan = store.planAssignment(
+            'own',
+            scope,
+            { ids: ['a1', 'a2'], statuses: [Status.Conflict] },
+            'pub'
+        )
+        expect(plan.changes.some((c) => c.additions.includes('a1'))).toBe(false)
+        expect(plan.changes.some((c) => c.deletions.includes('a1'))).toBe(false)
+        // a2 is still acted on: it already holds pub, so it only needs
+        // its now-redundant priv membership removed.
+        const privChange = plan.changes.find((c) => c.groupId === 'priv')
+        expect(privChange?.deletions).toEqual(['a2'])
+        expect(plan.affected).toBe(1)
+    })
+
     it('moves everyone to the target, deleting from other groups they hold', () => {
         const store = storeWithGroups(true, true)
         const plan = store.planAssignment('own', scope, { level: 3 }, 'pub')
@@ -632,7 +659,7 @@ describe('EngineStore.planAssignment', () => {
 
     it('an object already the sole member of the target contributes no change', () => {
         const store = storeWithGroups(true, true)
-        const plan = store.planAssignment('own', scope, {}, 'pub', ['a1'])
+        const plan = store.planAssignment('own', scope, { ids: ['a1'] }, 'pub')
         expect(plan.affected).toBe(0)
         expect(plan.changes).toEqual([])
         expect(plan.skippedCount).toBe(0)
@@ -665,9 +692,9 @@ describe('EngineStore.planAssignment', () => {
         expect(plan.changes.find((c) => c.groupId === 'pub')).toBeUndefined()
     })
 
-    it('restricts the plan to a given selection of object ids', () => {
+    it('restricts the plan to filter.ids, an explicit list of object ids', () => {
         const store = storeWithGroups(true, true)
-        const plan = store.planAssignment('own', scope, {}, 'pub', ['b1'])
+        const plan = store.planAssignment('own', scope, { ids: ['b1'] }, 'pub')
         expect(plan.affected).toBe(1)
         expect(plan.skippedCount).toBe(0)
         expect(plan.skippedSample).toEqual([])
@@ -682,13 +709,18 @@ describe('EngineStore.planAssignment', () => {
         expect(() => store.planAssignment('own', scope, {}, 'nope')).toThrow()
     })
 
-    it('dedupes a selection with repeated ids (M4)', () => {
+    it('a filter.ids list with repeated ids is not double-counted', () => {
+        // Fix round 2: `planAssignment` no longer has a separate
+        // `selection` parameter to dedupe -- `filter.ids` goes through
+        // `listObjects`, which visits every object in scope at most once
+        // regardless of how many times its id is repeated in the filter.
         const store = storeWithGroups(true, true)
-        const plan = store.planAssignment('own', scope, {}, 'pub', [
-            'b1',
-            'b1',
-            'b1',
-        ])
+        const plan = store.planAssignment(
+            'own',
+            scope,
+            { ids: ['b1', 'b1', 'b1'] },
+            'pub'
+        )
         expect(plan.affected).toBe(1)
     })
 

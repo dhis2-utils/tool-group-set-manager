@@ -422,9 +422,23 @@ export class EngineStore {
     /**
      * D2/D3: computes the change a bulk fix would write, entirely inside
      * the worker -- the caller gets ids and counts back, never a resolved
-     * population with display names. `selection`, when given, replaces the
-     * scope+filter population outright (D1); when absent the population is
-     * every object `objectsFor` would return for the same scope and filter.
+     * population with display names. The population is exactly what
+     * `objectsFor` would return for the same scope and filter -- there is
+     * exactly one population definition, the filter, and it is honoured
+     * here through `listObjects` the same way `objectsFor` honours it.
+     *
+     * Fix round 2: this used to also accept a `selection` parameter that
+     * *replaced* the filter outright, bypassing it (and any status
+     * restriction a caller had forced into it) entirely. A caller that
+     * forced `filter.statuses` to violations-only (as `BulkFixDialog` does
+     * for "move to catch-all") while also passing a `selection` got a plan
+     * computed against the *unfiltered* selection, silently defeating that
+     * restriction -- proven on a real store to strip a correctly
+     * categorised object out of its group. A selection is now expressed as
+     * `filter.ids` (added to `ObjectFilter`/`listObjects` for exactly this),
+     * which *narrows* the filter instead of replacing it, so a forced
+     * status restriction applies to a selection exactly as it does to
+     * everything else.
      *
      * An object already the sole member of the target needs no write and
      * contributes nothing. Otherwise it needs a deletion from every other
@@ -439,8 +453,7 @@ export class EngineStore {
         setId: string,
         scope: ScopeRef,
         filter: ObjectFilter,
-        targetGroupId: string,
-        selection?: string[]
+        targetGroupId: string
     ): AssignmentPlan {
         const { state, t } = this.setState(setId)
         const targetIndex = state.set.groups.findIndex(
@@ -453,34 +466,17 @@ export class EngineStore {
         }
         const targetWritable = state.set.groups[targetIndex].canWrite
 
-        // M2: kept as the typed array `listObjects` already returns, or a
-        // plain array resolved from `selection` -- never copied through
-        // `Array.from` into a second array of up to 200,000 boxed numbers
-        // just to get a `.forEach`.
-        let indexes: Int32Array | number[]
-        if (selection) {
-            // M4: a duplicate id in `selection` must not double-count
-            // `affected` or list an id twice in `skipped` -- `changes`
-            // itself already dedupes via its `Set`s, so a naive selection
-            // would silently disagree with its own `affected` count.
-            const resolved: number[] = []
-            new Set(selection).forEach((id) => {
-                const idx = t.indexOf.get(id)
-                if (idx !== undefined) {
-                    resolved.push(idx)
-                }
-            })
-            indexes = resolved
-        } else {
-            indexes = listObjects(
-                state.status,
-                state.membership,
-                t.hierarchy,
-                this.scopeRoot(t, scope),
-                filter,
-                t.ids
-            )
-        }
+        // M2: the typed array `listObjects` returns is iterated directly
+        // below, never copied through `Array.from` into a second array of
+        // up to 200,000 boxed numbers just to get a `.forEach`.
+        const indexes = listObjects(
+            state.status,
+            state.membership,
+            t.hierarchy,
+            this.scopeRoot(t, scope),
+            filter,
+            t.ids
+        )
 
         const additions = new Set<string>()
         const deletionsByGroup = new Map<number, Set<string>>()

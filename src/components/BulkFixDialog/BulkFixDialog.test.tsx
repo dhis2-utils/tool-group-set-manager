@@ -225,7 +225,7 @@ describe('BulkFixDialog action step', () => {
         // only, see the Critical-fix describe block below).
         expect(mockUseEngineQuery).toHaveBeenCalledWith(
             'planAssignment',
-            ['own', scope, {}, 'g1', undefined],
+            ['own', scope, {}, 'g1'],
             true
         )
     })
@@ -461,6 +461,8 @@ describe('BulkFixDialog Critical fix: move-to-catch-all never touches a correctl
     it('opening over a filter matching both OK and violating objects, and choosing move-to-catch-all, never touches the OK object', async () => {
         const { store, testSet } = buildRealStore()
         let lastPlan: ReturnType<EngineStore['planAssignment']> | undefined
+        let lastPlanFilter: unknown
+        let lastObjectsForFilter: unknown
         mockUseEngineQuery.mockImplementation(
             (method: string, args: unknown[], enabled?: boolean) => {
                 if (!enabled) {
@@ -471,10 +473,12 @@ describe('BulkFixDialog Critical fix: move-to-catch-all never touches a correctl
                         args[0] as string,
                         args[1] as Parameters<EngineStore['planAssignment']>[1],
                         args[2] as Parameters<EngineStore['planAssignment']>[2],
-                        args[3] as string,
-                        args[4] as string[] | undefined
+                        args[3] as string
                     )
                     lastPlan = result
+                    lastPlanFilter = args[2] as Parameters<
+                        EngineStore['planAssignment']
+                    >[2]
                     return { data: result, isLoading: false, error: null }
                 }
                 if (method === 'objectsFor') {
@@ -485,6 +489,9 @@ describe('BulkFixDialog Critical fix: move-to-catch-all never touches a correctl
                         args[3] as number,
                         args[4] as number
                     )
+                    lastObjectsForFilter = args[2] as Parameters<
+                        EngineStore['objectsFor']
+                    >[2]
                     return { data: result, isLoading: false, error: null }
                 }
                 return { data: undefined, isLoading: false, error: null }
@@ -524,5 +531,137 @@ describe('BulkFixDialog Critical fix: move-to-catch-all never touches a correctl
         expect(otherChange?.additions).toEqual(['missing1'])
         const alphaChange = lastPlan!.changes.find((c) => c.groupId === 'alpha')
         expect(alphaChange?.deletions).toEqual(['conflict1'])
+        // I5: the plan and the sample read the very same population
+        // definition -- not just equivalent filters computed twice.
+        expect(lastObjectsForFilter).toBeDefined()
+        expect(lastPlanFilter).toEqual(lastObjectsForFilter)
+    })
+
+    it('a selection containing both a violating and a correctly categorised object never touches the correct one (fix round 2)', async () => {
+        // Fix round 2's own regression case: before this round,
+        // `planAssignment` took `selection` as a separate parameter that
+        // *replaced* the filter outright, so the forced violation-only
+        // restriction below never applied to a selection at all -- this
+        // failed against the pre-fix `store.ts` (the OK object was pulled
+        // out of `alpha` and into `other`). It passes now because
+        // `selection` is folded into `filter.ids`, which narrows the
+        // filter instead of bypassing it.
+        const { store, testSet } = buildRealStore()
+        let lastPlan: ReturnType<EngineStore['planAssignment']> | undefined
+        mockUseEngineQuery.mockImplementation(
+            (method: string, args: unknown[], enabled?: boolean) => {
+                if (!enabled) {
+                    return { data: undefined, isLoading: false, error: null }
+                }
+                if (method === 'planAssignment') {
+                    const result = store.planAssignment(
+                        args[0] as string,
+                        args[1] as Parameters<EngineStore['planAssignment']>[1],
+                        args[2] as Parameters<EngineStore['planAssignment']>[2],
+                        args[3] as string
+                    )
+                    lastPlan = result
+                    return { data: result, isLoading: false, error: null }
+                }
+                if (method === 'objectsFor') {
+                    const result = store.objectsFor(
+                        args[0] as string,
+                        args[1] as Parameters<EngineStore['objectsFor']>[1],
+                        args[2] as Parameters<EngineStore['objectsFor']>[2],
+                        args[3] as number,
+                        args[4] as number
+                    )
+                    return { data: result, isLoading: false, error: null }
+                }
+                return { data: undefined, isLoading: false, error: null }
+            }
+        )
+        render(
+            <BulkFixDialog
+                set={testSet}
+                scope={scope}
+                filter={{}}
+                selection={['ok1', 'missing1']}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        await waitFor(() =>
+            expect(
+                screen.getByText('Other/unknown Ownership')
+            ).toBeInTheDocument()
+        )
+        fireEvent.click(screen.getByRole('button', { name: /next/i }))
+
+        await waitFor(() => expect(lastPlan).toBeDefined())
+        expect(lastPlan!.changes.some((c) => c.additions.includes('ok1'))).toBe(
+            false
+        )
+        expect(lastPlan!.changes.some((c) => c.deletions.includes('ok1'))).toBe(
+            false
+        )
+        const otherChange = lastPlan!.changes.find((c) => c.groupId === 'other')
+        expect(otherChange?.additions).toEqual(['missing1'])
+    })
+
+    it('a selection and a filter that disagree narrow to their intersection, and the plan/sample agree on it', async () => {
+        // `alpha`'s only members are ok1 and conflict1; the selection below
+        // additionally names missing1, which is not in alpha at all. The
+        // intersection of "in alpha" and "{ok1, missing1}" is just ok1 --
+        // and since move-to-catch-all also forces violation statuses only,
+        // and ok1 is not a violation, the true population is empty.
+        const { store, testSet } = buildRealStore()
+        let lastPlan: ReturnType<EngineStore['planAssignment']> | undefined
+        let lastSampleTotal: number | undefined
+        mockUseEngineQuery.mockImplementation(
+            (method: string, args: unknown[], enabled?: boolean) => {
+                if (!enabled) {
+                    return { data: undefined, isLoading: false, error: null }
+                }
+                if (method === 'planAssignment') {
+                    const result = store.planAssignment(
+                        args[0] as string,
+                        args[1] as Parameters<EngineStore['planAssignment']>[1],
+                        args[2] as Parameters<EngineStore['planAssignment']>[2],
+                        args[3] as string
+                    )
+                    lastPlan = result
+                    return { data: result, isLoading: false, error: null }
+                }
+                if (method === 'objectsFor') {
+                    const result = store.objectsFor(
+                        args[0] as string,
+                        args[1] as Parameters<EngineStore['objectsFor']>[1],
+                        args[2] as Parameters<EngineStore['objectsFor']>[2],
+                        args[3] as number,
+                        args[4] as number
+                    )
+                    lastSampleTotal = result.total
+                    return { data: result, isLoading: false, error: null }
+                }
+                return { data: undefined, isLoading: false, error: null }
+            }
+        )
+        render(
+            <BulkFixDialog
+                set={testSet}
+                scope={scope}
+                filter={{ group: 0 }} // Alpha only: ok1, conflict1
+                selection={['ok1', 'missing1']}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        await waitFor(() =>
+            expect(
+                screen.getByText('Other/unknown Ownership')
+            ).toBeInTheDocument()
+        )
+        fireEvent.click(screen.getByRole('button', { name: /next/i }))
+
+        await waitFor(() => expect(lastPlan).toBeDefined())
+        expect(lastPlan!.affected).toBe(0)
+        expect(lastPlan!.changes).toEqual([])
+        expect(lastSampleTotal).toBe(0)
     })
 })
