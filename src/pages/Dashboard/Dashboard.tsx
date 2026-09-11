@@ -172,7 +172,10 @@ export const Dashboard = () => {
                 // that reads identically on a server that never had SQL
                 // views at all, which must stay silent.
                 fellBack && (
-                    <NoticeBox title={i18n.t('A GSI SQL view failed to load')}>
+                    <NoticeBox
+                        warning
+                        title={i18n.t('A GSI SQL view failed to load')}
+                    >
                         <p>
                             {i18n.t(
                                 'Data is being loaded from the metadata API instead because one of the GSI SQL views could not be read. Performance may be slower until the view is repaired.'

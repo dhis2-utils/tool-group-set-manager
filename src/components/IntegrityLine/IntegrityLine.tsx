@@ -16,47 +16,60 @@ interface Props {
 // placed afterwards through interpolate() rather than glued on or passed as
 // a second i18n.t() argument (which the scanner cannot see).
 //
-// Deliberately phrased as "DHIS2 found N objects", never as a bare number
-// beside the engine's own count -- the two count different populations
-// (the whole hierarchy vs. this scope), and putting them side by side
-// invites exactly the wrong comparison.
-const resultLabel = (count: number, time: string) =>
+// P3-R5 (review round 1, M1): finding 5 established that neither integrity
+// endpoint takes an org unit or a group set parameter -- the count is
+// national and spans every group set of the object type, never scoped to
+// the one set whose card this line sits on. "across the whole instance"
+// alone only disclaims the *geographic* scope; it says nothing about the
+// *set* scope, so a reader could still read the number as this set's own.
+// The sentence must say both: which check produced the number (named
+// in-line, not hidden in a `title` attribute -- invisible on hover-only,
+// absent on touch, unreliable to a screen reader) and that it spans every
+// group set, not just this one.
+const resultLabel = (check: string, count: number, time: string) =>
     count === 1
         ? interpolate(
               i18n.t(
-                  'DHIS2 found 1 object across the whole instance as of {time}'
+                  'DHIS2 check {check} found 1 object across all group sets on this instance as of {time}'
               ),
-              { time }
+              { check, time }
           )
         : interpolate(
               i18n.t(
-                  'DHIS2 found {count} objects across the whole instance as of {time}'
+                  'DHIS2 check {check} found {count} objects across all group sets on this instance as of {time}'
               ),
-              { count, time }
+              { check, count, time }
           )
+
+const neverRunLabel = (check: string) =>
+    interpolate(
+        i18n.t(
+            'The {check} check has not been run yet; run it from the DHIS2 integrity tab'
+        ),
+        { check }
+    )
 
 /**
  * One line, after a card's own counts: the DHIS2-native integrity result for
  * `check`, with its run time, and a stale marker when a write this session
- * has outrun the last recorded run. `check` carries the identity Task 4's
- * detail-tab list needs to show several of these side by side (its
- * `displayName` titles the line so a reader with more than one check on
- * screen can tell them apart); this card only ever shows one.
+ * has outrun the last recorded run. The check's `displayName` is always part
+ * of the visible sentence (never a `title`-only attribute) -- see the M1
+ * comment on `resultLabel` above. `check` also carries the identity Task 4's
+ * detail-tab list needs to show several of these side by side; this card
+ * only ever shows one.
  */
 export const IntegrityLine = ({ check, summary, stale }: Props) => {
     if (summary.finishedTime === null) {
         return (
-            <div className={styles.line} title={check.displayName}>
-                {i18n.t(
-                    'This check has not been run yet; run it from the DHIS2 integrity tab'
-                )}
+            <div className={styles.line}>
+                {neverRunLabel(check.displayName)}
             </div>
         )
     }
     const time = new Date(summary.finishedTime).toLocaleString()
     return (
-        <div className={styles.line} title={check.displayName}>
-            <span>{resultLabel(summary.count, time)}</span>
+        <div className={styles.line}>
+            <span>{resultLabel(check.displayName, summary.count, time)}</span>
             {stale && <Tag neutral>{i18n.t('Stale')}</Tag>}
         </div>
     )

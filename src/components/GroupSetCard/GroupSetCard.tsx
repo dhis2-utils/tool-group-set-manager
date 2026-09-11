@@ -3,7 +3,7 @@ import { Card, Tag } from '@dhis2/ui'
 import React from 'react'
 import styles from './GroupSetCard.module.css'
 import { IntegrityLine } from '@/components/IntegrityLine/IntegrityLine'
-import { CheckSummary, ResolvedCheck } from '@/data/integrity'
+import { CheckSummary, LogicalCheck, ResolvedCheck } from '@/data/integrity'
 import { DashboardEntry } from '@/engine/store'
 import { ObjectType } from '@/engine/types'
 import { useIntegrity } from '@/hooks/useIntegrity'
@@ -42,21 +42,35 @@ const readOnlyLabel = (count: number) =>
         : interpolate(i18n.t('{count} groups read-only for you'), { count })
 
 /**
- * The one DHIS2-native check this card's line shows, chosen for the card's
- * object type in the app's own preference order (see CANDIDATES in
- * src/data/integrity.ts, whose iteration order LOGICAL_ORDER preserves):
- * the first resolved check matching this set's object type. Spec 5.1 asks
- * for a single result per card, not the full "relevant checks" list spec
- * 5.2 gives the detail tab, so a set with more than one applicable check
- * (org units have both the compulsory and the exclusive-groups checks)
- * shows only its first match here -- Task 4's detail tab is where every
- * relevant check gets its own line.
+ * P3-R5 (review round 1, M1): the check shown must be one the set on screen
+ * actually enforces, never merely "the first check for this object type" --
+ * the compulsory check and the exclusive-groups check for the same object
+ * type measure different rules, and showing the wrong one under a set's own
+ * counts misattributes a number that is already instance-wide (finding 5)
+ * to a rule the set does not even follow. So selection reads the set's own
+ * `compulsory` flag, not just its `objectType`: a compulsory set shows the
+ * compulsory-membership check (org units only -- no other object type has
+ * one, per OBJECT_TYPE_OF in src/data/integrity.ts), every other set shows
+ * its type's exclusive-groups ("conflicting") check. A set for which the
+ * applicable logical check never resolved on this server shows nothing --
+ * never a check that does not concern it.
  */
+const CONFLICT_LOGICAL_OF: Record<ObjectType, LogicalCheck> = {
+    organisationUnit: 'orgUnitsConflicting',
+    dataElement: 'dataElementsConflicting',
+    indicator: 'indicatorsConflicting',
+    categoryOption: 'categoryOptionsConflicting',
+}
+
 function checkFor(
     checks: ResolvedCheck[],
-    objectType: ObjectType
+    set: { objectType: ObjectType; compulsory: boolean }
 ): ResolvedCheck | undefined {
-    return checks.find((c) => c.objectType === objectType)
+    const logical: LogicalCheck =
+        set.compulsory && set.objectType === 'organisationUnit'
+            ? 'orgUnitsMissingCompulsory'
+            : CONFLICT_LOGICAL_OF[set.objectType]
+    return checks.find((c) => c.logical === logical)
 }
 
 export const GroupSetCard = ({ entry, onOpen }: Props) => {
@@ -67,9 +81,7 @@ export const GroupSetCard = ({ entry, onOpen }: Props) => {
     // a district manager) gets nothing from this at all -- not an empty
     // element, not a placeholder, not a dash. `relevantCheck` stays
     // undefined and the block below renders nothing.
-    const relevantCheck = available
-        ? checkFor(checks, set.objectType)
-        : undefined
+    const relevantCheck = available ? checkFor(checks, set) : undefined
     const relevantSummary: CheckSummary | undefined = relevantCheck
         ? summaries[relevantCheck.name]
         : undefined
