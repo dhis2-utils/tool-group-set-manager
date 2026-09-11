@@ -8,9 +8,13 @@ import { ObjectType } from '@/engine/types'
  * `accepted` are both counts of ids (additions plus deletions), not booleans,
  * because DHIS2 can accept some of a batch and drop the rest without saying
  * which -- see finding 2 in
- * docs/superpowers/notes/2026-09-plan2-write-api-findings.md. `accepted <
- * requested` marks a partial failure; `error` is set instead when the
- * request itself failed (non-200, or the request never completed).
+ * docs/superpowers/notes/2026-09-plan2-write-api-findings.md. `accepted !==
+ * requested` marks a partial failure (a shortfall in the ordinary case, but
+ * the batch is disowned either way if the server ever reports more than was
+ * sent); `error` is set instead when the request itself failed (non-200, the
+ * request never completed, or the batch was skipped because an earlier batch
+ * for this same group already failed outright -- see the note on the writer
+ * below).
  */
 export interface BatchOutcome {
     groupId: string
@@ -107,6 +111,21 @@ function splitChange(change: GroupChange, batchSize: number): GroupChange[] {
  * A group the caller cannot write to (or one a network failure hits) is
  * recorded as a failed batch and does not stop the remaining groups: being
  * able to fix nine groups out of ten is worth far more than failing all ten.
+ * Once a batch for a group fails outright (a non-2xx response, or a thrown
+ * error), every remaining batch for that same group is skipped rather than
+ * sent -- a write access problem is a property of the group, not of which
+ * slice of ids happened to be in this particular batch, so retrying it a
+ * hundred times against a hundred-way split serves nobody. Each skipped
+ * batch still gets its own `BatchOutcome` (carrying the same error) and is
+ * added to `unaccounted`, so the totals the caller sees still add up to
+ * every batch that was going to be attempted. This does not apply to a
+ * partial (silent-drop) shortfall on an otherwise-successful response, which
+ * stays batch-specific and does not mark the group as failed.
+ *
+ * A change list with nothing in it produces no batches at all, so
+ * `onProgress` is never called -- a caller driving a progress display from
+ * it has to settle that display itself rather than waiting on a callback
+ * that will not come.
  */
 export async function writeMemberships(
     fetcher: Fetcher,
@@ -122,10 +141,28 @@ export async function writeMemberships(
     const outcomes: BatchOutcome[] = []
     const applied: GroupChange[] = []
     const unaccounted: GroupChange[] = []
+    // A group whose first batch failed outright: every later batch for it is
+    // skipped rather than retried, but still recorded (see the doc comment
+    // above), keyed by groupId so a hundred-way split only ever costs one
+    // real request.
+    const failedGroups = new Map<string, string>()
 
     let done = 0
     for (const batch of batches) {
         const requested = batch.additions.length + batch.deletions.length
+        const priorFailure = failedGroups.get(batch.groupId)
+        if (priorFailure !== undefined) {
+            outcomes.push({
+                groupId: batch.groupId,
+                requested,
+                accepted: 0,
+                error: priorFailure,
+            })
+            unaccounted.push(batch)
+            done += 1
+            onProgress(done, total)
+            continue
+        }
         try {
             const response = await fetcher(
                 `${endpoint.groups}/${batch.groupId}/${endpoint.members}`,
@@ -139,13 +176,15 @@ export async function writeMemberships(
                 }
             )
             if (!response.ok) {
+                const error = `HTTP ${response.status}`
                 outcomes.push({
                     groupId: batch.groupId,
                     requested,
                     accepted: 0,
-                    error: `HTTP ${response.status}`,
+                    error,
                 })
                 unaccounted.push(batch)
+                failedGroups.set(batch.groupId, error)
                 continue
             }
             const body = (await response.json()) as ImportReportBody
@@ -157,13 +196,16 @@ export async function writeMemberships(
                 unaccounted.push(batch)
             }
         } catch (error) {
+            const message =
+                error instanceof Error ? error.message : String(error)
             outcomes.push({
                 groupId: batch.groupId,
                 requested,
                 accepted: 0,
-                error: error instanceof Error ? error.message : String(error),
+                error: message,
             })
             unaccounted.push(batch)
+            failedGroups.set(batch.groupId, message)
         } finally {
             done += 1
             onProgress(done, total)

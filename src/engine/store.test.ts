@@ -554,13 +554,18 @@ describe('EngineStore', () => {
             objectType: 'organisationUnit',
             rootId: null,
         })[0].summary
-        expect(groupsOfB1()).not.toEqual(before)
+        const onceGroups = groupsOfB1()
+        expect(onceGroups).not.toEqual(before)
 
         store.applyChangeSet('organisationUnit', changes)
         const twice = store.dashboard({
             objectType: 'organisationUnit',
             rootId: null,
         })[0].summary
+        // The summary alone is blind to this change (see above), so pin the
+        // group membership itself too: a broken applyChangeSet that swapped
+        // b1 back to priv on the second call would still match on summary.
+        expect(groupsOfB1()).toEqual(onceGroups)
 
         expect(twice).toEqual(once)
     })

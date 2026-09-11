@@ -1,5 +1,7 @@
+import { ENDPOINTS } from './endpoints'
 import { writeMemberships } from './writes'
 import { GroupChange } from '@/engine/changeSet'
+import { ObjectType } from '@/engine/types'
 
 const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status })
@@ -257,4 +259,93 @@ describe('writeMemberships', () => {
             { groupId: 'g2', additions: ['b'], deletions: [] },
         ])
     })
+
+    it("skips a group's remaining batches once one comes back forbidden, but still records an outcome for each", async () => {
+        const calls: string[] = []
+        const fetcher = async (path: string) => {
+            calls.push(path)
+            if (path.includes('g1')) {
+                return new Response('forbidden', { status: 403 })
+            }
+            return okStats(1)
+        }
+        const changes: GroupChange[] = [
+            { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
+            { groupId: 'g2', additions: ['d'], deletions: [] },
+        ]
+        const progress: [number, number][] = []
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            changes,
+            (done, total) => progress.push([done, total]),
+            1
+        )
+
+        // Only the first of g1's three one-id batches ever goes over the
+        // wire; the other two are skipped once g1 is known to be forbidden.
+        expect(calls).toEqual([
+            'organisationUnitGroups/g1/organisationUnits',
+            'organisationUnitGroups/g2/organisationUnits',
+        ])
+        expect(result.outcomes).toEqual([
+            { groupId: 'g1', requested: 1, accepted: 0, error: 'HTTP 403' },
+            { groupId: 'g1', requested: 1, accepted: 0, error: 'HTTP 403' },
+            { groupId: 'g1', requested: 1, accepted: 0, error: 'HTTP 403' },
+            { groupId: 'g2', requested: 1, accepted: 1 },
+        ])
+        expect(result.unaccounted).toEqual([
+            { groupId: 'g1', additions: ['a'], deletions: [] },
+            { groupId: 'g1', additions: ['b'], deletions: [] },
+            { groupId: 'g1', additions: ['c'], deletions: [] },
+        ])
+        expect(result.applied).toEqual([
+            { groupId: 'g2', additions: ['d'], deletions: [] },
+        ])
+        // The skipped batches still count toward progress even though no
+        // request was sent for them.
+        expect(progress).toEqual([
+            [1, 4],
+            [2, 4],
+            [3, 4],
+            [4, 4],
+        ])
+    })
+
+    it('outcomes has one entry per batch, not one per group', async () => {
+        const fetcher = async () => okStats(1)
+        const changes: GroupChange[] = [
+            { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
+            { groupId: 'g2', additions: ['d'], deletions: [] },
+        ]
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            changes,
+            () => undefined,
+            1
+        )
+        expect(result.outcomes).toHaveLength(4)
+        expect(result.outcomes.filter((o) => o.groupId === 'g1')).toHaveLength(
+            3
+        )
+    })
+
+    it.each(Object.entries(ENDPOINTS))(
+        'builds the request path from the endpoint map for %s',
+        async (objectType, endpoint) => {
+            const calls: string[] = []
+            const fetcher = async (path: string) => {
+                calls.push(path)
+                return okStats(1)
+            }
+            await writeMemberships(
+                fetcher,
+                objectType as ObjectType,
+                [{ groupId: 'g1', additions: ['a'], deletions: [] }],
+                () => undefined
+            )
+            expect(calls).toEqual([`${endpoint.groups}/g1/${endpoint.members}`])
+        }
+    )
 })
