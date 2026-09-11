@@ -74,9 +74,14 @@ jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => mockEngine,
 }))
 
+// Mutable so a test can flip availability mid-session (m6, review round 1) --
+// the same pattern as `mockScope`/`mockGroupSets` below.
+const mockIntegrity: { available: boolean } = { available: false }
 jest.mock('@/hooks/useIntegrity', () => ({
     useIntegrity: () => ({
-        available: false,
+        get available() {
+            return mockIntegrity.available
+        },
         checks: [],
         summaries: {},
         stale: new Set(),
@@ -86,6 +91,13 @@ jest.mock('@/hooks/useIntegrity', () => ({
         markStale: () => undefined,
         refresh: async () => undefined,
     }),
+}))
+
+// A lightweight stand-in, same treatment as BulkFixDialog/SetPropertiesDialog
+// above -- this file pins the tab wiring (which tab is selected, whether the
+// third Tab button shows), IntegrityTab.test.tsx pins the tab's own content.
+jest.mock('./IntegrityTab', () => ({
+    IntegrityTab: () => <div>mock-integrity-tab</div>,
 }))
 
 const mockScope: {
@@ -159,6 +171,7 @@ afterEach(() => {
     mockScope.rootLevel = null
     mockApiDataQueryCalls.length = 0
     mockReload.mockClear()
+    mockIntegrity.available = false
 })
 
 const renderDetail = () =>
@@ -318,5 +331,48 @@ describe('set properties wiring (I4)', () => {
         expect(await screen.findByText('Set properties…')).toBeDisabled()
         fireEvent.click(screen.getByText('Set properties…'))
         expect(screen.queryByText('mock-properties-close')).toBeNull()
+    })
+})
+
+describe('DHIS2 integrity tab (m6, review round 1)', () => {
+    it('shows the tab only when integrity is available, and switches to it', async () => {
+        mockIntegrity.available = true
+        renderDetail()
+
+        fireEvent.click(await screen.findByText('DHIS2 integrity'))
+        expect(
+            await screen.findByText('mock-integrity-tab')
+        ).toBeInTheDocument()
+    })
+
+    it('falls back to Overview, not a TabBar with nothing selected, when availability flips false mid-session', async () => {
+        mockIntegrity.available = true
+        const view = renderDetail()
+
+        fireEvent.click(await screen.findByText('DHIS2 integrity'))
+        await screen.findByText('mock-integrity-tab')
+
+        // Availability revoked mid-session (e.g. a 403 on a later call) --
+        // the Tab button disappears on the next render; without the fix,
+        // `tab` state itself stayed 'integrity' and the body silently fell
+        // through to ObjectsTab while the TabBar showed nothing selected.
+        mockIntegrity.available = false
+        view.rerender(
+            <MemoryRouter initialEntries={['/sets/own']}>
+                <Routes>
+                    <Route path="/sets/:setId" element={<GroupSetDetail />} />
+                </Routes>
+            </MemoryRouter>
+        )
+
+        await waitFor(() =>
+            expect(
+                screen.queryByText('mock-integrity-tab')
+            ).not.toBeInTheDocument()
+        )
+        expect(screen.queryByText('DHIS2 integrity')).not.toBeInTheDocument()
+        // Landed on Overview content, not a body left over from the
+        // Integrity tab with no selected Tab above it.
+        expect(await screen.findByText('Rows')).toBeInTheDocument()
     })
 })

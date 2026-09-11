@@ -1,13 +1,13 @@
 import { useConfig } from '@dhis2/app-runtime'
 import i18n from '@dhis2/d2-i18n'
 import { Button, NoticeBox } from '@dhis2/ui'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import styles from './IntegrityTab.module.css'
 import { IntegrityLine } from '@/components/IntegrityLine/IntegrityLine'
 import { createFetcher } from '@/data/fetcher'
-import { CheckIssue, readDetails } from '@/data/integrity'
+import { CheckIssue, LogicalCheck, readDetails } from '@/data/integrity'
 import { DashboardEntry, ObjectsResult, ScopeRef } from '@/engine/store'
-import { GroupSetMeta } from '@/engine/types'
+import { GroupSetMeta, Status } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
 import { useIntegrity } from '@/hooks/useIntegrity'
@@ -19,13 +19,18 @@ interface Props {
     scope: ScopeRef
 }
 
-/** Every Status value (types.ts): passed as `filter.statuses` so the
- *  scope-membership check below never excludes an id because of its
- *  status under *this* set -- the DHIS2 check the app is reconciling
- *  against spans every group set of the object type (finding 5), not
- *  just this one, so an id can be perfectly valid here while this set
- *  alone would have called it NotApplicable. */
-const ALL_STATUSES = [0, 1, 2, 3, 4]
+/** Every `Status` value, derived from the enum rather than hand-typed
+ *  (review round 1, m2): a numeric literal array happened to match today,
+ *  but silently stopped matching the moment a member was added, with no
+ *  compile error and no failing test. Passed as `filter.statuses` so the
+ *  scope-membership check below never excludes an id because of its status
+ *  under *this* set -- the DHIS2 check the app is reconciling against spans
+ *  every group set of the object type (finding 5), not just this one, so an
+ *  id can be perfectly valid here while this set alone would have called it
+ *  NotApplicable. */
+const ALL_STATUSES = Object.values(Status).filter(
+    (v): v is number => typeof v === 'number'
+)
 
 interface ScopedResult {
     inScope: CheckIssue[]
@@ -67,22 +72,72 @@ const unknownCountLabel = (count: number) =>
               { count }
           )
 
-const engineCountLabel = (count: number | null, scopeName: string) =>
+// M1 (review round 1): the previous wording -- "The engine itself -- the
+// source of truth -- counts N matching objects within {scope}" -- named
+// neither its own population nor this set, while sitting directly under a
+// number that spans every group set of the object type (finding 5). A
+// reader comparing the two saw only an unqualified claim of authority over
+// a number that counts something narrower, which reads as the app having
+// lost objects rather than as two different, correctly-labelled
+// populations. This wording names the set explicitly and drops the
+// authority claim from this specific sentence -- the engine is still the
+// source of truth for the app's own numbers elsewhere, but asserting that
+// here, next to a number counting a different population, is what made the
+// disagreement read as a bug. Holds for every logical check, compulsory or
+// exclusive: `engineCountFor` always returns *this set's* count against an
+// equally all-group-sets-of-the-type DHIS2 number.
+const engineCountLabel = (
+    count: number | null,
+    scopeName: string,
+    setName: string
+) =>
     count === null
-        ? i18n.t('The engine has not evaluated this rule for this scope yet')
+        ? interpolate(
+              i18n.t(
+                  'This app has not evaluated the {set} rule for this scope yet'
+              ),
+              { set: setName }
+          )
         : count === 1
           ? interpolate(
                 i18n.t(
-                    'The engine itself -- the source of truth -- counts 1 matching object within {scope}'
+                    'Within {scope}, this app finds 1 object failing the {set} rule alone'
                 ),
-                { scope: scopeName }
+                { scope: scopeName, set: setName }
             )
           : interpolate(
                 i18n.t(
-                    'The engine itself -- the source of truth -- counts {count} matching objects within {scope}'
+                    'Within {scope}, this app finds {count} objects failing the {set} rule alone'
                 ),
-                { count, scope: scopeName }
+                { count, scope: scopeName, set: setName }
             )
+
+// M2 (review round 1): the brief's reconciliation line requires naming which
+// of the DHIS2 count and the engine's own count is more recent, whenever
+// they disagree. The DHIS2 count carries its own `finishedTime`; the engine
+// has no equivalent timestamp exposed anywhere in the app (there is no
+// "when did this session's engine snapshot load" value on `useEngine`), so
+// this reads `engineAsOf` -- captured once, when this tab starts observing
+// the engine, as a proxy for "the engine reflects data current as of this
+// moment or later". That is deliberately a session-local approximation, not
+// a precise load timestamp; the comparison it enables --  whether DHIS2 last
+// ran the check after that moment -- is exactly the "unless the check ran
+// after the last load" case the brief describes, without requiring any new
+// engine plumbing.
+const recencyLabel = (dhisIsNewer: boolean, time: string) =>
+    dhisIsNewer
+        ? interpolate(
+              i18n.t(
+                  'DHIS2 ran this check at {time}, after this session started reflecting the engine -- the DHIS2 figure above may be the more recent of the two'
+              ),
+              { time }
+          )
+        : interpolate(
+              i18n.t(
+                  'This session has reflected the engine since after DHIS2 last ran this check, at {time} -- the engine figure above is the more recent of the two'
+              ),
+              { time }
+          )
 
 /**
  * Spec 4.5/5.2, Task 4: the group set detail page's third tab. Shows each
@@ -92,14 +147,22 @@ const engineCountLabel = (count: number | null, scopeName: string) =>
  * Finding 5: neither the summary nor the details endpoint takes an org
  * unit or a group set parameter -- both are national and span every group
  * set of the object type. Scoping the details to the user's current scope
- * is therefore this component's own work: `readDetails` is read once per
- * relevant check (the server groups issues by check name), the resulting
- * ids are resolved to engine indexes in one batched `indexesOf` call
- * across every relevant check -- never one call per id, and never one
- * call per check -- and then narrowed to the scope subtree in one batched
- * `objectsFor` call. An id the engine does not know (`indexesOf` gives
- * -1) is neither in scope nor out of it: it is counted and named in its
- * own line, never folded into either bucket.
+ * is therefore this component's own work: `readDetails` is read once for
+ * the whole tab, batched across every relevant check in one comma-joined
+ * request (review round 1, M3 -- the server already returns a map keyed by
+ * check name for exactly this). The resulting ids are resolved to engine
+ * indexes in one batched `indexesOf` call across every relevant check --
+ * never one call per id, and never one call per check -- and then narrowed
+ * to the scope subtree in one batched `objectsFor` call. An id the engine
+ * does not know (`indexesOf` gives -1) is neither in scope nor out of it: it
+ * is counted and named in its own line, never folded into either bucket.
+ *
+ * Round 1 ruling (P3-R7): the engine count stays per-set, not unioned across
+ * every same-type compulsory/exclusive set to force agreement with DHIS2's
+ * number -- that union would be unused everywhere else in the app, is not
+ * actionable from this set's page, and would destroy the very information a
+ * disagreement carries (see `engineCountLabel`'s comment). The fix for a
+ * disagreement is wording, not a new computation.
  */
 export const IntegrityTab = ({ set, scope }: Props) => {
     const integrity = useIntegrity()
@@ -114,6 +177,10 @@ export const IntegrityTab = ({ set, scope }: Props) => {
         [baseUrl, apiVersion]
     )
 
+    // See the comment on `recencyLabel` above: a session-local proxy for
+    // "the engine reflects data as of this moment or later", captured once.
+    const engineAsOfRef = useRef(Date.now())
+
     const relevantChecks = useMemo(
         () => integrity.checks.filter((c) => c.objectType === set.objectType),
         [integrity.checks, set.objectType]
@@ -124,22 +191,45 @@ export const IntegrityTab = ({ set, scope }: Props) => {
     )
     const checkNamesKey = checkNames.join(',')
 
-    // The engine's own, independent reconciliation source (spec 4.5's
-    // "engine is the source of truth"): this set's own violation counts in
-    // this scope, computed entirely from the loaded hierarchy and
-    // membership -- never derived from the DHIS2 issue ids above.
+    // The engine's own, independent reconciliation source: this set's own
+    // violation counts in this scope, computed entirely from the loaded
+    // hierarchy and membership -- never derived from the DHIS2 issue ids
+    // below.
     const { data: dashboardEntries } = useEngineQuery<DashboardEntry[]>(
         'dashboard',
         [scope]
     )
     const entry = dashboardEntries?.find((e) => e.set.id === set.id)
-    const engineCountFor = (logical: string): number | null => {
+    // Exhaustive over `LogicalCheck` (review round 1, m3): a `switch` with
+    // no `default` and a `never` check at the end means a seventh logical
+    // check added to the union without a case here is a compile error,
+    // rather than silently falling through to `conflict` (correct for
+    // today's four exclusive checks, wrong the moment a check is added that
+    // is neither compulsory-missing nor exclusive-conflict).
+    const engineCountFor = (logical: LogicalCheck): number | null => {
         if (!entry) {
             return null
         }
-        return logical === 'orgUnitsMissingCompulsory'
-            ? entry.summary.missingError + entry.summary.missingWarning
-            : entry.summary.conflict
+        switch (logical) {
+            case 'orgUnitsMissingCompulsory':
+                return entry.summary.missingError + entry.summary.missingWarning
+            case 'orgUnitsConflicting':
+            case 'dataElementsConflicting':
+            case 'indicatorsConflicting':
+            case 'categoryOptionsConflicting':
+                return entry.summary.conflict
+            case 'categoryOptionGroupSetsIncomplete': {
+                // No object type (see OBJECT_TYPE_OF in data/integrity.ts),
+                // so it never matches `set.objectType` and `relevantChecks`
+                // never includes it -- this arm exists only so the switch
+                // stays exhaustive.
+                return null
+            }
+            default: {
+                const exhaustive: never = logical
+                return exhaustive
+            }
+        }
     }
 
     const [scoped, setScoped] = useState<Record<string, ScopedResult>>({})
@@ -160,15 +250,18 @@ export const IntegrityTab = ({ set, scope }: Props) => {
         let cancelled = false
         void (async () => {
             try {
-                const perCheck = await Promise.all(
-                    relevantChecks.map(async (c) => ({
-                        name: c.name,
-                        issues: await readDetails(fetcher, c.name),
-                    }))
-                )
+                // One request for the whole tab: the server groups issues by
+                // check name and already accepts a comma-joined list, so
+                // every relevant check's details are read in a single call
+                // rather than one per check (M3).
+                const detailsByCheck = await readDetails(fetcher, checkNames)
                 if (cancelled) {
                     return
                 }
+                const perCheck = relevantChecks.map((c) => ({
+                    name: c.name,
+                    issues: detailsByCheck[c.name] ?? [],
+                }))
                 const allIds = Array.from(
                     new Set(perCheck.flatMap((p) => p.issues.map((i) => i.id)))
                 )
@@ -287,6 +380,15 @@ export const IntegrityTab = ({ set, scope }: Props) => {
                 const isStale = integrity.stale.has(check.name)
                 const bucket = scoped[check.name]
                 const engineCount = engineCountFor(check.logical)
+                const disagrees =
+                    !!bucket &&
+                    engineCount !== null &&
+                    engineCount !== bucket.inScope.length
+                const dhisIsNewer =
+                    disagrees && summary?.finishedTime
+                        ? new Date(summary.finishedTime).getTime() >
+                          engineAsOfRef.current
+                        : false
                 return (
                     <div key={check.name} className={styles.check}>
                         <h3 className={styles.checkTitle}>
@@ -306,6 +408,11 @@ export const IntegrityTab = ({ set, scope }: Props) => {
                                 )}
                             </p>
                         )}
+                        {/* m5 (review round 1): every number below is
+                            meaningless before the check's own summary has
+                            been read, so the whole reconciliation block --
+                            counts and issue list alike -- is gated on
+                            `summary`, not just the counts. */}
                         {summary && (
                             <div className={styles.reconciliation}>
                                 <p className={styles.line}>
@@ -319,33 +426,59 @@ export const IntegrityTab = ({ set, scope }: Props) => {
                                                 rootName
                                             )}
                                         </p>
-                                        <p className={styles.line}>
-                                            {unknownCountLabel(
-                                                bucket.unknownCount
-                                            )}
-                                        </p>
+                                        {/* m1: a healthy check has no
+                                            unknown ids -- naming a zero here
+                                            is noise that trains the reader
+                                            to skip the line that matters
+                                            when it is non-zero. */}
+                                        {bucket.unknownCount > 0 && (
+                                            <p className={styles.line}>
+                                                {unknownCountLabel(
+                                                    bucket.unknownCount
+                                                )}
+                                            </p>
+                                        )}
                                     </>
                                 )}
                                 <p className={styles.line}>
-                                    {engineCountLabel(engineCount, rootName)}
+                                    {engineCountLabel(
+                                        engineCount,
+                                        rootName,
+                                        set.displayName
+                                    )}
                                 </p>
-                            </div>
-                        )}
-                        {bucket && bucket.inScope.length > 0 && (
-                            <ul className={styles.issues}>
-                                {bucket.inScope.map((issue) => (
-                                    <li key={issue.id} className={styles.issue}>
-                                        {issue.displayName}
-                                        {issue.detail && (
-                                            <span
-                                                className={styles.issueDetail}
-                                            >
-                                                {issue.detail}
-                                            </span>
+                                {disagrees && summary.finishedTime && (
+                                    <p className={styles.line}>
+                                        {recencyLabel(
+                                            dhisIsNewer,
+                                            new Date(
+                                                summary.finishedTime
+                                            ).toLocaleString()
                                         )}
-                                    </li>
-                                ))}
-                            </ul>
+                                    </p>
+                                )}
+                                {bucket && bucket.inScope.length > 0 && (
+                                    <ul className={styles.issues}>
+                                        {bucket.inScope.map((issue) => (
+                                            <li
+                                                key={issue.id}
+                                                className={styles.issue}
+                                            >
+                                                {issue.displayName}
+                                                {issue.detail && (
+                                                    <span
+                                                        className={
+                                                            styles.issueDetail
+                                                        }
+                                                    >
+                                                        {issue.detail}
+                                                    </span>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
                         )}
                     </div>
                 )

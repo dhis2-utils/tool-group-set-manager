@@ -173,24 +173,39 @@ interface DetailCheckRow {
 }
 
 /**
- * Reads cached issue details for one check. The details payload has no
+ * Reads cached issue details for one or more checks in a single request --
+ * the endpoint already accepts a comma-joined `checks` list and returns a
+ * payload keyed by check name (findings note 4), so a tab with several
+ * checks sharing an object type reads all of them in one call rather than
+ * one per check (Task 4 review round 1, M3). The details payload has no
  * `displayName` -- this is the one place the project's displayName rule
  * bends, and `name` is read into it instead.
+ *
+ * Every requested name is present in the result, even one the server omits
+ * entirely from the payload (an empty array, not a missing key), so a
+ * caller can index the result by every name it asked for without an extra
+ * presence check.
  */
 export async function readDetails(
     fetcher: Fetcher,
-    name: string
-): Promise<CheckIssue[]> {
+    names: string[]
+): Promise<Record<string, CheckIssue[]>> {
     const body = await fetchJson<Record<string, DetailCheckRow>>(
         fetcher,
-        `dataIntegrity/details?checks=${name}&timeout=0`
+        `dataIntegrity/details?checks=${names.join(',')}&timeout=0`
     )
-    const rows = body[name]?.issues ?? []
-    return rows.map((row) => ({
-        id: row.id,
-        displayName: row.name,
-        detail: row.refs?.length ? row.refs.join(' ') : (row.comment ?? null),
-    }))
+    const result: Record<string, CheckIssue[]> = {}
+    names.forEach((name) => {
+        const rows = body[name]?.issues ?? []
+        result[name] = rows.map((row) => ({
+            id: row.id,
+            displayName: row.name,
+            detail: row.refs?.length
+                ? row.refs.join(' ')
+                : (row.comment ?? null),
+        }))
+    })
+    return result
 }
 
 /**

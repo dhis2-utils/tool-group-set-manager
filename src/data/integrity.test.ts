@@ -283,10 +283,50 @@ describe('readDetails', () => {
             capturedPath = path
             return jsonResponse({ orgUnitsConflicting: { issues: [] } })
         }
-        await readDetails(fetcher, 'orgUnitsConflicting')
+        await readDetails(fetcher, ['orgUnitsConflicting'])
         expect(capturedPath).toBe(
             'dataIntegrity/details?checks=orgUnitsConflicting&timeout=0'
         )
+    })
+
+    // M3 (review round 1): the brief requires one details request for a tab
+    // whose several checks share an object type, not one per check. The
+    // endpoint already accepts a comma-joined `checks` list and returns a
+    // map keyed by check name (confirmed against findings note 4), so this
+    // pins the batched shape at its source rather than leaving it to be
+    // rediscovered -- and defeated -- by a caller.
+    it('requests several checks in one comma-joined call and returns a map keyed by check name', async () => {
+        let capturedPath = ''
+        const fetcher = async (path: string) => {
+            capturedPath = path
+            return jsonResponse({
+                orgUnitsConflicting: {
+                    issues: [{ id: 'a', name: 'A' }],
+                },
+                orgUnitsMissingCompulsory: {
+                    issues: [{ id: 'b', name: 'B' }],
+                },
+            })
+        }
+        const result = await readDetails(fetcher, [
+            'orgUnitsConflicting',
+            'orgUnitsMissingCompulsory',
+        ])
+        expect(capturedPath).toBe(
+            'dataIntegrity/details?checks=orgUnitsConflicting,orgUnitsMissingCompulsory&timeout=0'
+        )
+        expect(result).toEqual({
+            orgUnitsConflicting: [{ id: 'a', displayName: 'A', detail: null }],
+            orgUnitsMissingCompulsory: [
+                { id: 'b', displayName: 'B', detail: null },
+            ],
+        })
+    })
+
+    it('maps a requested check the server omits entirely to an empty array, not a missing key', async () => {
+        const fetcher = async () => jsonResponse({})
+        const result = await readDetails(fetcher, ['orgUnitsConflicting'])
+        expect(result).toEqual({ orgUnitsConflicting: [] })
     })
 
     it('reads refs into detail, joined with a space (2.43)', async () => {
@@ -304,8 +344,8 @@ describe('readDetails', () => {
                     ],
                 },
             })
-        const issues = await readDetails(fetcher, 'orgUnitsConflicting')
-        expect(issues).toEqual([
+        const result = await readDetails(fetcher, ['orgUnitsConflicting'])
+        expect(result.orgUnitsConflicting).toEqual([
             {
                 id: 'roQ2l7TX0eZ',
                 displayName: 'SLRCS (Bo) Clinic',
@@ -328,8 +368,8 @@ describe('readDetails', () => {
                     ],
                 },
             })
-        const issues = await readDetails(fetcher, 'orgUnitsConflicting')
-        expect(issues).toEqual([
+        const result = await readDetails(fetcher, ['orgUnitsConflicting'])
+        expect(result.orgUnitsConflicting).toEqual([
             {
                 id: 'sK498nBOLfQ',
                 displayName: 'Elshadai MCHP',
@@ -345,8 +385,8 @@ describe('readDetails', () => {
                     issues: [{ id: 'Rp268JB6Ne4', name: 'Adonkia CHP' }],
                 },
             })
-        const issues = await readDetails(fetcher, 'orgUnitsMissingCompulsory')
-        expect(issues).toEqual([
+        const result = await readDetails(fetcher, ['orgUnitsMissingCompulsory'])
+        expect(result.orgUnitsMissingCompulsory).toEqual([
             { id: 'Rp268JB6Ne4', displayName: 'Adonkia CHP', detail: null },
         ])
     })
@@ -364,8 +404,8 @@ describe('readDetails', () => {
                     ],
                 },
             })
-        const issues = await readDetails(fetcher, 'orgUnitsConflicting')
-        expect(issues).toEqual([
+        const result = await readDetails(fetcher, ['orgUnitsConflicting'])
+        expect(result.orgUnitsConflicting).toEqual([
             {
                 id: 'roQ2l7TX0eZ',
                 displayName: 'SLRCS (Bo) Clinic',
@@ -388,8 +428,10 @@ describe('readDetails', () => {
                     ],
                 },
             })
-        const issues = await readDetails(fetcher, 'orgUnitsConflicting')
-        expect(issues[0].detail).toBe('ougs_name: Facility Ownership')
+        const result = await readDetails(fetcher, ['orgUnitsConflicting'])
+        expect(result.orgUnitsConflicting[0].detail).toBe(
+            'ougs_name: Facility Ownership'
+        )
     })
 })
 

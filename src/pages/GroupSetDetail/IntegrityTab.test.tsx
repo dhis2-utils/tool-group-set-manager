@@ -31,7 +31,7 @@ const conflictCheck: ResolvedCheck = {
 }
 
 // Not relevant to the org unit set used below -- must never show up, and
-// must never trigger a details request or an indexesOf call of its own.
+// must never be part of the batched details request.
 const dataElementCheck: ResolvedCheck = {
     logical: 'dataElementsConflicting',
     name: 'data_elements_violating_exclusive_group_sets',
@@ -59,15 +59,26 @@ const KNOWN_INDEX: Record<string, number> = { idA: 0, idB: 1, idD: 2, idE: 3 }
 // idA, idD, idE are inside the requested scope; idB is not.
 const IN_SCOPE_IDS = new Set(['idA', 'idD', 'idE'])
 
+// M3 (review round 1): `readDetails` now takes an array of check names and
+// returns a map keyed by name, in one call -- this mock mirrors that
+// widened shape so the batching itself is exercised, not bypassed.
 const mockReadDetails = jest.fn(
-    async (_fetcher: unknown, name: string): Promise<CheckIssue[]> =>
-        detailsByCheck[name] ?? []
+    async (
+        _fetcher: unknown,
+        names: string[]
+    ): Promise<Record<string, CheckIssue[]>> => {
+        const result: Record<string, CheckIssue[]> = {}
+        names.forEach((name) => {
+            result[name] = detailsByCheck[name] ?? []
+        })
+        return result
+    }
 )
 jest.mock('@/data/integrity', () => {
     const actual = jest.requireActual('@/data/integrity')
     return {
         ...actual,
-        readDetails: (...args: [unknown, string]) => mockReadDetails(...args),
+        readDetails: (...args: [unknown, string[]]) => mockReadDetails(...args),
     }
 })
 
@@ -148,6 +159,9 @@ const mockIntegrityState: {
         [compulsoryCheck.name]: {
             name: compulsoryCheck.name,
             count: 272,
+            // Deliberately in the past relative to "now" (this session's
+            // `engineAsOfRef`), so the recency tests below get a
+            // deterministic "the engine is the more recent of the two".
             finishedTime: '2026-09-01T10:00:00.000Z',
         },
         [conflictCheck.name]: {
@@ -188,6 +202,18 @@ afterEach(() => {
     mockIntegrityState.stale = new Set()
     mockIntegrityState.error = null
     mockIntegrityState.isRunning = false
+    mockIntegrityState.summaries = {
+        [compulsoryCheck.name]: {
+            name: compulsoryCheck.name,
+            count: 272,
+            finishedTime: '2026-09-01T10:00:00.000Z',
+        },
+        [conflictCheck.name]: {
+            name: conflictCheck.name,
+            count: 17,
+            finishedTime: '2026-09-01T10:00:00.000Z',
+        },
+    }
 })
 
 it('renders the national, in-scope and engine counts for each relevant check', async () => {
@@ -237,14 +263,33 @@ it('counts an id the engine does not know separately, in its own line, never fol
     expect(compulsoryLine.textContent).toEqual(expect.stringContaining('1'))
 })
 
-it('asks the engine for indexes once for the whole tab, not once per issue or per check', async () => {
+// m1 (review round 1): a check with zero unknown ids must not render the
+// unknown line at all -- the conflict check's only issue (idE) is known and
+// in scope, so its panel has nothing to report there.
+it('does not render the unknown-objects line for a check with no unknown ids', async () => {
     render(<IntegrityTab set={set} scope={scope} />)
 
-    await waitFor(
-        () => expect(mockReadDetails).toHaveBeenCalledTimes(2) // one per relevant check
-    )
-    await waitFor(() => expect(mockClientCall).toHaveBeenCalled())
+    await screen.findByText('refs: E') // conflict check's panel has rendered
+    const unknownLines = await screen.findAllByText(/could not be matched/i)
+    // Only the compulsory check's line (1 unknown) -- not a second, "0",
+    // line for the conflict check.
+    expect(unknownLines).toHaveLength(1)
+})
 
+// M3 (review round 1): the brief requires one details request for the whole
+// tab, batched across every relevant check sharing an object type -- not one
+// per check. This replaces the round-1 test that pinned the deviation
+// (`toHaveBeenCalledTimes(2) // one per relevant check`).
+it('reads details once for the whole tab, in one call naming every relevant check, not once per check', async () => {
+    render(<IntegrityTab set={set} scope={scope} />)
+
+    await waitFor(() => expect(mockReadDetails).toHaveBeenCalledTimes(1))
+    expect(mockReadDetails).toHaveBeenCalledWith(expect.anything(), [
+        compulsoryCheck.name,
+        conflictCheck.name,
+    ])
+
+    await waitFor(() => expect(mockClientCall).toHaveBeenCalled())
     const indexesOfCalls = mockClientCall.mock.calls.filter(
         (c) => c[0] === 'indexesOf'
     )
@@ -255,16 +300,20 @@ it('asks the engine for indexes once for the whole tab, not once per issue or pe
     expect(objectsForCalls).toHaveLength(1)
 
     // The data element check is not relevant to this organisationUnit set
-    // and must never trigger its own details request.
+    // and must never be named in the batched request.
     expect(mockReadDetails).not.toHaveBeenCalledWith(
         expect.anything(),
-        dataElementCheck.name
+        expect.arrayContaining([dataElementCheck.name])
     )
 })
 
-it('shows the server prose verbatim when present', async () => {
+it('shows the server prose verbatim when present, and excludes an out-of-scope issue from the list', async () => {
     render(<IntegrityTab set={set} scope={scope} />)
     expect(await screen.findByText('refs: A')).toBeInTheDocument()
+    // idB (Facility B) is known but outside Bo -- present in the server's
+    // issue list, but must not be rendered (m4).
+    await screen.findByText('Facility D')
+    expect(screen.queryByText('Facility B')).not.toBeInTheDocument()
 })
 
 it("calls run with exactly this tab's relevant check names, and only on click", async () => {
@@ -307,4 +356,45 @@ it('renders a static message for useIntegrity().error, never the raw diagnostic 
     expect(
         screen.queryByText(/HTTP 500 at \/api\/dataIntegrity/)
     ).not.toBeInTheDocument()
+})
+
+// M1 (review round 1): the engine line must name its own population (this
+// set) and must not claim to be "the source of truth" for a number that
+// counts something narrower than the DHIS2 figure above it.
+it('names this set in the engine count line, and does not call it the source of truth', async () => {
+    render(<IntegrityTab set={set} scope={scope} />)
+
+    const engineLines = await screen.findAllByText(
+        /failing the Ownership rule alone/
+    )
+    // Both checks belong to this same set, so both name it -- the
+    // compulsory check's line (first in the DOM) carries the 5.
+    expect(engineLines[0].textContent).toEqual(expect.stringContaining('5'))
+    expect(screen.queryByText(/source of truth/i)).not.toBeInTheDocument()
+})
+
+// M2 (review round 1): when the in-scope and engine counts disagree (2 vs 5
+// for the compulsory check here), the tab must say which is more recent.
+it('names which of the disagreeing counts is more recent', async () => {
+    render(<IntegrityTab set={set} scope={scope} />)
+
+    const recencyLines = await screen.findAllByText(/more recent/i)
+    expect(recencyLines.length).toBeGreaterThan(0)
+})
+
+// m5 (review round 1): before a check's own summary has been read, none of
+// its numbers -- or its issue list -- should render; a bare list of names
+// with no national count, no in-scope count and no run time is worse than
+// nothing.
+it("does not render a check's issue list before its summary has been read", async () => {
+    // Drop the compulsory check's summary only -- the conflict check's stays,
+    // so this isolates the gating rather than testing "nothing renders".
+    mockIntegrityState.summaries = {
+        [conflictCheck.name]: mockIntegrityState.summaries[conflictCheck.name],
+    }
+    render(<IntegrityTab set={set} scope={scope} />)
+
+    await screen.findByText('refs: E') // the conflict check's panel is fine
+    expect(screen.queryByText('Facility A')).not.toBeInTheDocument()
+    expect(screen.queryByText('Facility D')).not.toBeInTheDocument()
 })

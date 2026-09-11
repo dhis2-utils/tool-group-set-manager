@@ -49,6 +49,17 @@ export const GroupSetDetail = () => {
     const { roots } = useUserScope()
     const set = groupSets.find((s) => s.id === setId)
     const [tab, setTab] = useState<DetailTab>('overview')
+    // m6 (Task 4 review round 1): the Tab button is hidden the moment
+    // `integrity.available` goes false (a 403 mid-session, most often), but
+    // without this the `tab` state itself stayed `'integrity'` -- the body
+    // already falls through to ObjectsTab in that case (see the ternary
+    // below), so the TabBar was left showing no tab selected over Objects
+    // content. Falling the state back to 'overview' keeps the two in sync.
+    useEffect(() => {
+        if (tab === 'integrity' && !integrity.available) {
+            setTab('overview')
+        }
+    }, [tab, integrity.available])
     const [filter, setFilter] = useState<ObjectFilter>({})
     // The filter a bulk fix was opened for -- the header's own "Fix
     // issues…" button opens it unfiltered (every object in the set), and
