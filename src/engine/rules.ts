@@ -2,11 +2,18 @@ import { SetMembership } from './membership'
 import { EngineConfig, GroupSetMeta, Status } from './types'
 
 /**
- * Spec 3.2. Returns one Status per object.
+ * Spec 3.2 and 3.3. Returns one Status per object.
  * - Conflict (count > 1) is always an error.
- * - Missing (count == 0) is an error when the set is compulsory, or when the
- *   object's level is in the set's required levels; a warning when the set
- *   is a data dimension; otherwise Ok.
+ * - Missing (count == 0) is an error when the set is compulsory.
+ * - Otherwise, when the set has required levels configured (3.3), those
+ *   levels narrow the set: missing is an error at a required level, and
+ *   Ok (ignored) at every other level -- even when the set is a data
+ *   dimension. Required levels replace the data-dimension warning, they
+ *   do not add to it: an admin who configured required levels is saying
+ *   "this set only applies at these levels", and a warning at every other
+ *   level is exactly the noise they configured required levels to remove.
+ * - Without required levels, missing is a warning when the set is a data
+ *   dimension, otherwise Ok.
  */
 export function evaluateSet(
     set: GroupSetMeta,
@@ -38,8 +45,9 @@ export function evaluateSet(
             status[i] = Status.Ok
         } else if (set.compulsory) {
             status[i] = Status.MissingError
-        } else if (hasRequiredLevels && requiredMask[level![i]] === 1) {
-            status[i] = Status.MissingError
+        } else if (hasRequiredLevels) {
+            status[i] =
+                requiredMask[level![i]] === 1 ? Status.MissingError : Status.Ok
         } else if (set.dataDimension) {
             status[i] = Status.MissingWarning
         } else {

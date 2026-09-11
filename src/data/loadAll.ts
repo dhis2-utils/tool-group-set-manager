@@ -140,10 +140,27 @@ export async function loadAll(
                 ? undefined
                 : await tryCache(deps, type, groupIds)
             if (reused) {
-                await deps.engine.call('loadObjects', reused.objects)
-                await deps.engine.call('loadMemberships', reused.memberships)
-                if (reused.names) {
-                    await deps.engine.call('setNames', type, reused.names)
+                // loadMemberships requires the type to already exist, so
+                // these two calls can't be resolved-then-committed together
+                // the way the fresh-load path below is. If the second call
+                // fails after the first has landed, the engine would be
+                // left holding objects with no membership data for this
+                // type -- indistinguishable from every object being
+                // uncategorised. dropType undoes the first call so a
+                // failure here leaves the engine exactly as it was before
+                // this type was attempted, same as the fresh-load path.
+                try {
+                    await deps.engine.call('loadObjects', reused.objects)
+                    await deps.engine.call(
+                        'loadMemberships',
+                        reused.memberships
+                    )
+                    if (reused.names) {
+                        await deps.engine.call('setNames', type, reused.names)
+                    }
+                } catch (error) {
+                    await deps.engine.call('dropType', type)
+                    throw error
                 }
                 status.fromCache[type] = true
                 // A cache hit is at the same point a freshly loaded type is

@@ -86,6 +86,15 @@ matches DHIS2's `*_violating_exclusive_group_sets` checks and the Maintenance
 app's single select behaviour. Sets that are neither compulsory nor a data
 dimension get only the conflict rule but still appear in the overview.
 
+The third and fourth Missing rows are mutually exclusive per set, not
+additive: an org unit set with required levels configured (3.3) is narrowed
+to only those levels, so the fourth row's data-dimension warning does not
+apply to it at all, at any level -- not just at the required ones. An admin
+who configures required levels is saying "this set only applies at these
+levels"; a warning at every other level is exactly the noise they configured
+required levels to remove. The fourth row applies only to a set with no
+required levels configured.
+
 Groups can belong to more than one set (EMIS has "Private" in both
 Ownership and School Type). Membership is therefore counted per set, never
 per group.

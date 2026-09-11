@@ -305,4 +305,151 @@ describe('EngineStore', () => {
         expect(statusB.get(a1)).toBe(Status.Ok)
         expect(statusB.get(a2)).toBe(Status.Ok)
     })
+
+    it('dropType removes a type and its evaluated sets without touching other types', () => {
+        const store = loadedStore()
+        store.setGroupSets([ownership, indicatorSet])
+        store.loadObjects({
+            objectType: 'indicator',
+            ids: ['i1', 'i2'],
+            names: ['I1', 'I2'],
+            level: null,
+            parentIds: null,
+            domainType: null,
+            categoryIdsOfOption: null,
+        })
+        store.loadMemberships({
+            objectType: 'indicator',
+            groups: [{ groupId: 'g1', memberIds: ['i1'] }],
+        })
+        store.evaluate()
+
+        expect(
+            store.dashboard({ objectType: 'organisationUnit', rootId: null })[0]
+                .hasData
+        ).toBe(true)
+        expect(
+            store.dashboard({ objectType: 'indicator', rootId: null })[0]
+                .hasData
+        ).toBe(true)
+
+        store.dropType('organisationUnit')
+
+        const ouEntry = store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: null,
+        })[0]
+        expect(ouEntry.hasData).toBe(false)
+        expect(ouEntry.summary).toEqual({
+            population: 0,
+            ok: 0,
+            unassigned: 0,
+            missingError: 0,
+            missingWarning: 0,
+            conflict: 0,
+        })
+        // The unrelated indicator type and its set are untouched.
+        expect(
+            store.dashboard({ objectType: 'indicator', rootId: null })[0]
+                .hasData
+        ).toBe(true)
+        // matrixFor/objectsFor on the dropped set's id must not find stale
+        // state that references a type no longer present.
+        expect(() =>
+            store.matrixFor(
+                'own',
+                { objectType: 'organisationUnit', rootId: null },
+                2
+            )
+        ).toThrow(/Unknown or unevaluated group set/)
+    })
+
+    it('re-evaluates when the config changes, without being asked twice', () => {
+        // A non-compulsory, data-dimension set: with no required levels,
+        // every missing object is a warning. Configuring a required level
+        // must be visible immediately, without a caller having to remember
+        // to call evaluate() itself -- that caller is exactly what Plan 2
+        // introduces (the Settings page, the tracker toggle).
+        const nonCompulsory: GroupSetMeta = {
+            id: 'nc',
+            displayName: 'Non-compulsory dimension',
+            objectType: 'organisationUnit',
+            compulsory: false,
+            dataDimension: true,
+            canWrite: true,
+            groups: [{ id: 'pub', displayName: 'Public', canWrite: true }],
+        }
+        const store = new EngineStore()
+        store.loadObjects({
+            objectType: 'organisationUnit',
+            ids: ['root', 'a1'],
+            names: ['Root', 'A1'],
+            level: Uint8Array.from([1, 2]),
+            parentIds: [null, 'root'],
+            domainType: null,
+            categoryIdsOfOption: null,
+        })
+        store.setGroupSets([nonCompulsory])
+        store.loadMemberships({
+            objectType: 'organisationUnit',
+            groups: [{ groupId: 'pub', memberIds: [] }],
+        })
+        store.evaluate()
+
+        const before = store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: null,
+        })
+        expect(before[0].summary).toEqual({
+            population: 2,
+            ok: 0,
+            unassigned: 0,
+            missingError: 0,
+            missingWarning: 2,
+            conflict: 0,
+        })
+
+        store.setConfig({ requiredLevels: { nc: [2] }, includeTracker: false })
+
+        const after = store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: null,
+        })
+        expect(after[0].summary).not.toEqual(before[0].summary)
+    })
+
+    it('resolveParents resolves the parent ref of each given object', () => {
+        const store = loadedStore()
+        const a1 = store.indexOf('organisationUnit', 'a1')
+        const a2 = store.indexOf('organisationUnit', 'a2')
+        const b1 = store.indexOf('organisationUnit', 'b1')
+        const root = store.indexOf('organisationUnit', 'root')
+
+        const parents = store.resolveParents('organisationUnit', [
+            a1,
+            a2,
+            b1,
+            root,
+        ])
+        expect(parents.map((p) => p?.displayName ?? null)).toEqual([
+            'A',
+            'A',
+            'B',
+            null, // root has no parent
+        ])
+    })
+
+    it('resolveParents returns null for every object of a flat type', () => {
+        const store = flatIndicatorStore()
+        const parents = store.resolveParents('indicator', [0, 1])
+        expect(parents).toEqual([null, null])
+    })
+
+    it('resolveParents returns null for every index when the type is not loaded', () => {
+        const store = new EngineStore()
+        expect(store.resolveParents('organisationUnit', [0, 1])).toEqual([
+            null,
+            null,
+        ])
+    })
 })

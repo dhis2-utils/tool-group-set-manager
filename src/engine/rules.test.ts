@@ -53,9 +53,13 @@ describe('evaluateSet', () => {
         expect(s[2]).toBe(Status.MissingWarning)
     })
 
-    it('required levels make missing an error at those levels only', () => {
+    it('required levels make missing an error at those levels, and ignore the rest even for a data dimension set', () => {
+        // Spec 3.3: required levels on a non-compulsory set make the other
+        // levels ignored. A data-dimension set with required levels
+        // configured must not fall back to a warning at the levels the
+        // config left out -- that would be exactly the noise the admin
+        // configured required levels to remove.
         const config = { ...DEFAULT_CONFIG, requiredLevels: { s: [2] } }
-        // object 2 is level 3 -> not required; add object 5? use population where idx 4 missing:
         const m2 = buildSetMembership(5, [
             Int32Array.from([0, 1]),
             Int32Array.from([1]),
@@ -68,7 +72,7 @@ describe('evaluateSet', () => {
             config
         )
         expect(s[4]).toBe(Status.MissingError) // level 2, required
-        expect(s[2]).toBe(Status.MissingWarning) // level 3, dimension warning still applies
+        expect(s[2]).toBe(Status.Ok) // level 3, not required: ignored, not a warning
     })
 
     it('required levels do not downgrade a compulsory set', () => {

@@ -95,6 +95,24 @@ export class EngineStore {
         this.sets.clear()
     }
 
+    /**
+     * Removes a type and every evaluated set for it, undoing a
+     * `loadObjects` whose matching `loadMemberships` did not arrive (the
+     * cached-reuse path in loadAll makes both calls with nothing else to
+     * undo the first if the second fails). Narrow on purpose: this is not a
+     * general transaction mechanism, just enough to keep a worker crash
+     * between the two calls from leaving a type holding objects with no
+     * memberships -- which reads as every object being uncategorised.
+     */
+    dropType(objectType: ObjectType): void {
+        this.types.delete(objectType)
+        for (const [id, state] of this.sets) {
+            if (state.set.objectType === objectType) {
+                this.sets.delete(id)
+            }
+        }
+    }
+
     loadObjects(p: ObjectsPayload): void {
         const indexOf = new Map<string, number>()
         p.ids.forEach((id, i) => indexOf.set(id, i))
@@ -159,8 +177,17 @@ export class EngineStore {
         this.groupSets = sets
     }
 
+    /**
+     * Re-evaluates immediately. Plan 2 introduces two callers that change
+     * config and could easily forget to follow up with an explicit
+     * evaluate(): the Settings page writing required levels, and the
+     * tracker toggle. A caller that forgets would serve numbers computed
+     * against the old rules with nothing on screen to say so, so the store
+     * does not leave that door open.
+     */
     setConfig(config: EngineConfig): void {
         this.config = config
+        this.evaluate()
     }
 
     /** Rebuilds membership and status for every set whose object type is loaded. */
@@ -249,6 +276,28 @@ export class EngineStore {
             return []
         }
         return Array.from(indexes, (index) => this.ref(t, index))
+    }
+
+    /**
+     * The display refs of each given object's parent, in the same order,
+     * with null where an object has no parent or the type has no
+     * hierarchy. One call per page of rows rather than one per row: at
+     * 266,000 objects the difference is a round-trip per visible row
+     * versus a round-trip per scroll.
+     */
+    resolveParents(
+        objectType: ObjectType,
+        indexes: ArrayLike<number>
+    ): (ObjectRef | null)[] {
+        const t = this.types.get(objectType)
+        const h = t?.hierarchy
+        if (!t || !h) {
+            return Array.from(indexes, () => null)
+        }
+        return Array.from(indexes, (index) => {
+            const parentIndex = h.parent[index]
+            return parentIndex >= 0 ? this.ref(t, parentIndex) : null
+        })
     }
 
     private ref(t: TypeIndex, index: number): ObjectRef {

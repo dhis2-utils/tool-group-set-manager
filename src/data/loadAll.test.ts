@@ -366,6 +366,49 @@ describe('loadAll', () => {
         expect(second.loads).toContain('objects:organisationUnit')
     })
 
+    it('leaves no half-loaded type when a cached reuse fails part way', async () => {
+        // Populate the cache for both types first.
+        const cache = createMemoryCache()
+        await loadAll({
+            source: fakeSource(),
+            fetcher,
+            cache,
+            engine: inlineEngine(),
+            onStatus: () => undefined,
+        })
+
+        // Second run reuses the cache (nothing changed server-side), but the
+        // engine's loadMemberships call fails partway through the reuse --
+        // e.g. the worker crashed. loadObjects for this type has already
+        // landed by then; without a rollback the engine would hold objects
+        // with no membership data, which reads as every object missing from
+        // every group -- indistinguishable from a real integrity failure.
+        const engine = inlineEngine()
+        const original = engine.call.bind(engine)
+        engine.call = ((method: string, ...args: unknown[]) =>
+            method === 'loadMemberships'
+                ? Promise.reject(new Error('worker died'))
+                : original(method, ...args)) as typeof engine.call
+
+        const status: LoadStatus[] = []
+        await loadAll({
+            source: fakeSource(),
+            fetcher,
+            cache,
+            engine,
+            onStatus: (s) => status.push(s),
+        })
+
+        const last = status[status.length - 1]
+        expect(last.errors.organisationUnit).toMatch(/worker died/)
+        const [entry] = engine.store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: null,
+        })
+        expect(entry.hasData).toBe(false)
+        expect(engine.store.resolve('organisationUnit', [0])).toEqual([])
+    })
+
     it('records a type whose group sets could not be read and loads the rest', async () => {
         const failing = async (path: string) => {
             if (path.startsWith('indicatorGroupSets')) {

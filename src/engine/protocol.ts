@@ -30,9 +30,11 @@ export type EngineMethod =
     | 'matrixFor'
     | 'objectsFor'
     | 'resolve'
+    | 'resolveParents'
     | 'indexOf'
     | 'levelOf'
     | 'reset'
+    | 'dropType'
 
 export interface EngineRequest {
     id: number
