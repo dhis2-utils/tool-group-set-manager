@@ -167,6 +167,15 @@ export function matrix(
 ): MatrixRow[] {
     const above = newRow(-1, groupCount)
     if (h === null) {
+        // `scopeRoot` is deliberately not consulted here. A flat type has
+        // no hierarchy, and `EngineStore.scopeRoot` (store.ts) already
+        // forces it to -1 ("no restriction") for exactly that reason --
+        // `!t.hierarchy` is checked before `scope.rootId`, so a scope root
+        // set for a flat type can never reach this function as anything
+        // but -1. Restricting this loop by `scopeRoot` would therefore be
+        // dead code, not a bug fix: there is no `scopeRoot` value a flat
+        // type's caller could ever pass that this loop would need to
+        // honour differently. See the matching test in queries.test.ts.
         for (let i = 0; i < status.length; i++) {
             addToRow(above, status[i], m.groupOf[i])
         }
@@ -262,9 +271,17 @@ export function listObjects(
         if (statusMask[status[i]] === 0) {
             return
         }
+        // A flat type (h === null) has no levels or ancestors at all, so
+        // these two predicates cannot apply to it -- a caller should never
+        // pass either for a flat type, but one that does (e.g. a stale
+        // filter carried over from switching types) must not silently get
+        // an empty result back, which reads as a real, if surprising,
+        // population rather than as "this predicate is meaningless here".
+        // Only a hierarchical type actually filters by level/ancestor.
         if (
             filter.level !== undefined &&
-            (h === null || h.level[i] !== filter.level)
+            h !== null &&
+            h.level[i] !== filter.level
         ) {
             return
         }
@@ -273,7 +290,8 @@ export function listObjects(
         }
         if (
             filter.ancestor !== undefined &&
-            (h === null || !isInSubtree(h, filter.ancestor, i))
+            h !== null &&
+            !isInSubtree(h, filter.ancestor, i)
         ) {
             return
         }

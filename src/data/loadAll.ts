@@ -26,6 +26,16 @@ export interface LoadStatus {
     progress: Progress | null
     fromCache: Partial<Record<ObjectType, boolean>>
     errors: Partial<Record<ObjectType, string>>
+    /**
+     * A names load/setNames failure, kept apart from `errors`. It always
+     * happens after objects, memberships and evaluate have already
+     * succeeded for the type, so the counts the engine reports are
+     * correct -- only the display names are unavailable. Folding this into
+     * `errors` reported a type-level failure (which the dashboard shows as
+     * "this type's summary could not be computed") for what is really a
+     * cosmetic gap.
+     */
+    namesErrors: Partial<Record<ObjectType, string>>
 }
 
 type EngineLike = Pick<EngineClient, 'call'>
@@ -193,6 +203,7 @@ export async function loadAll(deps: Deps): Promise<{
         progress: null,
         fromCache: {},
         errors: {},
+        namesErrors: {},
     }
     const emit = (patch: Partial<LoadStatus>) => {
         Object.assign(status, patch)
@@ -200,6 +211,7 @@ export async function loadAll(deps: Deps): Promise<{
             ...status,
             fromCache: { ...status.fromCache },
             errors: { ...status.errors },
+            namesErrors: { ...status.namesErrors },
         })
     }
 
@@ -295,11 +307,23 @@ export async function loadAll(deps: Deps): Promise<{
             let names = objects.names
             if (!names) {
                 emit({ phase: 'names', type, progress: null })
-                names = alignNames(
-                    objects.ids,
-                    await source.call((s) => s.loadNames(type))
-                )
-                await deps.engine.call('setNames', type, names)
+                try {
+                    names = alignNames(
+                        objects.ids,
+                        await source.call((s) => s.loadNames(type))
+                    )
+                    await deps.engine.call('setNames', type, names)
+                } catch (error) {
+                    // Objects, memberships and evaluate already succeeded
+                    // above -- the counts are good. Only the names are
+                    // missing, so this is recorded as that, not folded
+                    // into `status.errors` (which would tell the dashboard
+                    // this type's summary could not be computed at all).
+                    status.namesErrors[type] =
+                        error instanceof Error ? error.message : String(error)
+                    names = objects.ids
+                    emit({ type })
+                }
             }
 
             const total = await objectTotal(deps.fetcher, type).catch(

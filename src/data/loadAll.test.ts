@@ -264,6 +264,44 @@ describe('loadAll', () => {
         expect(last.errors.organisationUnit).toBeUndefined()
     })
 
+    // A names failure happens strictly after objects, memberships and
+    // evaluate have already landed successfully: the counts the engine
+    // reports are correct, only the display names are missing. That must
+    // not read to the user the same way an objects/memberships failure
+    // does (which really does leave the type's counts wrong) -- it belongs
+    // in its own bucket.
+    it('records a names failure as its own kind of failure, not a type-level error, when counts are otherwise good', async () => {
+        const source = fakeSource()
+        source.loadNames = async (type) => {
+            if (type === 'organisationUnit') {
+                throw new Error('names boom')
+            }
+            return [
+                { id: 'a', displayName: 'A' },
+                { id: 'r', displayName: 'Root' },
+            ]
+        }
+        const engine = inlineEngine()
+        const status: LoadStatus[] = []
+        await loadAll({
+            source,
+            fetcher,
+            cache: createMemoryCache(),
+            engine,
+            onStatus: (s) => status.push(s),
+        })
+        const last = status[status.length - 1]
+        expect(last.errors.organisationUnit).toBeUndefined()
+        expect(last.namesErrors.organisationUnit).toBe('names boom')
+        // The counts are unaffected: evaluate already ran against real
+        // objects and memberships before names were even attempted.
+        const [entry] = engine.store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: null,
+        })
+        expect(entry.hasData).toBe(true)
+    })
+
     it('keeps a type out of the engine entirely when its memberships fail', async () => {
         const source = fakeSource()
         source.loadMemberships = async (type) => {

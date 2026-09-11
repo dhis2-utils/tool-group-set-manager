@@ -21,6 +21,14 @@ export interface BatchOutcome {
     requested: number
     accepted: number
     error?: string
+    /**
+     * The raw text behind a diagnosable `error`, kept for debugging only --
+     * never shown to a user (see `error`'s own doc comment on the
+     * non-JSON-200 case, the one situation this is currently set for).
+     * `outcomeText` in writeOutcomes.ts builds every user-facing message
+     * from `error`, never from this.
+     */
+    rawError?: string
 }
 
 /**
@@ -196,7 +204,32 @@ export async function writeMemberships(
                 }
                 continue
             }
-            const body = (await response.json()) as ImportReportBody
+            let body: ImportReportBody
+            try {
+                body = (await response.json()) as ImportReportBody
+            } catch (parseError) {
+                // The conclusion (this batch did not land) is the same as
+                // any other failed request, but a JSON parser's own
+                // message ("Unexpected token < in JSON at position 0") is
+                // not something a user should ever see -- it names neither
+                // what went wrong from their point of view nor what to do
+                // about it. The raw text is kept on `rawError` for
+                // diagnostics; nothing downstream builds a user-facing
+                // message from it (see `BatchOutcome.rawError`'s doc
+                // comment).
+                outcomes.push({
+                    groupId: batch.groupId,
+                    requested,
+                    accepted: 0,
+                    error: "The server's response could not be parsed",
+                    rawError:
+                        parseError instanceof Error
+                            ? parseError.message
+                            : String(parseError),
+                })
+                unaccounted.push(batch)
+                continue
+            }
             const accepted = acceptedCount(body)
             outcomes.push({ groupId: batch.groupId, requested, accepted })
             if (accepted === requested) {

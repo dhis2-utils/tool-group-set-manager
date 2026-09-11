@@ -11,7 +11,7 @@
     gap: var(--spacers-dp12);
 }
 .heading {
-    font-size: 13px;
+    font-size: var(--gsi-font-size-md, 13px);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--colors-grey600);

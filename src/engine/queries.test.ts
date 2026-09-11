@@ -105,6 +105,23 @@ describe('matrix', () => {
         ])
     })
 
+    // For a flat type, `EngineStore.scopeRoot` always returns -1 -- it
+    // checks `!t.hierarchy` before `scope.rootId` (see store.ts), so no
+    // caller can ever make a real scopeRoot reach here for a flat type.
+    // This proves the flat branch's own half: whatever scopeRoot value
+    // *would* arrive, the flat branch ignores it and returns the same
+    // result, so the omission is provably harmless rather than merely
+    // untested.
+    it('ignores scopeRoot for a flat type (h === null), which is harmless: a flat type never has a real scopeRoot to ignore', () => {
+        const flatMembership = buildSetMembership(6, [
+            Int32Array.from([3, 4]),
+            Int32Array.from([4, 5]),
+        ])
+        const withNoRoot = matrix(status, flatMembership, null, -1, 2, 2)
+        const withBogusRoot = matrix(status, flatMembership, null, 4, 2, 2)
+        expect(withBogusRoot).toEqual(withNoRoot)
+    })
+
     it('flat types produce a single row', () => {
         const rows = matrix(status, m, null, -1, 0, 2)
         expect(rows).toEqual([
@@ -225,6 +242,44 @@ describe('listObjects', () => {
                 listObjects(status, m, null, -1, { statuses: [Status.Ok] })
             )
         ).toEqual([3, 5])
+    })
+
+    // No existing test combined two *object* filters (as opposed to status
+    // plus one other, already covered above) in a single call -- level and
+    // group together, which only object 4 (level 3, group 1) satisfies.
+    it('combines a level filter and a group filter in the same call', () => {
+        // Object 4 is at level 3 but is the conflicting object (in both
+        // G0 and G1), so its `groupOf` is the conflict marker (-2), not 1
+        // -- only object 5 is at level 3 *and* genuinely in group 1.
+        expect(
+            Array.from(listObjects(status, m, h, 0, { level: 3, group: 1 }))
+        ).toEqual([5])
+        // Same two predicates, but no object at level 2 is in group 1, so
+        // the combination (as opposed to either alone) excludes everything.
+        expect(
+            Array.from(listObjects(status, m, h, 0, { level: 2, group: 1 }))
+        ).toEqual([])
+    })
+
+    // A flat type (no hierarchy: dataElement, indicator, categoryOption)
+    // has no levels and no ancestors at all -- `level`/`ancestor` are
+    // hierarchy-only concepts a caller for a flat type should never pass.
+    // But if one ever did (a stale filter carried over from switching
+    // types, say), the pre-fix code excluded every object outright: `h ===
+    // null` made the level/ancestor guard clauses unconditionally true,
+    // which for a *hierarchical* type correctly means "unknown level,
+    // exclude it" but for a *flat* type means "this predicate cannot
+    // apply, so ignore it" -- the opposite reading of `h === null`.
+    // Silently returning nothing (rather than throwing, or ignoring the
+    // meaningless predicate) is the worst of the three: it reads as a
+    // real population that happens to be empty.
+    it('ignores a level or ancestor filter for a flat type rather than excluding everything', () => {
+        expect(
+            Array.from(listObjects(status, m, null, -1, { level: 3 }))
+        ).toEqual(Array.from(listObjects(status, m, null, -1, {})))
+        expect(
+            Array.from(listObjects(status, m, null, -1, { ancestor: 1 }))
+        ).toEqual(Array.from(listObjects(status, m, null, -1, {})))
     })
 
     it('filters by an id predicate, combined with other filters', () => {

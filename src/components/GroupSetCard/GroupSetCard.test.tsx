@@ -64,6 +64,30 @@ it('shows name, properties, counts and a lock when some groups are read-only', a
     expect(onOpen).toHaveBeenCalled()
 })
 
+// Every other count on the dashboard (SummaryMatrix's `fmt`, ObjectsTable,
+// BulkFixDialog, History, ChangeSetPreview) goes through `.toLocaleString()`
+// so a large population reads with a thousands separator; this card's
+// stat tiles rendered the raw number instead, so the same instance showed
+// "12000" here and "12,000" everywhere else.
+it('formats large stat counts with the same thousands separator as the rest of the dashboard', () => {
+    const bigEntry = {
+        ...entry,
+        summary: {
+            population: 21000,
+            ok: 8000,
+            unassigned: 0,
+            missingError: 12000,
+            missingWarning: 0,
+            conflict: 1000,
+        },
+    }
+    render(<GroupSetCard entry={bigEntry} onOpen={jest.fn()} />)
+    expect(screen.getByText((1000).toLocaleString())).toBeInTheDocument()
+    expect(screen.getByText((12000).toLocaleString())).toBeInTheDocument()
+    expect(screen.getByText((8000).toLocaleString())).toBeInTheDocument()
+    expect(screen.queryByText('12000')).not.toBeInTheDocument()
+})
+
 it('shows a loading state when the type has no data yet', () => {
     render(
         <GroupSetCard

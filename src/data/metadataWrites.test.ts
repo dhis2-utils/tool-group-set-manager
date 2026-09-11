@@ -162,6 +162,46 @@ describe('createCatchAllGroup', () => {
         expect(body.name).toBe(displayName)
     })
 
+    // The 38 was only ever "50 - 11 (a standard DHIS2 uid) - 1 (the
+    // space)" written out as a literal. An id longer than the standard 11
+    // characters (not something DHIS2 itself generates, but the shape of
+    // an id is never actually validated here) makes a hardcoded 38 produce
+    // a shortName over the server's 50-character limit; deriving it from
+    // MAX_SHORT_NAME_LENGTH minus the real id length keeps it exactly 50
+    // regardless.
+    it('derives the truncation point from the id length rather than a hardcoded 38, for an id longer than 11 characters', async () => {
+        const set = buildSet({
+            id: 'aLongerThanUsualId123',
+            displayName:
+                'A very long group set name that will not fit into fifty characters at all',
+        })
+        const displayName = `Other/unknown ${set.displayName}`
+        const expectedShortName = `${displayName.slice(0, 50 - set.id.length - 1)} ${set.id}`
+        expect(expectedShortName).toHaveLength(50)
+
+        const { fetcher, calls } = scriptedFetcher({
+            [`GET ${lookupPath(displayName)}`]: () =>
+                json({ organisationUnitGroups: [] }),
+            [`GET organisationUnitGroupSets/${set.id}?fields=code`]: () =>
+                json({}),
+            'GET organisationUnitGroups/g1?fields=sharing': () =>
+                json({ sharing }),
+            'POST organisationUnitGroups': () =>
+                json({ response: { uid: 'newGroup' } }, 201),
+            [`POST organisationUnitGroupSets/${set.id}/organisationUnitGroups/newGroup`]:
+                () => json({}, 200),
+        })
+
+        await createCatchAllGroup(fetcher, set)
+
+        const createCall = calls.find(
+            (c) => c.path === 'organisationUnitGroups' && c.method === 'POST'
+        )
+        const body = createCall?.body as { shortName: string }
+        expect(body.shortName).toBe(expectedShortName)
+        expect(body.shortName.length).toBeLessThanOrEqual(50)
+    })
+
     it('produces no code when the set has none', async () => {
         const set = buildSet()
         const displayName = 'Other/unknown Ownership'

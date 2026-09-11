@@ -4,7 +4,7 @@ import React from 'react'
 import { LoadStatus } from '@/data/loadAll'
 import { ObjectType } from '@/engine/types'
 import { interpolate } from '@/utils/interpolate'
-import { TYPE_LABEL, TYPE_OBJECTS_LABEL } from '@/utils/objectTypeLabels'
+import { typeLabel, typeObjectsLabel } from '@/utils/objectTypeLabels'
 
 /**
  * The progress line used to be assembled from a translated phase name, a
@@ -20,7 +20,7 @@ const phaseLabel = (
     phase: LoadStatus['phase'],
     type: ObjectType | null
 ): string => {
-    const values = { type: type ? TYPE_OBJECTS_LABEL[type] : '' }
+    const values = { type: type ? typeObjectsLabel(type) : '' }
     switch (phase) {
         case 'groupSets':
             return i18n.t('Loading group sets')
@@ -60,7 +60,7 @@ export const LoadProgress = ({ status }: { status: LoadStatus | null }) => {
                     <div key={type}>
                         <div>
                             {interpolate(i18n.t('{type} could not be loaded'), {
-                                type: TYPE_LABEL[type],
+                                type: typeLabel(type),
                             })}
                         </div>
                         <div>{message}</div>

@@ -9,11 +9,24 @@ import { ObjectType } from '@/engine/types'
 // is a circular import: it happens to work as long as a bundler or test
 // runner evaluates the two modules in a particular order, but is not
 // guaranteed to).
-export const TYPE_LABEL: Record<ObjectType, string> = {
-    organisationUnit: i18n.t('Organisation unit group sets'),
-    dataElement: i18n.t('Data element group sets'),
-    indicator: i18n.t('Indicator group sets'),
-    categoryOption: i18n.t('Category option group sets'),
+//
+// Both are functions, not a record built once at module evaluation time.
+// A record snapshots whatever i18n.t returns the moment this module is
+// first imported, so a locale that finishes resolving (or is switched)
+// afterwards is never reflected -- every call site already re-renders on
+// every relevant change, so there is no cost to calling i18n.t fresh each
+// time and every benefit.
+export function typeLabel(type: ObjectType): string {
+    switch (type) {
+        case 'organisationUnit':
+            return i18n.t('Organisation unit group sets')
+        case 'dataElement':
+            return i18n.t('Data element group sets')
+        case 'indicator':
+            return i18n.t('Indicator group sets')
+        case 'categoryOption':
+            return i18n.t('Category option group sets')
+    }
 }
 
 // The objects themselves, rather than their group sets, in the form that
@@ -22,9 +35,15 @@ export const TYPE_LABEL: Record<ObjectType, string> = {
 // translated whole, with this spliced into a {type} placeholder afterwards
 // (see src/utils/interpolate.ts), so each of these is a plain noun phrase a
 // translator can decline as their language needs.
-export const TYPE_OBJECTS_LABEL: Record<ObjectType, string> = {
-    organisationUnit: i18n.t('organisation units'),
-    dataElement: i18n.t('data elements'),
-    indicator: i18n.t('indicators'),
-    categoryOption: i18n.t('category options'),
+export function typeObjectsLabel(type: ObjectType): string {
+    switch (type) {
+        case 'organisationUnit':
+            return i18n.t('organisation units')
+        case 'dataElement':
+            return i18n.t('data elements')
+        case 'indicator':
+            return i18n.t('indicators')
+        case 'categoryOption':
+            return i18n.t('category options')
+    }
 }

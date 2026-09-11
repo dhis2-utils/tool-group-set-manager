@@ -386,6 +386,7 @@ describe('background reload indicator (Task 7, carried forward from Plan 1)', ()
             progress: null,
             fromCache: {},
             errors: {},
+            namesErrors: {},
         }
         renderDetail()
 
@@ -401,6 +402,7 @@ describe('background reload indicator (Task 7, carried forward from Plan 1)', ()
             progress: null,
             fromCache: {},
             errors: {},
+            namesErrors: {},
         }
         renderDetail()
 
@@ -420,6 +422,7 @@ describe('background reload indicator (Task 7, carried forward from Plan 1)', ()
             progress: null,
             fromCache: {},
             errors: {},
+            namesErrors: {},
         }
         renderDetail()
 

@@ -1,0 +1,20 @@
+/**
+ * P3-R6: @dhis2/ui-constants 10.17.0 defines tokens for spacers, colors,
+ * elevations and layers (see its src/ directory) but none for font size --
+ * `<CssVariables>` in App.tsx has no `typography` or `font` prop to ask
+ * for. Fourteen CSS modules had drifted into their own hardcoded font
+ * sizes as a result (six distinct values, all repeated verbatim rather
+ * than shared). This file is the substitute: one set of custom
+ * properties, imported once (see App.tsx), that every module reaches for
+ * instead of writing its own pixel value. Values themselves are unchanged
+ * from what was already in use -- this stops the drift, it does not
+ * restyle anything.
+ */
+:root {
+    --gsi-font-size-xs: 11px;
+    --gsi-font-size-sm: 12px;
+    --gsi-font-size-md: 13px;
+    --gsi-font-size-lg: 14px;
+    --gsi-font-size-xl: 15px;
+    --gsi-font-size-heading: 20px;
+}

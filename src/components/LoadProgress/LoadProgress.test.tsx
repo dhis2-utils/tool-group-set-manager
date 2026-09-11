@@ -9,6 +9,7 @@ const status = (patch: Partial<LoadStatus>): LoadStatus => ({
     progress: null,
     fromCache: {},
     errors: {},
+    namesErrors: {},
     ...patch,
 })
 

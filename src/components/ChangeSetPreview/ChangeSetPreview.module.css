@@ -28,7 +28,7 @@
     text-align: left;
     padding: 4px 8px;
     border-bottom: 1px solid var(--colors-grey300, #dcdcdc);
-    font-size: 13px;
+    font-size: var(--gsi-font-size-md, 13px);
 }
 
 .callout {
@@ -36,5 +36,5 @@
     border: 1px solid var(--colors-orange300, #f0b26b);
     border-radius: 4px;
     padding: 8px 12px;
-    font-size: 13px;
+    font-size: var(--gsi-font-size-md, 13px);
 }

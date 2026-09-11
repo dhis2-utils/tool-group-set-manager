@@ -17,7 +17,7 @@
     gap: var(--spacers-dp4);
 }
 .checkTitle {
-    font-size: 14px;
+    font-size: var(--gsi-font-size-lg, 14px);
     font-weight: 500;
     margin: 0;
 }
@@ -27,7 +27,7 @@
     gap: var(--spacers-dp4);
 }
 .line {
-    font-size: 12px;
+    font-size: var(--gsi-font-size-sm, 12px);
     color: var(--colors-grey700);
     margin: 0;
 }
@@ -40,7 +40,7 @@
     gap: var(--spacers-dp4);
 }
 .issue {
-    font-size: 12px;
+    font-size: var(--gsi-font-size-sm, 12px);
     border-top: 1px solid var(--colors-grey300);
     padding-top: var(--spacers-dp4);
 }

@@ -78,6 +78,30 @@ export const SQL_VIEW_DEFINITIONS = [
     },
 ]
 
+/**
+ * Level 0 is impossible in DHIS2 (the root organisation unit sits at level
+ * 1), so a level column `Uint8Array.from` cannot make sense of must never
+ * be allowed to coerce to 0 through it: `Number('')` is 0, `Number('bad')`
+ * is `NaN`, and a typed array truncates `NaN` to 0 on assignment -- either
+ * way the malformed row would land as a real, if wrong, level rather than
+ * as the parse failure it is. Parsed and validated as plain numbers first,
+ * naming the offending row (1-based, matching what a spreadsheet or the
+ * SQL view's own CSV export would call it) before anything is written into
+ * the typed array.
+ */
+function parseLevels(rows: string[][]): Uint8Array {
+    const levels = rows.map((r, i) => {
+        const n = Number(r[1])
+        if (!Number.isInteger(n) || n < 1 || n > 255) {
+            throw new Error(
+                `Org unit hierarchy view: row ${i + 1} has an invalid level (${JSON.stringify(r[1])})`
+            )
+        }
+        return n
+    })
+    return Uint8Array.from(levels)
+}
+
 async function fetchCsv(fetcher: Fetcher, viewId: string): Promise<string[][]> {
     const response = await fetcher(`sqlViews/${viewId}/data.csv?paging=false`)
     if (!response.ok) {
@@ -108,7 +132,7 @@ export function createSqlViewSource(
             objectType: type,
             ids: rows.map((r) => r[0]),
             names: null,
-            level: Uint8Array.from(rows, (r) => Number(r[1])),
+            level: parseLevels(rows),
             parentIds: rows.map((r) => (r[2] === '' ? null : r[2])),
             domainType: null,
             categoryIdsOfOption: null,

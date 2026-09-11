@@ -6,7 +6,7 @@
     gap: var(--spacers-dp8);
 }
 .name {
-    font-size: 15px;
+    font-size: var(--gsi-font-size-xl, 15px);
     font-weight: 500;
     color: var(--colors-grey900);
 }
@@ -25,12 +25,12 @@
     font-variant-numeric: tabular-nums;
 }
 .value {
-    font-size: 20px;
+    font-size: var(--gsi-font-size-heading, 20px);
     font-weight: 500;
     line-height: 1.1;
 }
 .label {
-    font-size: 11px;
+    font-size: var(--gsi-font-size-xs, 11px);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--colors-grey600);
@@ -64,6 +64,6 @@
     color: var(--colors-green700);
 }
 .meta {
-    font-size: 12px;
+    font-size: var(--gsi-font-size-sm, 12px);
     color: var(--colors-grey600);
 }

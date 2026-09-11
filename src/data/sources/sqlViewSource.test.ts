@@ -25,6 +25,23 @@ describe('sqlViewSource', () => {
         expect(payload.parentIds).toEqual([null, 'r'])
     })
 
+    // Level 0 is impossible in DHIS2 (the root sits at level 1), so a
+    // malformed level column (blank, non-numeric, or anything Number()
+    // cannot parse) must never silently coerce to 0 -- Uint8Array.from
+    // does exactly that (Number('') is 0, Number('x') is NaN, and NaN
+    // truncates to 0 in a typed array) and 0 would then read as a real,
+    // if wrong, hierarchy level rather than as the parse failure it is.
+    it('throws naming the row when a level column cannot be parsed', async () => {
+        const fetcher = async () =>
+            csvResponse('uid,level,parent\nr,1,\na,bad,r\n')
+        await expect(
+            createSqlViewSource(fetcher, views).loadObjects(
+                'organisationUnit',
+                () => undefined
+            )
+        ).rejects.toThrow(/row 2/)
+    })
+
     it('loads memberships from the membership view and keeps only requested groups', async () => {
         const fetcher = async () =>
             csvResponse('groupid,ouid\ng1,a\ng1,b\ng9,a\n')

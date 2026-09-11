@@ -15,12 +15,14 @@ const mockCallOverrides: {
     worseOrgUnitSets: boolean
     dataElementSets: boolean
     fellBack: boolean
+    notLoadedOrgUnitSet: boolean
 } = {
     dataElementError: null,
     extraCleanOrgUnitSet: false,
     worseOrgUnitSets: false,
     dataElementSets: false,
     fellBack: false,
+    notLoadedOrgUnitSet: false,
 }
 
 const cleanSet = (id: string, name: string) => ({
@@ -42,6 +44,27 @@ const cleanSet = (id: string, name: string) => ({
         conflict: 0,
     },
     hasData: true,
+})
+
+const notLoadedSet = (id: string, name: string) => ({
+    set: {
+        id,
+        displayName: name,
+        objectType: 'organisationUnit',
+        compulsory: false,
+        dataDimension: false,
+        canWrite: true,
+        groups: [],
+    },
+    summary: {
+        population: 0,
+        ok: 0,
+        unassigned: 0,
+        missingError: 0,
+        missingWarning: 0,
+        conflict: 0,
+    },
+    hasData: false,
 })
 
 const brokenSet = (id: string, name: string, conflict: number) => ({
@@ -78,6 +101,9 @@ const entries = {
             sets.push(brokenSet('worst', 'Worst set', 40))
             sets.push(brokenSet('middle', 'Middle set', 5))
             sets.push(brokenSet('tied', 'Tied set', 0))
+        }
+        if (mockCallOverrides.notLoadedOrgUnitSet) {
+            sets.push(notLoadedSet('notloaded', 'Not loaded set'))
         }
         return sets
     },
@@ -120,6 +146,7 @@ jest.mock('@/hooks/useEngine', () => ({
             progress: null,
             fromCache: {},
             errors: {},
+            namesErrors: {},
         },
         groupSets: [],
         sourceKind: 'metadata',
@@ -161,6 +188,7 @@ afterEach(() => {
     mockCallOverrides.worseOrgUnitSets = false
     mockCallOverrides.dataElementSets = false
     mockCallOverrides.fellBack = false
+    mockCallOverrides.notLoadedOrgUnitSet = false
 })
 
 it('shows the SQL view repair notice after a real fallback', async () => {
@@ -256,6 +284,38 @@ it('sorts cards worst first, keeping API order among equals (spec 5.1)', async (
     expect(names[1]).toContain('Middle set')
     expect(names[2]).toContain('Ownership')
     expect(names[3]).toContain('Tied set')
+})
+
+// A set whose dashboard call has not resolved yet has zero errors -- there
+// is nothing to count -- so byWorstFirst's error-count sort put it wherever
+// a tie with the clean sets happened to land it, with nothing but the
+// card's own "Loading…" text (see GroupSetCard.tsx) telling it apart from a
+// set that is genuinely clean. It belongs in its own group instead: a
+// number can change under a user with no explanation otherwise (the load
+// that hasn't finished yet is exactly the carried-forward "detail page
+// shows no indication a reload is running" sibling item).
+it('sorts a set with no data yet into its own group, not mixed in among the clean ones', async () => {
+    mockCallOverrides.worseOrgUnitSets = true
+    mockCallOverrides.notLoadedOrgUnitSet = true
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Not loaded set')).toBeInTheDocument()
+    )
+    const names = screen
+        .getAllByRole('button')
+        .map((b) => b.textContent ?? '')
+        .filter((t) => t.includes('set') || t.includes('Ownership'))
+    // "Clean set" is filtered out entirely by the default "only sets with
+    // issues" view -- it has no issues and hasData is true. "Not loaded
+    // set" has no issues either, but shows anyway (the filter always shows
+    // !hasData entries); it must not have landed among the (invisible,
+    // filtered-out) clean sets by sort order -- it belongs ahead of every
+    // loaded set, worst-first-sorted or not.
+    expect(names[0]).toContain('Not loaded set')
 })
 
 it('filters the sections by object type (spec 5.1)', async () => {

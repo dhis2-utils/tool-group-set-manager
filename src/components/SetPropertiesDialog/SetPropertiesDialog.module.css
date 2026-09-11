@@ -6,7 +6,7 @@
 
 .hint {
     margin: 4px 0 0 24px;
-    font-size: 12px;
+    font-size: var(--gsi-font-size-sm, 12px);
     color: var(--colors-grey700, #6c7787);
 }
 

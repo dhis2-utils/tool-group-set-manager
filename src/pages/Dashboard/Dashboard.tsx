@@ -17,7 +17,7 @@ import { OBJECT_TYPES, ObjectType } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useScope } from '@/hooks/useScope'
 import { interpolate } from '@/utils/interpolate'
-import { TYPE_LABEL } from '@/utils/objectTypeLabels'
+import { typeLabel } from '@/utils/objectTypeLabels'
 
 const hasIssues = (e: DashboardEntry) =>
     e.summary.conflict + e.summary.missingError + e.summary.missingWarning > 0
@@ -28,9 +28,24 @@ const hasIssues = (e: DashboardEntry) =>
 const errorCount = (e: DashboardEntry) =>
     e.summary.conflict + e.summary.missingError
 
-const byWorstFirst = (a: DashboardEntry, b: DashboardEntry) =>
-    errorCount(b) - errorCount(a) ||
-    b.summary.missingWarning - a.summary.missingWarning
+/**
+ * A set whose dashboard call has not resolved yet (`hasData === false`) has
+ * an all-zero summary -- there is nothing to count yet -- so it ties with
+ * a genuinely clean set on error count and sorts wherever that tie happens
+ * to place it, with only the card's own "Loading…" text (GroupSetCard.tsx)
+ * telling the two apart. Carried forward from Plan 1: it belongs in its
+ * own group, ahead of every loaded set, rather than interleaved among the
+ * clean ones by a coincidental tie.
+ */
+const byWorstFirst = (a: DashboardEntry, b: DashboardEntry) => {
+    if (a.hasData !== b.hasData) {
+        return a.hasData ? 1 : -1
+    }
+    return (
+        errorCount(b) - errorCount(a) ||
+        b.summary.missingWarning - a.summary.missingWarning
+    )
+}
 
 // See the matching comment in GroupSetCard.tsx: a single i18n.t(key, {
 // count, defaultValue_plural }) call neither pluralises at runtime with
@@ -139,7 +154,7 @@ export const Dashboard = () => {
                         <SingleSelectOption
                             key={type}
                             value={type}
-                            label={TYPE_LABEL[type]}
+                            label={typeLabel(type)}
                         />
                     ))}
                 </SingleSelectField>
@@ -220,7 +235,7 @@ export const Dashboard = () => {
                     return (
                         <section key={type}>
                             <h2 className={styles.heading}>
-                                {TYPE_LABEL[type]}
+                                {typeLabel(type)}
                             </h2>
                             <NoticeBox
                                 title={i18n.t('No group sets of this type')}
@@ -234,7 +249,7 @@ export const Dashboard = () => {
                 }
                 return (
                     <section key={type}>
-                        <h2 className={styles.heading}>{TYPE_LABEL[type]}</h2>
+                        <h2 className={styles.heading}>{typeLabel(type)}</h2>
                         {typeError && (
                             <NoticeBox
                                 error

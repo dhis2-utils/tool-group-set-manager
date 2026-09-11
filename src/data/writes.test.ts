@@ -229,6 +229,38 @@ describe('writeMemberships', () => {
         expect(result.unaccounted).toEqual([])
     })
 
+    // A non-200 status and a dropped connection are both handled already
+    // (see the tests around this one); this is the third way a batch
+    // request can go wrong -- the server answers 200 but with a body
+    // that isn't JSON at all (an HTML error page from a proxy, say).
+    // `response.json()` throws in that case, and the raw parse error
+    // (e.g. "Unexpected token < in JSON at position 0") used to become the
+    // outcome's whole `error` -- the right conclusion (this batch did not
+    // land) with the wrong wording (a JSON parser's own error message is
+    // not something a user should ever see). The raw text must still be
+    // somewhere on the outcome for diagnostics.
+    it("says the server's response could not be parsed, rather than surfacing the raw JSON parse error, for a non-JSON 200", async () => {
+        const fetcher = async () =>
+            new Response('<html>not json</html>', {
+                status: 200,
+            })
+        const changes: GroupChange[] = [
+            { groupId: 'g1', additions: ['a'], deletions: [] },
+        ]
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            changes,
+            () => undefined
+        )
+        expect(result.outcomes).toHaveLength(1)
+        const [outcome] = result.outcomes
+        expect(outcome.accepted).toBe(0)
+        expect(outcome.error).not.toMatch(/Unexpected token|JSON/i)
+        expect(outcome.error).toMatch(/could not be (read|parsed|understood)/i)
+        expect(outcome.rawError).toMatch(/Unexpected token|JSON/i)
+    })
+
     it('a network failure on one group is recorded as an error and does not stop the rest', async () => {
         const fetcher = async (path: string) => {
             if (path.includes('g1')) {

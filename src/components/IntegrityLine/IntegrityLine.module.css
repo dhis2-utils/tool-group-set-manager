@@ -1,5 +1,5 @@
 .line {
-    font-size: 12px;
+    font-size: var(--gsi-font-size-sm, 12px);
     color: var(--colors-grey700);
     display: flex;
     align-items: center;

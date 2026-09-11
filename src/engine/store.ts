@@ -339,6 +339,15 @@ export class EngineStore {
      * that and must not be read as "scan everything" by the query layer, so
      * it throws instead of silently returning whole-instance numbers.
      */
+    /**
+     * -1 means "no restriction, scan everything". `!t.hierarchy` is
+     * checked *before* `scope.rootId`, on purpose: a flat type (no
+     * hierarchy) has no root to restrict by, so this always returns -1 for
+     * one regardless of what `scope.rootId` holds -- it never even reaches
+     * the id lookup below. That is what makes `matrix`'s flat branch in
+     * queries.ts provably safe to ignore `scopeRoot`: for a flat type,
+     * this method guarantees that parameter is always -1.
+     */
     private scopeRoot(t: TypeIndex, scope: ScopeRef): number {
         if (!t.hierarchy || scope.rootId === null) {
             return -1

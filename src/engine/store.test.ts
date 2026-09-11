@@ -409,6 +409,24 @@ describe('EngineStore', () => {
         expect(entry.summary.population).toBe(2)
     })
 
+    // P3-R6 / item 7: the matrix's flat branch (queries.ts) never consults
+    // scopeRoot. That is provably harmless rather than merely untested,
+    // because `scopeRoot` (private, below) checks `!t.hierarchy` before
+    // `scope.rootId` -- a flat type forces it to -1 regardless of what the
+    // caller asked for, and never even looks the id up. Proven here from
+    // the outside: a rootId no indicator object could ever match still
+    // does not throw and still returns the whole population, because it
+    // is never resolved against the (nonexistent) hierarchy at all.
+    it('forces scopeRoot to -1 for a flat type regardless of rootId, so matrixFor never throws on an unresolvable one', () => {
+        const store = flatIndicatorStore()
+        const result = store.matrixFor(
+            'ind',
+            { objectType: 'indicator', rootId: 'not-a-real-anything' },
+            0
+        )
+        expect(result.rows[0].total).toBe(2)
+    })
+
     it('dashboard throws for an unknown scope root id rather than scanning everything', () => {
         const store = loadedStore()
         expect(() =>

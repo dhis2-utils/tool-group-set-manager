@@ -6,5 +6,5 @@
     border-radius: 3px;
     background-color: var(--colors-yellow100);
     color: var(--colors-yellow900);
-    font-size: 13px;
+    font-size: var(--gsi-font-size-md, 13px);
 }

@@ -98,9 +98,12 @@ async function findExistingGroupId(
  * and two group sets whose names agree in their first ~40-something
  * characters would otherwise truncate to the *same* `shortName` and trade
  * one rejected create for a different one. When the full name is too long,
- * the tail is reserved for `set.id` instead: the first 38 characters, a
- * space, then the 11-character id, for exactly 50 -- unique by
- * construction, since group set ids are unique.
+ * the tail is reserved for `set.id` instead: MAX_SHORT_NAME_LENGTH minus
+ * the id's own length minus one (for the separating space) characters of
+ * the name, then a space, then the id itself, for exactly
+ * MAX_SHORT_NAME_LENGTH -- unique by construction, since group set ids are
+ * unique, and correct for an id of any length (a standard 11-character uid
+ * leaves 38, but nothing here assumes 11).
  *
  * Sharing is copied from an existing group in the set so the new group is
  * visible to whoever could already see the others; a set with no groups
@@ -129,10 +132,15 @@ export async function createCatchAllGroup(
 ): Promise<{ id: string; displayName: string }> {
     const endpoint = ENDPOINTS[set.objectType]
     const displayName = `Other/unknown ${set.displayName}`
+    // The tail reserved for the id is the id's own length plus one space,
+    // never a hardcoded 38 -- 38 is only correct for the 11-character uid
+    // DHIS2 itself generates, and this function never validates that
+    // set.id actually is one. Deriving it keeps the result exactly
+    // MAX_SHORT_NAME_LENGTH regardless of how long the id turns out to be.
     const shortName =
         displayName.length <= MAX_SHORT_NAME_LENGTH
             ? displayName
-            : `${displayName.slice(0, 38)} ${set.id}`
+            : `${displayName.slice(0, MAX_SHORT_NAME_LENGTH - set.id.length - 1)} ${set.id}`
 
     const existingId = await findExistingGroupId(
         fetcher,

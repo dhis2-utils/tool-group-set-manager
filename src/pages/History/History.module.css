@@ -5,11 +5,11 @@
     gap: var(--spacers-dp16);
 }
 .heading {
-    font-size: 20px;
+    font-size: var(--gsi-font-size-heading, 20px);
     margin: 0;
 }
 .note {
-    font-size: 12px;
+    font-size: var(--gsi-font-size-sm, 12px);
     color: var(--colors-grey600);
 }
 .progressRow {

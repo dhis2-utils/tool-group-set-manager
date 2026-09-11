@@ -11,7 +11,7 @@
     flex-wrap: wrap;
 }
 .heading {
-    font-size: 13px;
+    font-size: var(--gsi-font-size-md, 13px);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--colors-grey600);
@@ -24,6 +24,6 @@
     gap: var(--spacers-dp12);
 }
 .note {
-    font-size: 12px;
+    font-size: var(--gsi-font-size-sm, 12px);
     color: var(--colors-grey600);
 }

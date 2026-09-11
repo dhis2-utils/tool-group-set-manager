@@ -137,7 +137,7 @@ export const GroupSetCard = ({ entry, onOpen }: Props) => {
                     <div className={styles.stats}>
                         <div className={styles.error}>
                             <div className={styles.value}>
-                                {summary.conflict}
+                                {summary.conflict.toLocaleString()}
                             </div>
                             <div className={styles.label}>
                                 {i18n.t('Conflicts')}
@@ -151,7 +151,10 @@ export const GroupSetCard = ({ entry, onOpen }: Props) => {
                             }
                         >
                             <div className={styles.value}>
-                                {summary.missingError + summary.missingWarning}
+                                {(
+                                    summary.missingError +
+                                    summary.missingWarning
+                                ).toLocaleString()}
                             </div>
                             <div className={styles.label}>
                                 {i18n.t('Missing')}
@@ -160,7 +163,7 @@ export const GroupSetCard = ({ entry, onOpen }: Props) => {
                         {showUnassigned && (
                             <div className={styles.neutral}>
                                 <div className={styles.value}>
-                                    {summary.unassigned}
+                                    {summary.unassigned.toLocaleString()}
                                 </div>
                                 <div className={styles.label}>
                                     {i18n.t('No group (not required)')}
@@ -168,7 +171,9 @@ export const GroupSetCard = ({ entry, onOpen }: Props) => {
                             </div>
                         )}
                         <div className={styles.ok}>
-                            <div className={styles.value}>{summary.ok}</div>
+                            <div className={styles.value}>
+                                {summary.ok.toLocaleString()}
+                            </div>
                             <div className={styles.label}>{i18n.t('OK')}</div>
                         </div>
                     </div>
