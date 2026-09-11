@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-11T14:08:26.981Z\n"
-"PO-Revision-Date: 2026-09-11T14:08:26.982Z\n"
+"POT-Creation-Date: 2026-09-11T14:56:00.716Z\n"
+"PO-Revision-Date: 2026-09-11T14:56:00.717Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -286,6 +286,9 @@ msgstr "Loading more rows…"
 
 msgid "Name"
 msgstr "Name"
+
+msgid "Parent"
+msgstr "Parent"
 
 msgid "Level"
 msgstr "Level"

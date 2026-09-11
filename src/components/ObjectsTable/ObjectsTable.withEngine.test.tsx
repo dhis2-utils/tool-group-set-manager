@@ -14,6 +14,7 @@ import { ObjectsTable } from './ObjectsTable'
  * running together show that.
  */
 interface Pending {
+    method: string
     args: unknown[]
     resolve: (result: unknown) => void
 }
@@ -24,9 +25,9 @@ let mockPhase = 'done'
 jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => ({
         client: {
-            call: (_method: string, ...args: unknown[]) =>
+            call: (method: string, ...args: unknown[]) =>
                 new Promise((resolve) => {
-                    mockPending.push({ args, resolve })
+                    mockPending.push({ method, args, resolve })
                 }),
         },
         status: {
@@ -78,26 +79,39 @@ Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
     value: 800,
 })
 
-const lastPending = () => mockPending[mockPending.length - 1]
+const lastPendingFor = (method: string) => {
+    const pending = [...mockPending].reverse().find((p) => p.method === method)
+    if (!pending) {
+        throw new Error(`no pending ${method} request`)
+    }
+    return pending
+}
+const lastPending = () => lastPendingFor('objectsFor')
 
-/** Answers the outstanding request the way EngineStore.objectsFor would. */
+/**
+ * Answers the outstanding `objectsFor` request the way `EngineStore` would,
+ * then also answers the `resolveParents` request that page's own rows
+ * bring with them (D1) -- the component's append effect (ObjectsTable.tsx)
+ * waits for both to land before showing the page at all, so a caller that
+ * settled only the first would never see its rows either.
+ */
 const settle = async (label: string, total: number, count = 200) => {
-    const pending = lastPending()
+    const pending = lastPendingFor('objectsFor')
     const offset = pending.args[3] as number
+    const items = Array.from({ length: count }, (_, i) => ({
+        index: offset + i,
+        id: `${label}-${offset + i}`,
+        displayName: `${label} ${offset + i}`,
+        level: 4,
+        parentId: 'p',
+        status: 1,
+        groups: [0],
+    }))
     await act(async () => {
-        pending.resolve({
-            total,
-            offset,
-            items: Array.from({ length: count }, (_, i) => ({
-                index: offset + i,
-                id: `${label}-${offset + i}`,
-                displayName: `${label} ${offset + i}`,
-                level: 4,
-                parentId: 'p',
-                status: 1,
-                groups: [0],
-            })),
-        })
+        pending.resolve({ total, offset, items })
+    })
+    await act(async () => {
+        lastPendingFor('resolveParents').resolve(items.map(() => null))
     })
 }
 
@@ -162,13 +176,13 @@ it('keeps the rows and does not duplicate the held page when the engine load pha
     )
     await settle('Row', 1000)
     expect(screen.getByText('Row 0')).toBeInTheDocument()
-    expect(mockPending).toHaveLength(1)
+    expect(mockPending.filter((p) => p.method === 'objectsFor')).toHaveLength(1)
 
     mockPhase = 'names'
     rerender(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
 
     // The same query, re-issued -- and the rows stay on screen throughout.
-    expect(mockPending).toHaveLength(2)
+    expect(mockPending.filter((p) => p.method === 'objectsFor')).toHaveLength(2)
     expect(lastPending().args[3]).toBe(0)
     expect(screen.getByText('Row 0')).toBeInTheDocument()
 

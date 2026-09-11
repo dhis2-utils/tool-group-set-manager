@@ -6,7 +6,7 @@
 .head,
 .row {
     display: grid;
-    grid-template-columns: 3fr 60px 130px 2fr;
+    grid-template-columns: 2fr 2fr 60px 130px 2fr;
     gap: var(--spacers-dp8);
     align-items: center;
     padding: 0 var(--spacers-dp8);

@@ -16,7 +16,7 @@ import { MembershipControl } from '@/components/MembershipControl/MembershipCont
 import { StatusPill } from '@/components/StatusPill/StatusPill'
 import { GroupChange } from '@/engine/changeSet'
 import { ObjectFilter } from '@/engine/queries'
-import { ObjectsResult, ScopeRef } from '@/engine/store'
+import { ObjectRef, ObjectsResult, ScopeRef } from '@/engine/store'
 import { GroupMeta, GroupSetMeta } from '@/engine/types'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
 import { useMembershipWrite } from '@/hooks/useMembershipWrite'
@@ -30,6 +30,15 @@ interface Props {
 }
 
 type Row = ObjectsResult['items'][number]
+
+/**
+ * A loaded row plus the parent object its own page resolved alongside it
+ * (D1: one `resolveParents` call per page, not per row -- see the effect
+ * that appends pages below). `null` covers both "this object is a root"
+ * (D2) and "this type has no hierarchy at all" (D3); the rendering layer
+ * treats both the same way, by showing nothing.
+ */
+type LoadedRow = Row & { parent: ObjectRef | null }
 
 const PAGE = 200
 const ROW_HEIGHT = 36
@@ -45,6 +54,13 @@ const ROW_HEIGHT = 36
 // `offsetHeight` is always zero regardless of CSS, which is why the test
 // for this component additionally stubs it -- see the comment there.)
 const INITIAL_RECT = { width: 800, height: 600 }
+
+// A stable empty array, so `pageIndexes` below does not manufacture a new
+// argument identity on every render before the first page has landed --
+// `useEngineQuery`'s query key is a JSON.stringify of the args, so content
+// equality is all that matters, but a fresh `[]` literal here would still
+// be harmless; this just avoids allocating one every render for no reason.
+const EMPTY_INDEXES: number[] = []
 
 // A second argument to i18n.t makes this project's i18next-scanner treat
 // the call as unextractable (see the matching comment in
@@ -73,7 +89,7 @@ const searchNote = (loaded: number) =>
  */
 interface Loaded {
     key: string
-    rows: Row[]
+    rows: LoadedRow[]
     total: number | null
     offset: number
 }
@@ -176,6 +192,10 @@ function disabledReasonFor(row: Row, groups: GroupMeta[]): string | undefined {
 }
 
 export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
+    // D3: only organisation units have a hierarchy at all; the level and
+    // parent columns (and the resolveParents call below) are both gated on
+    // this, the same flag the level column already used.
+    const isOrgUnit = set.objectType === 'organisationUnit'
     const { write } = useMembershipWrite()
     // D5/I2: tracked per row, as a set of row ids currently writing, so
     // that only the row(s) actually writing are disabled -- never the
@@ -305,6 +325,25 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
         [set.id, scope, filter, current.offset, PAGE]
     )
 
+    // D1: one `resolveParents` call per landed page, not one per row -- the
+    // indexes are derived from the page that just arrived (`data`), so this
+    // query's args change once per page rather than once per row, and a
+    // mutation that moved the resolution into the row-rendering loop below
+    // would not change this call's argument count at all (it would just
+    // make it wrong to rely on), which is why the per-page guarantee is
+    // pinned by counting calls, not just by reading this comment.
+    // Gated on `isOrgUnit` (D3): flat types have no hierarchy, so
+    // `resolveParents` is never asked for them at all.
+    const pageIndexes = useMemo(
+        () => (data ? data.items.map((item) => item.index) : EMPTY_INDEXES),
+        [data]
+    )
+    const { data: parentPage } = useEngineQuery<(ObjectRef | null)[]>(
+        'resolveParents',
+        [set.objectType, pageIndexes],
+        isOrgUnit && Boolean(data)
+    )
+
     // A result is appended only when it is *the page this list is waiting
     // for*: the same page it asked for (`data.offset`, echoed by the store)
     // and one it has not already taken (the `rows.length === offset`
@@ -319,6 +358,16 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
         if (!data) {
             return
         }
+        // D1/D3: for an org unit type, the page's rows and the parents
+        // resolved for that same page must land together -- appending rows
+        // before their parents landed would show a page with no parent
+        // column for one render, and then risk mismatching row-for-row if a
+        // later, different page's parents arrived first. A flat type never
+        // asks for parents at all (`parentPage` stays undefined for it, so
+        // this only waits for the org unit case).
+        if (isOrgUnit && !parentPage) {
+            return
+        }
         setLoaded((prev) => {
             const isAwaitedPage =
                 prev.key === filterKey &&
@@ -327,12 +376,20 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
             return isAwaitedPage
                 ? {
                       ...prev,
-                      rows: [...prev.rows, ...data.items],
+                      rows: [
+                          ...prev.rows,
+                          ...data.items.map((item, i) => ({
+                              ...item,
+                              parent: isOrgUnit
+                                  ? (parentPage?.[i] ?? null)
+                                  : null,
+                          })),
+                      ],
                       total: data.total,
                   }
                 : prev
         })
-    }, [data, filterKey])
+    }, [data, parentPage, filterKey, isOrgUnit])
 
     const rows = useMemo(() => {
         const q = search.trim().toLowerCase()
@@ -391,15 +448,8 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
     if (current.total === null) {
         return <CircularLoader small />
     }
-    const isOrgUnit = set.objectType === 'organisationUnit'
-    // Org unit rows: Name / Level / Status / Group. Flat types have no
-    // hierarchy at all, so just Name / Status / Group. (Parent used to be
-    // a column here too, but `ObjectRef.parentId` -- src/engine/store.ts,
-    // not touched by this task -- is only ever a raw DHIS2 id with no name
-    // resolution until Plan 2; showing it earned the column nothing beyond
-    // "here is an opaque identifier", most visibly in the conflict view
-    // where every row shares the same one, so it's dropped rather than
-    // shown under an honest-but-unhelpful header.)
+    // Org unit rows: Name / Parent / Level / Status / Group. Flat types
+    // have no hierarchy at all, so just Name / Status / Group.
     const gridStyle = {
         gridTemplateColumns: isOrgUnit ? undefined : '3fr 130px 2fr',
     }
@@ -412,6 +462,7 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
             </p>
             <div className={styles.head} style={gridStyle}>
                 <span>{i18n.t('Name')}</span>
+                {isOrgUnit && <span>{i18n.t('Parent')}</span>}
                 {isOrgUnit && <span>{i18n.t('Level')}</span>}
                 <span>{i18n.t('Status')}</span>
                 <span>{i18n.t('Group in this set')}</span>
@@ -442,6 +493,18 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
                                 <span title={r.id}>
                                     {r.displayName ?? r.id}
                                 </span>
+                                {isOrgUnit && (
+                                    <span data-test={`parent-${r.id}`}>
+                                        {/* D2: a root shows nothing, not a
+                                            dash -- a dash in a data column
+                                            reads as data. D4: a parent that
+                                            could not be resolved to a name
+                                            also shows nothing, never its
+                                            raw id (the reason this column
+                                            was dropped in Plan 1). */}
+                                        {r.parent?.displayName ?? ''}
+                                    </span>
+                                )}
                                 {isOrgUnit && <span>{r.level}</span>}
                                 <span>
                                     <StatusPill status={r.status} />
