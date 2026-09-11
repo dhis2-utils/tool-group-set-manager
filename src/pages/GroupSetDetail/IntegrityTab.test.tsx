@@ -159,9 +159,6 @@ const mockIntegrityState: {
         [compulsoryCheck.name]: {
             name: compulsoryCheck.name,
             count: 272,
-            // Deliberately in the past relative to "now" (this session's
-            // `engineAsOfRef`), so the recency tests below get a
-            // deterministic "the engine is the more recent of the two".
             finishedTime: '2026-09-01T10:00:00.000Z',
         },
         [conflictCheck.name]: {
@@ -373,13 +370,38 @@ it('names this set in the engine count line, and does not call it the source of 
     expect(screen.queryByText(/source of truth/i)).not.toBeInTheDocument()
 })
 
-// M2 (review round 1): when the in-scope and engine counts disagree (2 vs 5
-// for the compulsory check here), the tab must say which is more recent.
-it('names which of the disagreeing counts is more recent', async () => {
+// M2 (review round 1), narrowed after round 2's n1/n2: when the in-scope and
+// engine counts disagree (2 vs 5 for the compulsory check here), the tab
+// must say something -- but the app cannot actually know which figure is
+// newer (there is no engine-load timestamp anywhere in the app), so the
+// sentence must state only the two facts it does hold -- when DHIS2 ran the
+// check, and that the app's figure reflects this session's own load --
+// without ranking them. This pins the exact claim, not merely the presence
+// of some "more recent" phrase: round 1's test asserted only
+// `/more recent/i` matched something, which both a correct and an inverted
+// comparison satisfied equally (re-review mutation 6).
+it("states when DHIS2 ran the check and that the app's figure reflects this session, without ranking the two", async () => {
     render(<IntegrityTab set={set} scope={scope} />)
 
-    const recencyLines = await screen.findAllByText(/more recent/i)
+    const expectedTime = new Date('2026-09-01T10:00:00.000Z').toLocaleString()
+    const recencyLines = await screen.findAllByText(
+        new RegExp(
+            `DHIS2 last ran this check at ${expectedTime.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
+        )
+    )
     expect(recencyLines.length).toBeGreaterThan(0)
+    recencyLines.forEach((line) => {
+        expect(line.textContent).toEqual(
+            expect.stringContaining("this app's figure above reflects")
+        )
+        // Neither branch of the old, wrongly-confident wording survives.
+        expect(line.textContent).not.toEqual(
+            expect.stringContaining('is the more recent')
+        )
+        expect(line.textContent).not.toEqual(
+            expect.stringContaining('may be the more recent')
+        )
+    })
 })
 
 // m5 (review round 1): before a check's own summary has been read, none of

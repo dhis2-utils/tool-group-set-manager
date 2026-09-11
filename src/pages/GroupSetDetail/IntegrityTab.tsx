@@ -1,7 +1,7 @@
 import { useConfig } from '@dhis2/app-runtime'
 import i18n from '@dhis2/d2-i18n'
 import { Button, NoticeBox } from '@dhis2/ui'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import styles from './IntegrityTab.module.css'
 import { IntegrityLine } from '@/components/IntegrityLine/IntegrityLine'
 import { createFetcher } from '@/data/fetcher'
@@ -112,32 +112,31 @@ const engineCountLabel = (
                 { count, scope: scopeName, set: setName }
             )
 
-// M2 (review round 1): the brief's reconciliation line requires naming which
-// of the DHIS2 count and the engine's own count is more recent, whenever
-// they disagree. The DHIS2 count carries its own `finishedTime`; the engine
-// has no equivalent timestamp exposed anywhere in the app (there is no
-// "when did this session's engine snapshot load" value on `useEngine`), so
-// this reads `engineAsOf` -- captured once, when this tab starts observing
-// the engine, as a proxy for "the engine reflects data current as of this
-// moment or later". That is deliberately a session-local approximation, not
-// a precise load timestamp; the comparison it enables --  whether DHIS2 last
-// ran the check after that moment -- is exactly the "unless the check ran
-// after the last load" case the brief describes, without requiring any new
-// engine plumbing.
-const recencyLabel = (dhisIsNewer: boolean, time: string) =>
-    dhisIsNewer
-        ? interpolate(
-              i18n.t(
-                  'DHIS2 ran this check at {time}, after this session started reflecting the engine -- the DHIS2 figure above may be the more recent of the two'
-              ),
-              { time }
-          )
-        : interpolate(
-              i18n.t(
-                  'This session has reflected the engine since after DHIS2 last ran this check, at {time} -- the engine figure above is the more recent of the two'
-              ),
-              { time }
-          )
+// M2 (review round 1), narrowed after round 2's n1: the brief's
+// reconciliation line has to say which figure is more recent when the two
+// disagree, but the app cannot actually answer that. A first version tried,
+// comparing DHIS2's `finishedTime` against a ref seeded at tab mount as a
+// stand-in for "when the engine loaded" -- but `IntegrityTab` is
+// conditionally rendered, so that ref re-seeds to `Date.now()` on every tab
+// switch back, and a check that ran after the real engine load but before
+// the user happened to reopen the tab compared as older, making the
+// screen assert -- wrongly, and flipping on navigation alone with no data
+// having changed -- that the engine figure "is" the more recent of the two.
+// There is no engine-load timestamp anywhere in the app to compare against
+// honestly (adding one would be the load-timestamp plumbing ruling P3-R7
+// already excludes for the union question, and the same reasoning applies
+// here: a sentence that claims less and is always true beats one that
+// claims more and is sometimes wrong). So this states only the two facts the
+// app actually holds -- when DHIS2 ran the check, and that the app's own
+// figure reflects whatever this session has loaded -- without ranking them
+// against each other.
+const recencyLabel = (time: string) =>
+    interpolate(
+        i18n.t(
+            "DHIS2 last ran this check at {time}; this app's figure above reflects whatever this session has loaded, which may be more or less recent"
+        ),
+        { time }
+    )
 
 /**
  * Spec 4.5/5.2, Task 4: the group set detail page's third tab. Shows each
@@ -176,10 +175,6 @@ export const IntegrityTab = ({ set, scope }: Props) => {
         () => createFetcher(baseUrl, apiVersion),
         [baseUrl, apiVersion]
     )
-
-    // See the comment on `recencyLabel` above: a session-local proxy for
-    // "the engine reflects data as of this moment or later", captured once.
-    const engineAsOfRef = useRef(Date.now())
 
     const relevantChecks = useMemo(
         () => integrity.checks.filter((c) => c.objectType === set.objectType),
@@ -384,11 +379,6 @@ export const IntegrityTab = ({ set, scope }: Props) => {
                     !!bucket &&
                     engineCount !== null &&
                     engineCount !== bucket.inScope.length
-                const dhisIsNewer =
-                    disagrees && summary?.finishedTime
-                        ? new Date(summary.finishedTime).getTime() >
-                          engineAsOfRef.current
-                        : false
                 return (
                     <div key={check.name} className={styles.check}>
                         <h3 className={styles.checkTitle}>
@@ -450,7 +440,6 @@ export const IntegrityTab = ({ set, scope }: Props) => {
                                 {disagrees && summary.finishedTime && (
                                     <p className={styles.line}>
                                         {recencyLabel(
-                                            dhisIsNewer,
                                             new Date(
                                                 summary.finishedTime
                                             ).toLocaleString()
