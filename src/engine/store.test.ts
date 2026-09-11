@@ -174,6 +174,73 @@ describe('EngineStore', () => {
         expect(store.resolve('organisationUnit', [1])[0].displayName).toBe('AA')
     })
 
+    it('objectsFor filters by text, case-insensitively and trimmed', () => {
+        const store = loadedStore()
+        const scope = { objectType: 'organisationUnit' as const, rootId: null }
+        const page = store.objectsFor('own', scope, { text: '  A1  ' }, 0, 10)
+        expect(page.items.map((i) => i.id)).toEqual(['a1'])
+    })
+
+    it('objectsFor with a text filter matches nothing for a type with no names loaded', () => {
+        const store = new EngineStore()
+        store.loadObjects({
+            objectType: 'organisationUnit',
+            ids: ['root', 'A', 'B', 'a1', 'a2', 'b1'],
+            names: null,
+            level: Uint8Array.from([1, 2, 2, 3, 3, 3]),
+            parentIds: [null, 'root', 'root', 'A', 'A', 'B'],
+            domainType: null,
+            categoryIdsOfOption: null,
+        })
+        store.setGroupSets([ownership])
+        store.loadMemberships({
+            objectType: 'organisationUnit',
+            groups: [
+                { groupId: 'pub', memberIds: ['a1', 'a2'] },
+                { groupId: 'priv', memberIds: ['a2', 'b1'] },
+            ],
+        })
+        store.evaluate()
+        const page = store.objectsFor(
+            'own',
+            { objectType: 'organisationUnit', rootId: null },
+            { text: 'a1' },
+            0,
+            10
+        )
+        expect(page.items).toEqual([])
+    })
+
+    it('rebuilds the search index after setNames replaces the names', () => {
+        // The case a cached lowercase array would fail: search, replace
+        // the names, search again, and the second search must reflect the
+        // new names -- not the stale index from before setNames.
+        const store = loadedStore()
+        const scope = { objectType: 'organisationUnit' as const, rootId: null }
+        const before = store.objectsFor('own', scope, { text: 'a1' }, 0, 10)
+        expect(before.items.map((i) => i.id)).toEqual(['a1'])
+
+        store.setNames('organisationUnit', [
+            'Root',
+            'A',
+            'B',
+            'renamed',
+            'a2',
+            'b1',
+        ])
+
+        const afterOld = store.objectsFor('own', scope, { text: 'a1' }, 0, 10)
+        expect(afterOld.items).toEqual([])
+        const afterNew = store.objectsFor(
+            'own',
+            scope,
+            { text: 'renamed' },
+            0,
+            10
+        )
+        expect(afterNew.items.map((i) => i.id)).toEqual(['a1'])
+    })
+
     it('scans everything when the root id is null for a flat object type', () => {
         const store = flatIndicatorStore()
         const [entry] = store.dashboard({

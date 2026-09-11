@@ -88,6 +88,17 @@ interface TypeIndex {
     attrs: ObjectAttributes
     /** raw member id lists per group id, kept so evaluate() can re-run after config changes */
     membersByGroup: Map<string, string[]>
+    /**
+     * Lazily built lowercase mirror of `names`, one entry per object, used
+     * by the `text` predicate in `listObjects`. `undefined` means "not
+     * built yet"; `null` means "built, and there were no names to lower"
+     * (`text` then matches nothing rather than everything -- see
+     * `ObjectFilter.text`). Invalidated (reset to `undefined`) by anything
+     * that changes `names` -- `loadObjects` (a fresh `TypeIndex` never
+     * carries this field over) and `setNames` -- so a search can never see
+     * a name that is no longer there.
+     */
+    namesLowerCache?: string[] | null
 }
 
 interface SetState {
@@ -181,7 +192,22 @@ export class EngineStore {
         const t = this.types.get(objectType)
         if (t) {
             t.names = names
+            t.namesLowerCache = undefined
         }
+    }
+
+    /**
+     * Builds and caches the lowercase name mirror `text` searches against,
+     * on first use per type. See `TypeIndex.namesLowerCache` for the
+     * invalidation rules that keep this from ever serving a stale index.
+     */
+    private namesLower(t: TypeIndex): string[] | null {
+        if (t.namesLowerCache === undefined) {
+            t.namesLowerCache = t.names
+                ? t.names.map((n) => n.toLowerCase())
+                : null
+        }
+        return t.namesLowerCache
     }
 
     loadMemberships(p: MembershipsPayload): void {
@@ -512,7 +538,8 @@ export class EngineStore {
             t.hierarchy,
             this.scopeRoot(t, scope),
             filter,
-            t.ids
+            t.ids,
+            this.namesLower(t)
         )
 
         const additions = new Set<string>()
@@ -715,7 +742,8 @@ export class EngineStore {
             t.hierarchy,
             this.scopeRoot(t, scope),
             filter,
-            t.ids
+            t.ids,
+            this.namesLower(t)
         )
         const slice = all.subarray(offset, offset + limit)
         return {

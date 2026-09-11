@@ -257,6 +257,186 @@ describe('listObjects', () => {
     })
 })
 
+describe('listObjects text predicate', () => {
+    // Object 3's name has "School" in the middle, on purpose: a naive
+    // prefix-only match would pass while a real substring match is needed.
+    const names = [
+        'Root',
+        'Alpha',
+        'Beta',
+        'Alpha School A1',
+        'Alpha A2',
+        'Beta One',
+    ]
+    const namesLower = names.map((n) => n.toLowerCase())
+
+    it('matches a substring in the middle of a name', () => {
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { text: 'school' },
+                    undefined,
+                    namesLower
+                )
+            )
+        ).toEqual([3])
+    })
+
+    it('matches case-insensitively in both directions', () => {
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { text: 'SCHOOL' },
+                    undefined,
+                    namesLower
+                )
+            )
+        ).toEqual([3])
+        const upperNames = names.map((n) => n.toUpperCase())
+        const upperLower = upperNames.map((n) => n.toLowerCase())
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { text: 'school' },
+                    undefined,
+                    upperLower
+                )
+            )
+        ).toEqual([3])
+    })
+
+    it('trims the query before matching', () => {
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { text: '  school  ' },
+                    undefined,
+                    namesLower
+                )
+            )
+        ).toEqual([3])
+    })
+
+    it('treats an empty or whitespace-only query as no filter', () => {
+        const all = Array.from(listObjects(status, m, h, 0, {}))
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { text: '' },
+                    undefined,
+                    namesLower
+                )
+            )
+        ).toEqual(all)
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { text: '   ' },
+                    undefined,
+                    namesLower
+                )
+            )
+        ).toEqual(all)
+    })
+
+    it('matches nothing when names are not loaded, not everything', () => {
+        // The worse failure mode: a type whose names have not loaded yet
+        // must not read a search as "everything matches".
+        expect(
+            Array.from(
+                listObjects(status, m, h, 0, { text: 'alpha' }, undefined, null)
+            )
+        ).toEqual([])
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { text: 'alpha' },
+                    undefined,
+                    undefined
+                )
+            )
+        ).toEqual([])
+    })
+
+    it('composes with a status filter, narrowing rather than replacing it', () => {
+        // Objects 1 (Alpha) and 3 (Alpha School A1) both match "alpha", but
+        // only 3 has Status.Ok; 1 is MissingError.
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { text: 'alpha', statuses: [Status.Ok] },
+                    undefined,
+                    namesLower
+                )
+            )
+        ).toEqual([3])
+    })
+
+    it('composes with an ancestor filter, narrowing rather than replacing it', () => {
+        // "Alpha" matches objects 1, 3, 4; restricting to the subtree
+        // rooted at B (object 2) leaves none of them, even though "Beta"
+        // (object 2, 5) is under B and matches nothing on its own here.
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { text: 'alpha', ancestor: 2 },
+                    undefined,
+                    namesLower
+                )
+            )
+        ).toEqual([])
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { text: 'beta', ancestor: 2 },
+                    undefined,
+                    namesLower
+                )
+            )
+        ).toEqual([2, 5])
+    })
+})
+
 describe('forEachInScope corruption handling', () => {
     it('visits every object at most once in a whole-forest scan, even with an unreachable parent cycle', () => {
         // Node 0 is a real root; nodes 1 and 2 point at each other and are

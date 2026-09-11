@@ -216,6 +216,27 @@ export interface ObjectFilter {
      * fell back to guessing or going empty (see BulkFixDialog).
      */
     ids?: string[]
+    /**
+     * Restricts the population to objects whose name contains this text,
+     * case-insensitively, after both sides are trimmed. An empty or
+     * whitespace-only value is the same as no filter.
+     *
+     * Composes with every other predicate the same way `ids` does (see
+     * above) rather than replacing any of them: a caller narrowing by
+     * status or ancestor and adding a search term expects both to apply,
+     * not the search term alone.
+     *
+     * Matched against `namesLower`, the same parameter shape as `ids` --
+     * `queries.ts` has no name table of its own and never builds one; the
+     * store owns the one lowercase array per type (built on first use,
+     * dropped whenever the names change) and passes it in. A type with no
+     * names loaded (`namesLower` null or undefined) matches nothing here,
+     * not everything -- the same "forgot to pass the array" failure mode
+     * `ids` guards against, and the worse of the two possible failures:
+     * silently returning the whole population would read to the user as
+     * "my search matched everything" rather than "names are not loaded".
+     */
+    text?: string
 }
 
 export function listObjects(
@@ -224,7 +245,8 @@ export function listObjects(
     h: Hierarchy | null,
     scopeRoot: number,
     filter: ObjectFilter,
-    ids?: string[]
+    ids?: string[],
+    namesLower?: string[] | null
 ): Int32Array {
     const statusMask = new Uint8Array(8)
     if (filter.statuses) {
@@ -234,6 +256,7 @@ export function listObjects(
         statusMask[Status.NotApplicable] = 0
     }
     const idFilter = filter.ids ? new Set(filter.ids) : null
+    const textQuery = filter.text?.trim().toLowerCase() || null
     const out: number[] = []
     forEachInScope(status.length, h, scopeRoot, (i) => {
         if (statusMask[status[i]] === 0) {
@@ -259,6 +282,11 @@ export function listObjects(
         // array gets an empty result rather than silently ignoring the
         // predicate and returning everything.
         if (idFilter && !(ids && idFilter.has(ids[i]))) {
+            return
+        }
+        // No `namesLower` array to check against means nothing can match,
+        // same reasoning as the `ids` predicate just above.
+        if (textQuery && !(namesLower && namesLower[i].includes(textQuery))) {
             return
         }
         out.push(i)
