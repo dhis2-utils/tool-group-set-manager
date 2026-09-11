@@ -43,10 +43,19 @@ interface Me {
     authorities: string[]
 }
 
-// How often run() re-reads the summary while waiting for finishedTime to
-// move past the value it held before the run started (finding 2: the
-// server gives no push notification, only a cache to poll).
-const POLL_INTERVAL_MS = 300
+// run()'s poll backoff (C1): starts at POLL_INITIAL_INTERVAL_MS, grows by
+// POLL_BACKOFF_FACTOR each attempt up to POLL_MAX_INTERVAL_MS, and gives up
+// after POLL_MAX_ATTEMPTS reads rather than polling forever -- a DHIS2
+// DATA_INTEGRITY job that failed or was dropped server-side leaves the
+// cached summary's finishedTime untouched, which must end the loop, not
+// spin it. The chosen values total a couple of minutes of real waiting in
+// the worst case, which is generous against finding 2's "well under a
+// second" measurement while still bounded, unlike the unbounded loop this
+// replaces.
+const POLL_INITIAL_INTERVAL_MS = 300
+const POLL_BACKOFF_FACTOR = 1.5
+const POLL_MAX_INTERVAL_MS = 5000
+const POLL_MAX_ATTEMPTS = 12
 
 const EMPTY_SUMMARIES: Record<string, CheckSummary> = {}
 
@@ -83,6 +92,10 @@ export const IntegrityProvider = ({
         queryKey: ['me', 'authorities'],
         query: { resource: 'me', params: { fields: 'id,authorities' } },
         staleTime: Infinity,
+        // m4: an unauthorised user's 403 on this probe would otherwise be
+        // retried once by the app-wide default (App.tsx sets retry: 1) --
+        // a wasted second request for a user who is never going to pass.
+        retry: false,
     })
 
     const [available, setAvailable] = useState(false)
@@ -97,6 +110,18 @@ export const IntegrityProvider = ({
     // Once flipped, no further integrity request is ever made again this
     // session -- checked before every fetch, not just in the initial gate.
     const disabledRef = useRef(false)
+    // M1: flipped once on unmount and never reset. Checked before every
+    // request `run()`'s poll loop makes and before every state update it
+    // performs, so an unmount mid-poll stops both the requests and any
+    // attempt to setState on the now-unmounted provider.
+    const unmountedRef = useRef(false)
+    useEffect(() => {
+        return () => {
+            unmountedRef.current = true
+        }
+    }, [])
+    // M2: guards against a second run() call while one is already polling.
+    const runInFlightRef = useRef(false)
 
     const disable = useCallback(() => {
         disabledRef.current = true
@@ -124,11 +149,17 @@ export const IntegrityProvider = ({
                     fetcher,
                     resolved.map((c) => c.name)
                 )
-                if (disabledRef.current) {
+                if (disabledRef.current || unmountedRef.current) {
                     return
                 }
                 applySummaries(rows)
+                // m2: a later success must not leave an earlier transient
+                // failure's message stuck on screen.
+                setError(null)
             } catch (e) {
+                if (unmountedRef.current) {
+                    return
+                }
                 if (isForbidden(e)) {
                     disable()
                 } else {
@@ -161,18 +192,21 @@ export const IntegrityProvider = ({
             return
         }
         let cancelled = false
-        setAvailable(true)
         void (async () => {
             try {
                 const resolved = await resolveChecks(fetcher)
-                if (cancelled || disabledRef.current) {
+                if (cancelled || disabledRef.current || unmountedRef.current) {
                     return
                 }
                 checksRef.current = resolved
                 setChecks(resolved)
+                // m1: a server with none of the six checks must not present
+                // as an overlay with nothing in it -- available only
+                // becomes true once there is at least one resolved check.
+                setAvailable(resolved.length > 0)
                 await loadSummaries(resolved)
             } catch (e) {
-                if (cancelled) {
+                if (cancelled || unmountedRef.current) {
                     return
                 }
                 if (isForbidden(e)) {
@@ -203,9 +237,17 @@ export const IntegrityProvider = ({
 
     const run = useCallback(
         async (names: string[]) => {
-            if (disabledRef.current || names.length === 0) {
+            if (
+                disabledRef.current ||
+                names.length === 0 ||
+                runInFlightRef.current
+            ) {
+                // M2: an overlapping call is a no-op -- it neither starts
+                // its own run nor touches isRunning/stale, both owned by
+                // whichever call is already in flight.
                 return
             }
+            runInFlightRef.current = true
             setIsRunning(true)
             setError(null)
             try {
@@ -213,15 +255,20 @@ export const IntegrityProvider = ({
                     names.map((n) => [n, summaries[n]?.finishedTime ?? null])
                 )
                 await startRun(fetcher, names, 'summary')
-                if (disabledRef.current) {
+                if (disabledRef.current || unmountedRef.current) {
                     return
                 }
                 // Spec 4.5 forbids re-running automatically -- this loop
                 // only ever polls the run this call itself started, never
-                // triggers a new one.
-                for (;;) {
+                // triggers a new one. C1: bounded by both an attempt cap
+                // and a growing backoff, so a check whose finishedTime
+                // never advances (a dropped/failed job) ends the loop
+                // instead of polling forever.
+                let interval = POLL_INITIAL_INTERVAL_MS
+                let advanced = false
+                for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
                     const rows = await readSummaries(fetcher, names)
-                    if (disabledRef.current) {
+                    if (disabledRef.current || unmountedRef.current) {
                         return
                     }
                     applySummaries(rows)
@@ -236,20 +283,47 @@ export const IntegrityProvider = ({
                             names.forEach((n) => next.delete(n))
                             return next
                         })
+                        advanced = true
+                        break
+                    }
+                    if (attempt === POLL_MAX_ATTEMPTS - 1) {
                         break
                     }
                     await new Promise((resolve) =>
-                        setTimeout(resolve, POLL_INTERVAL_MS)
+                        setTimeout(resolve, interval)
+                    )
+                    if (disabledRef.current || unmountedRef.current) {
+                        return
+                    }
+                    interval = Math.min(
+                        interval * POLL_BACKOFF_FACTOR,
+                        POLL_MAX_INTERVAL_MS
+                    )
+                }
+                if (!advanced && !unmountedRef.current) {
+                    // Diagnostic text, not user-facing as written --
+                    // translate before display, same as engineError and
+                    // historyError in useMembershipWrite.ts. The check(s)
+                    // stay marked stale (if they were) since this run
+                    // never confirmed a fresh result.
+                    setError(
+                        'The run did not report back in time; the result may still arrive.'
                     )
                 }
             } catch (e) {
+                if (unmountedRef.current) {
+                    return
+                }
                 if (isForbidden(e)) {
                     disable()
                 } else {
                     setError(e instanceof Error ? e.message : String(e))
                 }
             } finally {
-                setIsRunning(false)
+                runInFlightRef.current = false
+                if (!unmountedRef.current) {
+                    setIsRunning(false)
+                }
             }
         },
         [fetcher, summaries, disable, applySummaries]
