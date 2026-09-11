@@ -48,10 +48,13 @@ interface Me {
 // after POLL_MAX_ATTEMPTS reads rather than polling forever -- a DHIS2
 // DATA_INTEGRITY job that failed or was dropped server-side leaves the
 // cached summary's finishedTime untouched, which must end the loop, not
-// spin it. The chosen values total a couple of minutes of real waiting in
-// the worst case, which is generous against finding 2's "well under a
-// second" measurement while still bounded, unlike the unbounded loop this
-// replaces.
+// spin it. Summing the schedule, the twelve attempts wait about 30 seconds
+// in total before giving up -- generous against finding 2's "well under a
+// second" measurement, and short enough that a user who gets the give-up
+// message has not sat through a stalled run for long. Spec 4.5 warns these
+// checks can take a minute on a large instance, which is fine: giving up
+// stops the polling, not the run, and the message says the result may
+// still arrive. Re-sum the schedule if any of these four values change.
 const POLL_INITIAL_INTERVAL_MS = 300
 const POLL_BACKOFF_FACTOR = 1.5
 const POLL_MAX_INTERVAL_MS = 5000
