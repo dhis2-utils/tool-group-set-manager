@@ -538,11 +538,23 @@ describe('EngineStore', () => {
             { groupId: 'pub', additions: ['b1'], deletions: [] },
         ]
         const store = loadedStore()
+        const scope = { objectType: 'organisationUnit' as const, rootId: null }
+        const groupsOfB1 = () =>
+            store
+                .objectsFor('own', scope, {}, 0, 10)
+                .items.find((i) => i.id === 'b1')?.groups
+
+        // Capture a baseline that actually moves under this change (b1's own
+        // group membership, not the dashboard's status counts -- moving b1
+        // from priv to pub leaves it "Ok" either way, so the aggregate
+        // summary alone cannot tell a real apply from a no-op).
+        const before = groupsOfB1()
         store.applyChangeSet('organisationUnit', changes)
         const once = store.dashboard({
             objectType: 'organisationUnit',
             rootId: null,
         })[0].summary
+        expect(groupsOfB1()).not.toEqual(before)
 
         store.applyChangeSet('organisationUnit', changes)
         const twice = store.dashboard({

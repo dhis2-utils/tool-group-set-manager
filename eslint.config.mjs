@@ -23,4 +23,13 @@ export default defineConfig([
             'max-params': 'off',
         },
     },
+    {
+        // writeMemberships' signature (fetcher, objectType, changes,
+        // onProgress, batchSize) is the fixed contract Tasks 5, 6, 8 and 9
+        // are written against; see task-4-brief.md.
+        files: ['src/data/writes.ts'],
+        rules: {
+            'max-params': 'off',
+        },
+    },
 ])
