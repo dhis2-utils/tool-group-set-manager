@@ -185,8 +185,36 @@ describe('resolveChecks', () => {
             (r) => r.logical === 'orgUnitsConflicting'
         )
         expect(conflicting?.name).toBe('orgunit_group_sets_excess_groups')
-        expect(conflicting?.name).not.toBe(
-            'org_units_violating_exclusive_group_sets'
+    })
+
+    it('prefers the earlier candidate in CANDIDATES over a later one, even when the server lists the later one first (deprecation window)', async () => {
+        // Both the 2.40 name and the 2.43 name are present on this server --
+        // the 2.40 name listed first in the response -- as would happen
+        // during a deprecation window (2.41/2.42, untested against live).
+        // The app's own preference order, not the server's list order, must
+        // decide: the 2.43 (first-listed-in-CANDIDATES) name must win.
+        const both2_40First = [
+            {
+                name: 'orgunit_group_sets_excess_groups',
+                code: 'OGSEG',
+                displayName: 'Org unit group sets excess groups',
+                isSlow: false,
+            },
+            {
+                name: 'organisation_units_violating_exclusive_group_sets',
+                code: 'OUVEGS',
+                displayName:
+                    'Organisation units violating exclusive group sets',
+                isSlow: false,
+            },
+        ]
+        const fetcher = async () => jsonResponse(both2_40First)
+        const resolved = await resolveChecks(fetcher)
+        const conflicting = resolved.find(
+            (r) => r.logical === 'orgUnitsConflicting'
+        )
+        expect(conflicting?.name).toBe(
+            'organisation_units_violating_exclusive_group_sets'
         )
     })
 
@@ -249,6 +277,18 @@ describe('readSummaries', () => {
 })
 
 describe('readDetails', () => {
+    it('requests the exact details path, non-blocking, for the one check asked for', async () => {
+        let capturedPath = ''
+        const fetcher = async (path: string) => {
+            capturedPath = path
+            return jsonResponse({ orgUnitsConflicting: { issues: [] } })
+        }
+        await readDetails(fetcher, 'orgUnitsConflicting')
+        expect(capturedPath).toBe(
+            'dataIntegrity/details?checks=orgUnitsConflicting&timeout=0'
+        )
+    })
+
     it('reads refs into detail, joined with a space (2.43)', async () => {
         const fetcher = async () =>
             jsonResponse({
@@ -310,6 +350,47 @@ describe('readDetails', () => {
             { id: 'Rp268JB6Ne4', displayName: 'Adonkia CHP', detail: null },
         ])
     })
+
+    it('yields detail: null, not an empty string, for an issue with an empty refs array', async () => {
+        const fetcher = async () =>
+            jsonResponse({
+                orgUnitsConflicting: {
+                    issues: [
+                        {
+                            id: 'roQ2l7TX0eZ',
+                            name: 'SLRCS (Bo) Clinic',
+                            refs: [],
+                        },
+                    ],
+                },
+            })
+        const issues = await readDetails(fetcher, 'orgUnitsConflicting')
+        expect(issues).toEqual([
+            {
+                id: 'roQ2l7TX0eZ',
+                displayName: 'SLRCS (Bo) Clinic',
+                detail: null,
+            },
+        ])
+    })
+
+    it('prefers refs over comment when both are present', async () => {
+        const fetcher = async () =>
+            jsonResponse({
+                orgUnitsConflicting: {
+                    issues: [
+                        {
+                            id: 'roQ2l7TX0eZ',
+                            name: 'SLRCS (Bo) Clinic',
+                            refs: ['ougs_name: Facility Ownership'],
+                            comment: 'should not be used',
+                        },
+                    ],
+                },
+            })
+        const issues = await readDetails(fetcher, 'orgUnitsConflicting')
+        expect(issues[0].detail).toBe('ougs_name: Facility Ownership')
+    })
 })
 
 describe('startRun', () => {
@@ -326,6 +407,13 @@ describe('startRun', () => {
         ).resolves.toBeUndefined()
         expect(capturedPath).toBe('dataIntegrity/summary?checks=a,b')
         expect(capturedInit?.method).toBe('POST')
+    })
+
+    it('throws on a non-ok response (a 403 from a user lacking F_PERFORM_MAINTENANCE), in the house error style', async () => {
+        const fetcher = async () => jsonResponse({}, 403)
+        await expect(startRun(fetcher, ['a', 'b'], 'summary')).rejects.toThrow(
+            'dataIntegrity/summary?checks=a,b failed with HTTP 403'
+        )
     })
 
     it('POSTs to dataIntegrity/details with the checks in the query string', async () => {

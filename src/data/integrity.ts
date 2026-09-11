@@ -83,14 +83,11 @@ const CANDIDATES: Record<LogicalCheck, readonly string[]> = {
     ],
 }
 
-const LOGICAL_ORDER: LogicalCheck[] = [
-    'orgUnitsMissingCompulsory',
-    'orgUnitsConflicting',
-    'dataElementsConflicting',
-    'indicatorsConflicting',
-    'categoryOptionsConflicting',
-    'categoryOptionGroupSetsIncomplete',
-]
+// Derived from CANDIDATES rather than hand-maintained: a logical check
+// added to the union must also be added to CANDIDATES and OBJECT_TYPE_OF
+// (both Record<LogicalCheck, ...>, so both fail to compile otherwise), and
+// this then picks it up for free instead of silently dropping it.
+const LOGICAL_ORDER = Object.keys(CANDIDATES) as LogicalCheck[]
 
 interface DataIntegrityCheckRow {
     name: string
@@ -192,7 +189,7 @@ export async function readDetails(
     return rows.map((row) => ({
         id: row.id,
         displayName: row.name,
-        detail: row.refs ? row.refs.join(' ') : (row.comment ?? null),
+        detail: row.refs?.length ? row.refs.join(' ') : (row.comment ?? null),
     }))
 }
 
@@ -206,13 +203,9 @@ export async function startRun(
     names: string[],
     kind: 'summary' | 'details'
 ): Promise<void> {
-    const response = await fetcher(
-        `dataIntegrity/${kind}?checks=${names.join(',')}`,
-        { method: 'POST' }
-    )
+    const path = `dataIntegrity/${kind}?checks=${names.join(',')}`
+    const response = await fetcher(path, { method: 'POST' })
     if (!response.ok) {
-        throw new Error(
-            `Failed to start dataIntegrity/${kind}: HTTP ${response.status}`
-        )
+        throw new Error(`${path} failed with HTTP ${response.status}`)
     }
 }
