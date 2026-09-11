@@ -68,7 +68,17 @@ export const ObjectsTab = ({
 }: Props) => {
     // The input's own displayed value -- always the pending keystroke,
     // never delayed by the debounce below (spec: "the pending value is
-    // what the input shows").
+    // what the input shows"). Seeded once from `filter.text` and from then
+    // on changed only by typing -- it never re-syncs if `filter.text`
+    // changes for a reason other than this debounce echoing it back (the
+    // echoed value is always identical, so that round trip is invisible).
+    // No caller does that today: `GroupSetDetail` only ever resets `filter`
+    // to `{}` from `onCell`, which is reached from the Overview tab, so
+    // this tab has already unmounted (and this state with it) by the time
+    // it happens. If a future caller ever changes `filter.text` while this
+    // tab stays mounted, the box would keep showing a query the table has
+    // stopped applying -- worth a `useEffect` re-sync from `filter.text`
+    // at that point, not before.
     const [searchInput, setSearchInput] = useState(filter.text ?? '')
     // `filter` is owned by the caller (GroupSetDetail) and can change for
     // reasons unrelated to search -- a status or level pick -- while a
@@ -81,12 +91,25 @@ export const ObjectsTab = ({
     useEffect(() => {
         const handle = setTimeout(() => {
             const trimmed = searchInput.trim()
-            onFilter({
-                ...filterRef.current,
-                text: trimmed === '' ? undefined : trimmed,
-            })
+            const nextText = trimmed === '' ? undefined : trimmed
+            // m1: without this check, every mount (and every render whose
+            // debounce fires with nothing actually changed) called
+            // `onFilter` with a fresh-but-equal object 300ms later --
+            // harmless today only because `filterKey`'s `JSON.stringify`
+            // drops an `undefined` field the same as a missing one, which
+            // is too thin a coincidence to build on.
+            if (nextText === (filterRef.current.text ?? undefined)) {
+                return
+            }
+            onFilter({ ...filterRef.current, text: nextText })
         }, SEARCH_DEBOUNCE_MS)
         return () => clearTimeout(handle)
+        // m3: `onFilter` is deliberately not a dependency here. It is
+        // `GroupSetDetail`'s `setFilter`, a plain `useState` setter and so
+        // guaranteed stable for the life of that component -- including it
+        // would restart this debounce's timer on every render if a future
+        // caller ever passed a fresh function identity instead, which is
+        // not what "300ms after the last keystroke" is supposed to mean.
     }, [searchInput])
     const isOrgUnit = set.objectType === 'organisationUnit'
     // `levels` resolves asynchronously and can later narrow (the same

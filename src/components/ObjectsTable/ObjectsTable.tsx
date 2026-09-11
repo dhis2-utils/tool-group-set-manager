@@ -96,6 +96,39 @@ const emptyLoad = (key: string): Loaded => ({
 })
 
 /**
+ * Whether a landed page belongs to the list that is currently waiting for
+ * it. All three checks matter:
+ *
+ * - `prev.key === filterKey`: the list this page is about to be folded into
+ *   is still the one whose filter asked for it. Review round 1, Major-2:
+ *   with `useEngineQuery`'s own masking in place (it never hands a consumer
+ *   a result for arguments it has since stopped asking about --
+ *   src/hooks/useEngineQuery.ts), `data` truthy already implies its filter
+ *   matches the render it arrived on, which makes this specific clause hard
+ *   to exercise through the React/effect timing the rest of this file's
+ *   tests drive. It is exported and unit-tested directly below instead --
+ *   defence in depth against a filter change resetting to a new (also
+ *   offset-0) list while an older filter's own page is still landing, the
+ *   exact fold this file's `withEngine` test suite is named for.
+ * - `dataOffset === prev.offset`: this is the page the list is waiting for,
+ *   not one for a different offset.
+ * - `prev.rows.length === prev.offset`: the list is actually still waiting
+ *   (nothing has appended this offset's page already) -- see the doc
+ *   comment on `Loaded` above.
+ */
+export function isAwaitedPage(
+    prev: Pick<Loaded, 'key' | 'offset' | 'rows'>,
+    filterKey: string,
+    dataOffset: number
+): boolean {
+    return (
+        prev.key === filterKey &&
+        dataOffset === prev.offset &&
+        prev.rows.length === prev.offset
+    )
+}
+
+/**
  * D1: the change is computed from the row's own current groups, not from
  * the whole set -- a deletion from each position the object currently
  * holds other than the chosen one, and an addition to the chosen one only
@@ -404,11 +437,7 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
             return
         }
         setLoaded((prev) => {
-            const isAwaitedPage =
-                prev.key === filterKey &&
-                data.offset === prev.offset &&
-                prev.rows.length === prev.offset
-            return isAwaitedPage
+            return isAwaitedPage(prev, filterKey, data.offset)
                 ? {
                       ...prev,
                       rows: [

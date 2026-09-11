@@ -194,6 +194,49 @@ it('keeps the rows and does not duplicate the held page when the engine load pha
     expect(screen.getByText(/1,000 objects/)).toBeInTheDocument()
 })
 
+it('sends filter.text to the real engine and renders a match beyond the first page (M1)', async () => {
+    // Review round 1, Major-1: the flagship "whole population" claim in
+    // ObjectsTable.test.tsx runs against a hand-rolled fake that this same
+    // branch edited to make that test pass. This drives the identical claim
+    // through the real `useEngineQuery`/`useEngine` pair instead, so the
+    // claim rests on production behaviour rather than on the fake.
+    const { rerender } = render(
+        <ObjectsTable set={set} scope={scope} filter={{}} />
+    )
+    await settle('Old', 100000)
+    expect(screen.getByText('Old 0')).toBeInTheDocument()
+
+    rerender(
+        <ObjectsTable set={set} scope={scope} filter={{ text: 'beyond' }} />
+    )
+    expect(screen.queryByText('Old 0')).not.toBeInTheDocument()
+    expect(lastPending().args[2]).toMatchObject({ text: 'beyond' })
+    expect(lastPending().args[3]).toBe(0)
+
+    // The engine's own answer: one row at object index 50000 -- never part
+    // of any page this table had loaded before the search term arrived.
+    const matchItems = [
+        {
+            index: 50000,
+            id: 'far0',
+            displayName: 'Beyond Match',
+            level: 4,
+            parentId: 'p',
+            status: 1,
+            groups: [0],
+        },
+    ]
+    const pending = lastPendingFor('objectsFor')
+    await act(async () => {
+        pending.resolve({ total: 1, offset: 0, items: matchItems })
+    })
+    await act(async () => {
+        lastPendingFor('resolveParents').resolve(matchItems.map(() => null))
+    })
+    expect(screen.getByText('Beyond Match')).toBeInTheDocument()
+    expect(screen.getByText(/1 object\b/)).toBeInTheDocument()
+})
+
 it('assigns a row loaded through the real paging pipeline, confirming before it calls the write hook', async () => {
     render(<ObjectsTable set={set} scope={scope} filter={{}} />)
     await settle('Row', 1000)

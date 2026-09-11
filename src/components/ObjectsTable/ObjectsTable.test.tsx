@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
-import { computeMembershipChanges, ObjectsTable } from './ObjectsTable'
+import {
+    computeMembershipChanges,
+    isAwaitedPage,
+    ObjectsTable,
+} from './ObjectsTable'
 
 // babel-plugin-jest-hoist only allows a jest.mock() factory to reference
 // out-of-scope variables whose names start with "mock" (see the matching
@@ -947,5 +951,52 @@ describe('computeMembershipChanges re-checks canWrite itself (M6)', () => {
     it('plans nothing when a group the object must leave is read-only', () => {
         const groups = [{ ...writable[0], canWrite: false }, writable[1]]
         expect(computeMembershipChanges(row, groups, 1)).toEqual([])
+    })
+})
+
+describe('isAwaitedPage: the append effect only folds in the page its list is waiting for (M2)', () => {
+    it('accepts a page for the list that is waiting for it, at the offset it is waiting for', () => {
+        expect(isAwaitedPage({ key: 'k', offset: 0, rows: [] }, 'k', 0)).toBe(
+            true
+        )
+    })
+
+    it('rejects a page for a different filter, even when the offset and row count happen to line up', () => {
+        // The exact shape a filter change resets to: a freshly reset list is
+        // also offset 0 with no rows loaded, which is precisely the shape a
+        // stale, late-landing page for the *previous* filter also has.
+        // Without this check, that stale page would be folded into the new
+        // list under its own (correct) label -- the fold `ObjectsTable.
+        // withEngine.test.tsx` is named for.
+        expect(
+            isAwaitedPage(
+                { key: 'new-filter', offset: 0, rows: [] },
+                'old-filter',
+                0
+            )
+        ).toBe(false)
+    })
+
+    it('rejects a page whose offset is not the one this list is waiting for', () => {
+        expect(
+            isAwaitedPage(
+                { key: 'k', offset: 200, rows: Array(200).fill({}) },
+                'k',
+                0
+            )
+        ).toBe(false)
+    })
+
+    it('rejects a page the list already holds, rather than appending it a second time', () => {
+        // rows.length > offset means the awaited page already landed and was
+        // appended -- a re-issued, re-resolved identical request (a load
+        // phase or type change) must not be folded in again.
+        expect(
+            isAwaitedPage(
+                { key: 'k', offset: 0, rows: [{}, {}] as never },
+                'k',
+                0
+            )
+        ).toBe(false)
     })
 })

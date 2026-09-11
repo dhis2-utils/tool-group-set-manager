@@ -120,6 +120,29 @@ it('clearing the query restores the unfiltered filter', () => {
     expect(onFilter).toHaveBeenCalledWith({ text: undefined })
 })
 
+it('does not call onFilter on mount, or after any render where the search input still matches the current filter', () => {
+    // m1: the debounce effect used to fire unconditionally 300ms after
+    // every render, including the very first -- a filter update the user
+    // never asked for, on every visit to the Objects tab. Harmless only by
+    // coincidence (`JSON.stringify` drops the `undefined` it produced), so
+    // it must not happen at all.
+    const onFilter = jest.fn()
+    render(
+        <ObjectsTab
+            set={set}
+            scope={scope}
+            filter={{ text: 'clinic' }}
+            onFilter={onFilter}
+            levels={[]}
+            onBulkFix={jest.fn()}
+        />
+    )
+    act(() => {
+        jest.advanceTimersByTime(300)
+    })
+    expect(onFilter).not.toHaveBeenCalled()
+})
+
 it('applies the debounced search on top of whichever filter is current when it fires, not a stale one', () => {
     const onFilter = jest.fn()
     const { rerender } = render(
