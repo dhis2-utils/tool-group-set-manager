@@ -435,6 +435,63 @@ describe('listObjects text predicate', () => {
             )
         ).toEqual([2, 5])
     })
+
+    it('composes with a level filter, narrowing rather than replacing it', () => {
+        // "Alpha" matches objects 1 (level 2), 3 and 4 (level 3); the level
+        // filter alone would also admit object 2 (Beta, level 3).
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { text: 'alpha', level: 3 },
+                    undefined,
+                    namesLower
+                )
+            )
+        ).toEqual([3, 4])
+    })
+
+    it('composes with a group filter, narrowing rather than replacing it', () => {
+        // "Alpha" matches objects 1, 3, 4; group -1 ("no group") alone
+        // matches 0, 1, 2 (see the "filters by status, level, group and
+        // ancestor" test above). Neither predicate alone gives the
+        // intersection: only object 1 is both "alpha" and in no group.
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { text: 'alpha', group: -1 },
+                    undefined,
+                    namesLower
+                )
+            )
+        ).toEqual([1])
+    })
+
+    it('composes with an ids filter, narrowing rather than replacing it', () => {
+        // "Alpha" matches objects 1, 3, 4; restricting ids to 'A' and 'b1'
+        // (objects 1 and 5) leaves only their intersection, object 1.
+        const idsArr = ['root', 'A', 'B', 'a1', 'a2', 'b1']
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { text: 'alpha', ids: ['A', 'b1'] },
+                    idsArr,
+                    namesLower
+                )
+            )
+        ).toEqual([1])
+    })
 })
 
 describe('forEachInScope corruption handling', () => {

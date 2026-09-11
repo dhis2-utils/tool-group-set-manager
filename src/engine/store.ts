@@ -95,8 +95,9 @@ interface TypeIndex {
      * (`text` then matches nothing rather than everything -- see
      * `ObjectFilter.text`). Invalidated (reset to `undefined`) by anything
      * that changes `names` -- `loadObjects` (a fresh `TypeIndex` never
-     * carries this field over) and `setNames` -- so a search can never see
-     * a name that is no longer there.
+     * carries this field over), `setNames` (explicit reset) and `dropType`
+     * (the whole `TypeIndex`, cache included, is deleted) -- so a search
+     * can never see a name that is no longer there.
      */
     namesLowerCache?: string[] | null
 }

@@ -174,10 +174,29 @@ describe('EngineStore', () => {
         expect(store.resolve('organisationUnit', [1])[0].displayName).toBe('AA')
     })
 
-    it('objectsFor filters by text, case-insensitively and trimmed', () => {
+    it('objectsFor filters by text, trimmed and case-insensitively on both sides', () => {
         const store = loadedStore()
         const scope = { objectType: 'organisationUnit' as const, rootId: null }
-        const page = store.objectsFor('own', scope, { text: '  A1  ' }, 0, 10)
+        // Names deliberately mixed-case and differing from the query's case
+        // on the name side, not just the query side: the store fixture
+        // used elsewhere here (['Root','A','B','a1','a2','b1']) already
+        // matches lowercase, which would pass even if the store forgot to
+        // lowercase the *name* column and only lowercased the query.
+        store.setNames('organisationUnit', [
+            'Root',
+            'Alpha',
+            'Beta',
+            'Alpha School A1',
+            'Alpha A2',
+            'Beta One',
+        ])
+        const page = store.objectsFor(
+            'own',
+            scope,
+            { text: '  SCHOOL  ' },
+            0,
+            10
+        )
         expect(page.items.map((i) => i.id)).toEqual(['a1'])
     })
 
@@ -239,6 +258,136 @@ describe('EngineStore', () => {
             10
         )
         expect(afterNew.items.map((i) => i.id)).toEqual(['a1'])
+    })
+
+    describe('the lowercase search index is built once and rebuilt only when names change', () => {
+        // These assert the *count* of index builds rather than a wall-clock
+        // budget: the property this design exists to guarantee is "built
+        // once per names change, not once per call", and a count is exact,
+        // instant and machine-independent where a timing budget over the
+        // same code path would be a race (see perf.test.ts's history: a
+        // 950ms budget here flaked in both directions on a slower or busier
+        // machine and was removed in favour of this). The store keeps the
+        // exact `names`/`p.names` array reference it is given, so spying on
+        // that array's own `.map` -- the index builder's only caller --
+        // observes the store's private build count without any production
+        // API change.
+        const scope = { objectType: 'organisationUnit' as const, rootId: null }
+
+        it('builds once after setNames and reuses it across further searches', () => {
+            const store = loadedStore()
+            const names = [
+                'Root',
+                'Alpha',
+                'Beta',
+                'Alpha School A1',
+                'Alpha A2',
+                'Beta One',
+            ]
+            const build = jest.spyOn(names, 'map')
+            store.setNames('organisationUnit', names)
+            store.objectsFor('own', scope, { text: 'alpha' }, 0, 10)
+            store.objectsFor('own', scope, { text: 'school' }, 0, 10)
+            store.objectsFor('own', scope, { text: 'beta' }, 0, 10)
+            expect(build).toHaveBeenCalledTimes(1)
+        })
+
+        it('rebuilds exactly once after a further setNames replaces the names', () => {
+            const store = loadedStore()
+            // Build the initial index (unspied) so its cost isn't counted.
+            store.objectsFor('own', scope, { text: 'a1' }, 0, 10)
+
+            const renamed = ['Root', 'Renamed', 'B', 'x', 'y', 'z']
+            const rebuild = jest.spyOn(renamed, 'map')
+            store.setNames('organisationUnit', renamed)
+            store.objectsFor('own', scope, { text: 'renamed' }, 0, 10)
+            store.objectsFor('own', scope, { text: 'renamed' }, 0, 10)
+            expect(rebuild).toHaveBeenCalledTimes(1)
+        })
+
+        it('builds once after loadObjects and reuses it across further searches', () => {
+            const store = new EngineStore()
+            const names = ['Root', 'A', 'B', 'a1', 'a2', 'b1']
+            const build = jest.spyOn(names, 'map')
+            store.loadObjects({
+                objectType: 'organisationUnit',
+                ids: ['root', 'A', 'B', 'a1', 'a2', 'b1'],
+                names,
+                level: Uint8Array.from([1, 2, 2, 3, 3, 3]),
+                parentIds: [null, 'root', 'root', 'A', 'A', 'B'],
+                domainType: null,
+                categoryIdsOfOption: null,
+            })
+            store.setGroupSets([ownership])
+            store.loadMemberships({
+                objectType: 'organisationUnit',
+                groups: [
+                    { groupId: 'pub', memberIds: ['a1', 'a2'] },
+                    { groupId: 'priv', memberIds: ['a2', 'b1'] },
+                ],
+            })
+            store.evaluate()
+
+            store.objectsFor('own', scope, { text: 'a1' }, 0, 10)
+            store.objectsFor('own', scope, { text: 'a2' }, 0, 10)
+            expect(build).toHaveBeenCalledTimes(1)
+        })
+
+        it('rebuilds exactly once after loadObjects reloads with new names', () => {
+            const store = loadedStore()
+            // Build the initial index (unspied) so its cost isn't counted.
+            store.objectsFor('own', scope, { text: 'a1' }, 0, 10)
+
+            const reloadedNames = ['Root', 'A', 'B', 'renamed', 'a2', 'b1']
+            const rebuild = jest.spyOn(reloadedNames, 'map')
+            store.loadObjects({
+                objectType: 'organisationUnit',
+                ids: ['root', 'A', 'B', 'a1', 'a2', 'b1'],
+                names: reloadedNames,
+                level: Uint8Array.from([1, 2, 2, 3, 3, 3]),
+                parentIds: [null, 'root', 'root', 'A', 'A', 'B'],
+                domainType: null,
+                categoryIdsOfOption: null,
+            })
+            store.evaluate()
+
+            store.objectsFor('own', scope, { text: 'renamed' }, 0, 10)
+            store.objectsFor('own', scope, { text: 'renamed' }, 0, 10)
+            expect(rebuild).toHaveBeenCalledTimes(1)
+        })
+
+        it('rebuilds exactly once after dropType followed by loadObjects', () => {
+            const store = loadedStore()
+            // Build the initial index (unspied) so its cost isn't counted.
+            store.objectsFor('own', scope, { text: 'a1' }, 0, 10)
+
+            store.dropType('organisationUnit')
+
+            const freshNames = ['Root', 'A', 'B', 'renamed', 'a2', 'b1']
+            const build = jest.spyOn(freshNames, 'map')
+            store.loadObjects({
+                objectType: 'organisationUnit',
+                ids: ['root', 'A', 'B', 'a1', 'a2', 'b1'],
+                names: freshNames,
+                level: Uint8Array.from([1, 2, 2, 3, 3, 3]),
+                parentIds: [null, 'root', 'root', 'A', 'A', 'B'],
+                domainType: null,
+                categoryIdsOfOption: null,
+            })
+            store.setGroupSets([ownership])
+            store.loadMemberships({
+                objectType: 'organisationUnit',
+                groups: [
+                    { groupId: 'pub', memberIds: ['a1', 'a2'] },
+                    { groupId: 'priv', memberIds: ['a2', 'b1'] },
+                ],
+            })
+            store.evaluate()
+
+            store.objectsFor('own', scope, { text: 'renamed' }, 0, 10)
+            store.objectsFor('own', scope, { text: 'renamed' }, 0, 10)
+            expect(build).toHaveBeenCalledTimes(1)
+        })
     })
 
     it('scans everything when the root id is null for a flat object type', () => {

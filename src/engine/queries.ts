@@ -286,7 +286,7 @@ export function listObjects(
         }
         // No `namesLower` array to check against means nothing can match,
         // same reasoning as the `ids` predicate just above.
-        if (textQuery && !(namesLower && namesLower[i].includes(textQuery))) {
+        if (textQuery && !(namesLower && namesLower[i]?.includes(textQuery))) {
             return
         }
         out.push(i)
