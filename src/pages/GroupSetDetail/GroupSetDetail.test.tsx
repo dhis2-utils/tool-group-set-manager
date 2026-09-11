@@ -47,18 +47,27 @@ const mockScope: {
 jest.mock('@/hooks/useScope', () => ({
     useScope: () => mockScope,
 }))
+// Captures the query `useApiDataQuery` was called with, so a test can
+// inspect the actual params sent for the organisation unit levels lookup
+// rather than only the (unconditionally full) mocked response.
+const mockApiDataQueryCalls: { resource: string; params?: unknown }[] = []
 jest.mock('@/utils/useApiDataQuery', () => ({
-    useApiDataQuery: () => ({
-        data: {
-            organisationUnitLevels: [
-                { level: 1, displayName: 'National' },
-                { level: 2, displayName: 'District' },
-                { level: 3, displayName: 'Chiefdom' },
-                { level: 4, displayName: 'Facility' },
-            ],
-        },
-        isLoading: false,
-    }),
+    useApiDataQuery: (options: {
+        query: { resource: string; params?: unknown }
+    }) => {
+        mockApiDataQueryCalls.push(options.query)
+        return {
+            data: {
+                organisationUnitLevels: [
+                    { level: 1, displayName: 'National' },
+                    { level: 2, displayName: 'District' },
+                    { level: 3, displayName: 'Chiefdom' },
+                    { level: 4, displayName: 'Facility' },
+                ],
+            },
+            isLoading: false,
+        }
+    },
 }))
 
 // Simulates `useUserScope`'s roots resolving asynchronously, the way the
@@ -94,6 +103,7 @@ afterEach(() => {
     mockScope.rootId = 'root1'
     mockScope.rootName = 'Root'
     mockScope.rootLevel = null
+    mockApiDataQueryCalls.length = 0
 })
 
 const renderDetail = () =>
@@ -171,4 +181,24 @@ it('falls back to the engine for the level of a scope stored without one', async
         'organisationUnit',
         'chiefdom-deep-in-the-tree',
     ])
+})
+
+it('queries organisation unit levels without the deprecated paging=false', async () => {
+    // @dhis2/app-service-data's RestAPILink warns "Data queries with
+    // paging=false are deprecated" for exactly this resource whenever
+    // `params.paging` is `false`. The fix keeps the query paginated but
+    // asks for a page comfortably larger than any real level hierarchy, so
+    // the full list still comes back in one response -- verified here
+    // against the actual query object handed to `useApiDataQuery`, not just
+    // its (unconditionally complete) mocked response.
+    renderDetail()
+    await waitFor(() => expect(mockApiDataQueryCalls.length).toBeGreaterThan(0))
+    const levelsQuery = mockApiDataQueryCalls.find(
+        (q) => q.resource === 'organisationUnitLevels'
+    )
+    expect(levelsQuery).toBeDefined()
+    const params = levelsQuery?.params as Record<string, unknown> | undefined
+    expect(params?.paging).not.toBe(false)
+    expect(typeof params?.pageSize).toBe('number')
+    expect(params?.pageSize as number).toBeGreaterThanOrEqual(20)
 })

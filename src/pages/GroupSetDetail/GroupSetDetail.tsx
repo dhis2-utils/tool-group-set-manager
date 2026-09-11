@@ -56,7 +56,13 @@ export const GroupSetDetail = () => {
         queryKey: ['organisationUnitLevels'],
         query: {
             resource: 'organisationUnitLevels',
-            params: { fields: 'level,displayName', paging: false },
+            // `paging: false` triggers the app runtime's "paging=false is
+            // deprecated" warning (and DHIS2 itself discourages it -- it
+            // forces the server to return every matching row in one
+            // response). An instance has at most a handful of levels, so an
+            // explicit page size comfortably above any real hierarchy gets
+            // the full list back in one page without ever disabling paging.
+            params: { fields: 'level,displayName', pageSize: 100 },
         },
         staleTime: Infinity,
     })

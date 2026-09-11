@@ -235,6 +235,43 @@ it('filters the sections by object type (spec 5.1)', async () => {
     expect(screen.getByText('Element set')).toBeInTheDocument()
 })
 
+it('says a type has no group sets instead of leaving the content area blank', async () => {
+    // `entries.indicator` is `[]` by default in this mock (see `entries`
+    // above) -- an object type the engine reports as having settled with
+    // no group sets at all, the same shape as the Laos and EHR databases
+    // the compatibility campaign found this on. Filtering down to it used
+    // to render nothing: no heading, no message, nothing to tell a user
+    // apart from a stuck load or a broken app.
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+
+    await userEvent.click(screen.getByText('All object types'))
+    await userEvent.click(
+        document.querySelector('[data-value="indicator"]') as HTMLElement
+    )
+
+    await waitFor(() =>
+        expect(
+            screen.getByText(
+                'There are no group sets of this type on this instance.'
+            )
+        ).toBeInTheDocument()
+    )
+    // The heading appears twice once the message is showing: once as the
+    // still-rendered selected value of the type dropdown, once as the
+    // section heading above the message -- so assert on the section
+    // heading element specifically rather than the text generally.
+    expect(
+        screen.getByRole('heading', { name: 'Indicator group sets' })
+    ).toBeInTheDocument()
+})
+
 it('says which data source served the numbers (spec 8a)', async () => {
     render(
         <MemoryRouter>

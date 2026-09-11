@@ -165,6 +165,17 @@ export const Dashboard = () => {
                 <p className={styles.note}>{sourceLabel(sourceKind)}</p>
             )}
             {shownTypes.map((type) => {
+                // `entries` only gains a key for a type once its dashboard
+                // call has actually settled (see the effect above, which
+                // sets every type's key together). Until then, the type has
+                // no key at all -- distinct from a type whose call settled
+                // with zero group sets, which has a key holding `[]`. The
+                // two must not collapse into the same rendering: one means
+                // "still loading" (say nothing here; `LoadProgress` above
+                // already covers it) and the other means "there is nothing
+                // to show", which needs to say so rather than leave a
+                // silent gap indistinguishable from a stuck load.
+                const hasLoaded = type in entries
                 const all = entries[type] ?? []
                 const typeError = typeErrors[type]
                 const shown = (
@@ -177,8 +188,24 @@ export const Dashboard = () => {
                     // error count keep the order the API returned them in.
                     .sort(byWorstFirst)
                 const hidden = all.length - shown.length
-                if (all.length === 0 && !typeError) {
+                if (!hasLoaded) {
                     return null
+                }
+                if (all.length === 0 && !typeError) {
+                    return (
+                        <section key={type}>
+                            <h2 className={styles.heading}>
+                                {TYPE_LABEL[type]}
+                            </h2>
+                            <NoticeBox
+                                title={i18n.t('No group sets of this type')}
+                            >
+                                {i18n.t(
+                                    'There are no group sets of this type on this instance.'
+                                )}
+                            </NoticeBox>
+                        </section>
+                    )
                 }
                 return (
                     <section key={type}>
