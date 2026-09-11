@@ -4,6 +4,7 @@ import React from 'react'
 import { createHashRouter, RouterProvider } from 'react-router-dom'
 import { EngineProvider } from '@/hooks/useEngine'
 import { GsiConfigProvider } from '@/hooks/useGsiConfig'
+import { IntegrityProvider } from '@/hooks/useIntegrity'
 import { ScopeProvider } from '@/hooks/useScope'
 import { Dashboard } from '@/pages/Dashboard/Dashboard'
 import { GroupSetDetail } from '@/pages/GroupSetDetail/GroupSetDetail'
@@ -33,9 +34,11 @@ const App = () => (
         <CssVariables theme spacers colors elevations />
         <ScopeProvider>
             <EngineProvider>
-                <GsiConfigProvider>
-                    <RouterProvider router={router} />
-                </GsiConfigProvider>
+                <IntegrityProvider>
+                    <GsiConfigProvider>
+                        <RouterProvider router={router} />
+                    </GsiConfigProvider>
+                </IntegrityProvider>
             </EngineProvider>
         </ScopeProvider>
     </QueryClientProvider>

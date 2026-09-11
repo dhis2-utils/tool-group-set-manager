@@ -15,6 +15,22 @@ jest.mock('@/hooks/useEngine', () => ({
         reload: async () => undefined,
     }),
 }))
+jest.mock('@/hooks/useIntegrity', () => ({
+    IntegrityProvider: ({ children }: { children: React.ReactNode }) => (
+        <>{children}</>
+    ),
+    useIntegrity: () => ({
+        available: false,
+        checks: [],
+        summaries: {},
+        stale: new Set(),
+        isRunning: false,
+        error: null,
+        run: async () => undefined,
+        markStale: () => undefined,
+        refresh: async () => undefined,
+    }),
+}))
 jest.mock('@/hooks/useGsiConfig', () => ({
     GsiConfigProvider: ({ children }: { children: React.ReactNode }) => (
         <>{children}</>

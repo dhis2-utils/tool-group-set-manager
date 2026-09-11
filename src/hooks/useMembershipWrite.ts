@@ -1,6 +1,7 @@
 import { useConfig } from '@dhis2/app-runtime'
 import { useCallback, useState } from 'react'
 import { useEngine } from './useEngine'
+import { useIntegrity } from './useIntegrity'
 import { saveChangeSet } from '@/data/datastore'
 import { createFetcher } from '@/data/fetcher'
 import { WriteResult, writeMemberships } from '@/data/writes'
@@ -110,6 +111,7 @@ export function useMembershipWrite(): {
         apiVersion: number
     }
     const { client, invalidateType } = useEngine()
+    const { markStale } = useIntegrity()
     // A counter, not a boolean: two overlapping writes must not have the
     // first one finishing clear a spinner the second write still needs.
     // Nothing today calls write() more than once concurrently, but nothing
@@ -157,6 +159,16 @@ export function useMembershipWrite(): {
 
                 await invalidateType(objectType)
 
+                // Like invalidateType, a failure to mark the affected
+                // checks stale must never fail an already-confirmed write --
+                // it is a same-session UI hint, not part of the write's
+                // contract with the server.
+                try {
+                    markStale(objectType)
+                } catch {
+                    // deliberately ignored -- see comment above
+                }
+
                 // `changes: result.applied` is the batch list verbatim and
                 // therefore unbounded: a hundred-thousand-membership
                 // national fix produces one dataStore document holding a
@@ -194,7 +206,7 @@ export function useMembershipWrite(): {
                 setWriteCount((n) => n - 1)
             }
         },
-        [baseUrl, apiVersion, client, invalidateType, identity]
+        [baseUrl, apiVersion, client, invalidateType, markStale, identity]
     )
 
     return { write, isWriting: writeCount > 0 }

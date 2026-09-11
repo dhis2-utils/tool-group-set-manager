@@ -74,6 +74,20 @@ jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => mockEngine,
 }))
 
+jest.mock('@/hooks/useIntegrity', () => ({
+    useIntegrity: () => ({
+        available: false,
+        checks: [],
+        summaries: {},
+        stale: new Set(),
+        isRunning: false,
+        error: null,
+        run: async () => undefined,
+        markStale: () => undefined,
+        refresh: async () => undefined,
+    }),
+}))
+
 const mockScope: {
     rootId: string
     rootName: string

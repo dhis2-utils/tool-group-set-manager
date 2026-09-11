@@ -25,6 +25,13 @@ jest.mock('./useEngine', () => ({
     }),
 }))
 
+const mockMarkStale = jest.fn()
+jest.mock('./useIntegrity', () => ({
+    useIntegrity: () => ({
+        markStale: mockMarkStale,
+    }),
+}))
+
 let mockWriteMembershipsImpl: jest.Mock
 jest.mock('@/data/writes', () => ({
     writeMemberships: (...args: unknown[]) => mockWriteMembershipsImpl(...args),
@@ -93,6 +100,8 @@ beforeEach(() => {
     mockCall.mockImplementation(async () => undefined)
     mockClient = { call: mockCall }
     mockInvalidateType.mockClear()
+    mockMarkStale.mockClear()
+    mockMarkStale.mockImplementation(() => undefined)
     mockSaveChangeSet.mockClear()
     mockSaveChangeSet.mockImplementation(async () => undefined)
     mockWriteMembershipsImpl = jest.fn(async () => ({
@@ -348,4 +357,26 @@ it('threads an optional onProgress through to writeMemberships (D1)', async () =
 
 it('still works when onProgress is omitted', async () => {
     await expect(doWrite()).resolves.toBeDefined()
+})
+
+// Task 2: a successful write marks the checks for the written object type
+// stale, in the same place invalidateType is called.
+
+it('marks the checks stale for the written object type after a successful write', async () => {
+    await doWrite()
+
+    expect(mockMarkStale).toHaveBeenCalledWith('organisationUnit')
+    expect(mockMarkStale).toHaveBeenCalledTimes(1)
+})
+
+it('still resolves the write when markStale throws', async () => {
+    mockMarkStale.mockImplementation(() => {
+        throw new Error('boom')
+    })
+
+    const writeResult = await doWrite()
+
+    expect(writeResult.changeSet).toBeDefined()
+    expect(mockInvalidateType).toHaveBeenCalledWith('organisationUnit')
+    expect(mockSaveChangeSet).toHaveBeenCalled()
 })
