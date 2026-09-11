@@ -6,6 +6,7 @@ import { EngineProvider } from '@/hooks/useEngine'
 import { ScopeProvider } from '@/hooks/useScope'
 import { Dashboard } from '@/pages/Dashboard/Dashboard'
 import { GroupSetDetail } from '@/pages/GroupSetDetail/GroupSetDetail'
+import { History } from '@/pages/History/History'
 import { SyncUrlWithGlobalShell } from '@/utils/SyncUrlWithGlobalShell'
 
 const queryClient = new QueryClient({
@@ -18,6 +19,7 @@ const router = createHashRouter([
         children: [
             { path: '/', element: <Dashboard /> },
             { path: '/sets/:setId', element: <GroupSetDetail /> },
+            { path: '/history', element: <History /> },
         ],
     },
 ])

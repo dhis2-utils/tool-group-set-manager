@@ -767,3 +767,127 @@ describe('EngineStore.planAssignment', () => {
         expect(plan.affected).toBe(0)
     })
 })
+
+describe('EngineStore.planRevert', () => {
+    function revertStore() {
+        const set: GroupSetMeta = {
+            ...ownership,
+            groups: [
+                { id: 'pub', displayName: 'Public', canWrite: true },
+                { id: 'priv', displayName: 'Private', canWrite: true },
+                { id: 'other', displayName: 'Other', canWrite: true },
+            ],
+        }
+        const s = new EngineStore()
+        s.loadObjects({
+            objectType: 'organisationUnit',
+            ids: ['root', 'A', 'a1', 'a2', 'a3'],
+            names: ['Root', 'A', 'a1', 'a2', 'a3'],
+            level: Uint8Array.from([1, 2, 3, 3, 3]),
+            parentIds: [null, 'root', 'A', 'A', 'A'],
+            domainType: null,
+            categoryIdsOfOption: null,
+        })
+        s.setGroupSets([set])
+        return s
+    }
+
+    it('reverts an untouched move: both legs still hold', () => {
+        const s = revertStore()
+        s.loadMemberships({
+            objectType: 'organisationUnit',
+            groups: [
+                { groupId: 'pub', memberIds: [] },
+                { groupId: 'priv', memberIds: [] },
+                // Left exactly where the original move (pub -> other) put
+                // it, untouched since.
+                { groupId: 'other', memberIds: ['a1'] },
+            ],
+        })
+        s.evaluate()
+        const changes: GroupChange[] = [
+            { groupId: 'pub', additions: [], deletions: ['a1'] },
+            { groupId: 'other', additions: ['a1'], deletions: [] },
+        ]
+        const plan = s.planRevert('own', changes)
+        expect(plan.skippedCount).toBe(0)
+        expect(plan.affected).toBe(1)
+        expect(
+            plan.changes.find((c) => c.groupId === 'pub')?.additions
+        ).toEqual(['a1'])
+        expect(
+            plan.changes.find((c) => c.groupId === 'other')?.deletions
+        ).toEqual(['a1'])
+    })
+
+    it("skips an object reassigned since -- reverting must not undo a later deliberate decision (D1's facility example)", () => {
+        const s = revertStore()
+        s.loadMemberships({
+            objectType: 'organisationUnit',
+            groups: [
+                // Moved back to pub by hand after the bulk move to other.
+                { groupId: 'pub', memberIds: ['a1'] },
+                { groupId: 'priv', memberIds: [] },
+                { groupId: 'other', memberIds: [] },
+            ],
+        })
+        s.evaluate()
+        const changes: GroupChange[] = [
+            { groupId: 'pub', additions: [], deletions: ['a1'] },
+            { groupId: 'other', additions: ['a1'], deletions: [] },
+        ]
+        const plan = s.planRevert('own', changes)
+        expect(plan.skippedCount).toBe(1)
+        expect(plan.skippedSample).toEqual(['a1'])
+        expect(plan.affected).toBe(0)
+        expect(plan.changes).toEqual([])
+    })
+
+    it('judges an object as a whole: one broken leg skips the entire object, not just that leg', () => {
+        const s = revertStore()
+        s.loadMemberships({
+            objectType: 'organisationUnit',
+            groups: [
+                // a2 was moved pub -> priv; someone has since removed it
+                // from priv too (without putting it back in pub). The pub
+                // leg alone ("currently not in pub") would pass, but the
+                // priv leg ("currently in priv") fails, and that must
+                // block the whole object rather than only re-adding it to
+                // pub and leaving it in neither group as some half-revert.
+                { groupId: 'pub', memberIds: [] },
+                { groupId: 'priv', memberIds: [] },
+                { groupId: 'other', memberIds: [] },
+            ],
+        })
+        s.evaluate()
+        const changes: GroupChange[] = [
+            { groupId: 'pub', additions: [], deletions: ['a2'] },
+            { groupId: 'priv', additions: ['a2'], deletions: [] },
+        ]
+        const plan = s.planRevert('own', changes)
+        expect(plan.skippedCount).toBe(1)
+        expect(plan.affected).toBe(0)
+        expect(plan.changes).toEqual([])
+    })
+
+    it('skips ids the engine no longer knows about (the object was deleted since)', () => {
+        const s = revertStore()
+        s.loadMemberships({
+            objectType: 'organisationUnit',
+            groups: [
+                { groupId: 'pub', memberIds: [] },
+                { groupId: 'priv', memberIds: [] },
+                { groupId: 'other', memberIds: [] },
+            ],
+        })
+        s.evaluate()
+        const changes: GroupChange[] = [
+            { groupId: 'pub', additions: [], deletions: ['gone'] },
+            { groupId: 'other', additions: ['gone'], deletions: [] },
+        ]
+        const plan = s.planRevert('own', changes)
+        expect(plan.skippedCount).toBe(1)
+        expect(plan.skippedSample).toEqual(['gone'])
+        expect(plan.changes).toEqual([])
+    })
+})

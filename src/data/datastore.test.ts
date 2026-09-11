@@ -192,7 +192,10 @@ describe('saveRequiredLevels and saveCatchAllGroup', () => {
 describe('listChangeSets', () => {
     it('returns an empty list when the namespace does not exist yet', async () => {
         const fetcher = async () => notFound()
-        expect(await listChangeSets(fetcher)).toEqual([])
+        expect(await listChangeSets(fetcher)).toEqual({
+            changeSets: [],
+            hasMore: false,
+        })
     })
 
     it('returns change sets newest first', async () => {
@@ -211,7 +214,33 @@ describe('listChangeSets', () => {
             return notFound()
         }
         const result = await listChangeSets(fetcher)
-        expect(result.map((c) => c.id)).toEqual(['cs2', 'cs1'])
+        expect(result.changeSets.map((c) => c.id)).toEqual(['cs2', 'cs1'])
+        expect(result.hasMore).toBe(false)
+    })
+
+    it('pages: fetches only the requested window of documents, and reports whether more remain', async () => {
+        const ids = Array.from({ length: 5 }, (_, i) => `cs${i}`)
+        const requested: string[] = []
+        const fetcher = async (path: string) => {
+            if (path.endsWith(`/${NAMESPACE}`)) {
+                return json(ids.map((id) => `history-${id}`))
+            }
+            const match = /history-(cs\d)$/.exec(path)
+            if (match) {
+                requested.push(match[1])
+                return json(changeSet(match[1], '2024-01-01T00:00:00.000Z'))
+            }
+            return notFound()
+        }
+        // Keys sort newest-first as cs4, cs3, cs2, cs1, cs0.
+        const page = await listChangeSets(fetcher, { offset: 0, limit: 2 })
+        expect(page.changeSets.map((c) => c.id)).toEqual(['cs4', 'cs3'])
+        expect(page.hasMore).toBe(true)
+        expect(requested.sort()).toEqual(['cs3', 'cs4'])
+
+        const lastPage = await listChangeSets(fetcher, { offset: 4, limit: 2 })
+        expect(lastPage.changeSets.map((c) => c.id)).toEqual(['cs0'])
+        expect(lastPage.hasMore).toBe(false)
     })
 
     it('breaks a tie on createdAt deterministically by id, regardless of the order keys were listed in', async () => {
@@ -243,7 +272,9 @@ describe('listChangeSets', () => {
         const b = await listChangeSets(
             fetcherWithKeyOrder(['history-cs2', 'history-cs1'])
         )
-        expect(a.map((c) => c.id)).toEqual(b.map((c) => c.id))
+        expect(a.changeSets.map((c) => c.id)).toEqual(
+            b.changeSets.map((c) => c.id)
+        )
     })
 })
 

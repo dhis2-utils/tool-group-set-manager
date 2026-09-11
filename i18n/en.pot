@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-11T11:21:03.696Z\n"
-"PO-Revision-Date: 2026-09-11T11:21:03.696Z\n"
+"POT-Creation-Date: 2026-09-11T12:06:46.936Z\n"
+"PO-Revision-Date: 2026-09-11T12:06:46.936Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -449,6 +449,82 @@ msgstr "Rows"
 
 msgid "{name} (level {level})"
 msgstr "{name} (level {level})"
+
+msgid "Moved to a group"
+msgstr "Moved to a group"
+
+msgid "Assigned to a group"
+msgstr "Assigned to a group"
+
+msgid "Reverted an earlier change"
+msgstr "Reverted an earlier change"
+
+msgid "1 membership change"
+msgstr "1 membership change"
+
+msgid "{count} membership changes"
+msgstr "{count} membership changes"
+
+msgid "Unknown user"
+msgstr "Unknown user"
+
+msgid "No changes have been recorded on this instance yet"
+msgstr "No changes have been recorded on this instance yet"
+
+msgid "This group set no longer exists, so this change cannot be reverted from here"
+msgstr "This group set no longer exists, so this change cannot be reverted from here"
+
+msgid "Revert change"
+msgstr "Revert change"
+
+msgid "This change cannot be reverted"
+msgstr "This change cannot be reverted"
+
+msgid "Could not compute what this revert would change"
+msgstr "Could not compute what this revert would change"
+
+msgid "Nothing to revert"
+msgstr "Nothing to revert"
+
+msgid ""
+"Every object this change touched has since been reassigned by hand, so "
+"reverting it now would not change anything"
+msgstr ""
+"Every object this change touched has since been reassigned by hand, so "
+"reverting it now would not change anything"
+
+msgid "Note (optional)"
+msgstr "Note (optional)"
+
+msgid "Revert"
+msgstr "Revert"
+
+msgid "History"
+msgstr "History"
+
+msgid "Could not load history"
+msgstr "Could not load history"
+
+msgid "When"
+msgstr "When"
+
+msgid "Who"
+msgstr "Who"
+
+msgid "Group set"
+msgstr "Group set"
+
+msgid "Action"
+msgstr "Action"
+
+msgid "Changes"
+msgstr "Changes"
+
+msgid "Note"
+msgstr "Note"
+
+msgid "Load more"
+msgstr "Load more"
 
 msgid "Organisation unit group sets"
 msgstr "Organisation unit group sets"

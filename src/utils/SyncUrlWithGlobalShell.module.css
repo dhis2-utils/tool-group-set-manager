@@ -1,0 +1,15 @@
+.nav {
+    display: flex;
+    gap: var(--spacers-dp16);
+    padding: var(--spacers-dp12) var(--spacers-dp16);
+    border-bottom: 1px solid var(--colors-grey300);
+}
+.link {
+    color: var(--colors-grey700);
+    text-decoration: none;
+}
+.active {
+    color: var(--colors-blue600);
+    text-decoration: none;
+    font-weight: 500;
+}

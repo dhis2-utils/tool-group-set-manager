@@ -173,20 +173,48 @@ export async function saveIncludeTracker(
     await writeDocument(fetcher, 'config-general', { includeTracker: value })
 }
 
+export interface ChangeSetsPage {
+    changeSets: ChangeSet[]
+    /** whether a later page (older change sets) still exists */
+    hasMore: boolean
+}
+
 /**
- * Every change set, newest first. One document per change set
- * (`history-<uid>`) in the same flat key space as the config documents,
- * because the dataStore has no nesting and listing keys is the only way
- * to enumerate what is there.
+ * A change set's id (`generateChangeSetId` in useMembershipWrite.ts) is a
+ * base36 timestamp prefix plus a random suffix of fixed length, so ids sort
+ * lexicographically the same as their creation time for as long as the
+ * timestamp keeps the same digit count -- true across this app's whole
+ * practical lifetime. That is what lets a page be served without reading
+ * every stored change set: the key list (one request for the whole
+ * namespace) is sorted directly, newest first, and only the requested
+ * window's documents are actually fetched.
  */
-export async function listChangeSets(fetcher: Fetcher): Promise<ChangeSet[]> {
-    const keys = (await listKeys(fetcher)).filter((k) =>
-        k.startsWith('history-')
+function sortKeysNewestFirst(keys: string[]): string[] {
+    return [...keys].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))
+}
+
+/**
+ * D3: paged so a namespace holding thousands of change sets does not cost
+ * one request per stored document on every load -- only for the page
+ * asked for. `offset`/`limit` index into the (cheaply sorted) key list,
+ * not into `changeSets`' final sort below, which only re-orders the page
+ * itself by `createdAt`/id as a tiebreak for documents created in the same
+ * request (D3 predates a need for cross-page reordering, since only
+ * concurrent writes inside one page's window could disagree with key
+ * order, and this app never writes concurrently).
+ */
+export async function listChangeSets(
+    fetcher: Fetcher,
+    { offset = 0, limit = 20 }: { offset?: number; limit?: number } = {}
+): Promise<ChangeSetsPage> {
+    const keys = sortKeysNewestFirst(
+        (await listKeys(fetcher)).filter((k) => k.startsWith('history-'))
     )
+    const page = keys.slice(offset, offset + limit)
     const changeSets = await Promise.all(
-        keys.map((key) => readDocument<ChangeSet>(fetcher, key))
+        page.map((key) => readDocument<ChangeSet>(fetcher, key))
     )
-    return changeSets
+    const sorted = changeSets
         .filter((c): c is ChangeSet => c !== undefined)
         .sort((a, b) => {
             // A plain "a < b ? 1 : -1" is not a comparator, just an
@@ -202,6 +230,7 @@ export async function listChangeSets(fetcher: Fetcher): Promise<ChangeSet[]> {
             }
             return 0
         })
+    return { changeSets: sorted, hasMore: offset + limit < keys.length }
 }
 
 export async function saveChangeSet(

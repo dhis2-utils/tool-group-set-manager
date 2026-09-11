@@ -31,6 +31,7 @@ export type EngineMethod =
     | 'matrixFor'
     | 'objectsFor'
     | 'planAssignment'
+    | 'planRevert'
     | 'resolve'
     | 'resolveParents'
     | 'indexOf'

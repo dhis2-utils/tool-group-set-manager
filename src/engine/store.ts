@@ -541,6 +541,104 @@ export class EngineStore {
         return { changes, affected, skippedCount, skippedSample }
     }
 
+    /**
+     * What would happen if `changes` (a change set's own recorded
+     * `changes`, NOT `invert()`'s output -- inversion happens in here)
+     * were undone right now, given current membership rather than the
+     * change set's record of a past one.
+     *
+     * The rule (task 9 / spec 5.4): a change set's addition is only
+     * reverted (as a deletion) if the object is currently IN that group,
+     * and its deletion is only reverted (as an addition) if the object is
+     * currently NOT in it. An object is judged as a whole, not group by
+     * group -- if it touched more than one group (a "move" always does:
+     * one deletion, one addition), every one of those touches must still
+     * hold for any of them to be reverted. This is what stops reverting a
+     * bulk move from dragging an object back out of a group a user
+     * assigned it to by hand afterwards: that manual assignment already
+     * broke at least one of the checks, so the whole object is skipped.
+     */
+    planRevert(setId: string, changes: GroupChange[]): AssignmentPlan {
+        const { state, t } = this.setState(setId)
+        const positionOfGroup = new Map(
+            state.set.groups.map((g, i) => [g.id, i])
+        )
+
+        // Every id touched by the change set, with the group + original
+        // action (before inversion) it was touched under. A "move"
+        // contributes two entries for the same id (a deletion from its old
+        // group, an addition to its new one); both must check out for
+        // either to be reverted.
+        const touches = new Map<
+            string,
+            { groupId: string; wasAddition: boolean }[]
+        >()
+        changes.forEach((change) => {
+            change.additions.forEach((id) => {
+                const arr = touches.get(id) ?? []
+                arr.push({ groupId: change.groupId, wasAddition: true })
+                touches.set(id, arr)
+            })
+            change.deletions.forEach((id) => {
+                const arr = touches.get(id) ?? []
+                arr.push({ groupId: change.groupId, wasAddition: false })
+                touches.set(id, arr)
+            })
+        })
+
+        const additionsByGroup = new Map<string, string[]>()
+        const deletionsByGroup = new Map<string, string[]>()
+        const skippedSample: string[] = []
+        let skippedCount = 0
+        let affected = 0
+
+        touches.forEach((entries, id) => {
+            const idx = t.indexOf.get(id)
+            const positions =
+                idx !== undefined ? groupsOf(state.membership, idx) : []
+            const stillHolds = entries.every(({ groupId, wasAddition }) => {
+                const position = positionOfGroup.get(groupId)
+                const currentlyIn =
+                    position !== undefined && positions.includes(position)
+                // An original addition is only reverted if the object is
+                // currently in that group; an original deletion only if it
+                // is currently not in it.
+                return wasAddition ? currentlyIn : !currentlyIn
+            })
+            if (!stillHolds) {
+                skippedCount++
+                if (skippedSample.length < SKIPPED_SAMPLE_LIMIT) {
+                    skippedSample.push(id)
+                }
+                return
+            }
+            entries.forEach(({ groupId, wasAddition }) => {
+                const byGroup = wasAddition
+                    ? deletionsByGroup
+                    : additionsByGroup
+                const ids = byGroup.get(groupId) ?? []
+                ids.push(id)
+                byGroup.set(groupId, ids)
+            })
+            affected++
+        })
+
+        const groupIds = new Set([
+            ...additionsByGroup.keys(),
+            ...deletionsByGroup.keys(),
+        ])
+        const revertChanges: GroupChange[] = Array.from(
+            groupIds,
+            (groupId) => ({
+                groupId,
+                additions: additionsByGroup.get(groupId) ?? [],
+                deletions: deletionsByGroup.get(groupId) ?? [],
+            })
+        )
+
+        return { changes: revertChanges, affected, skippedCount, skippedSample }
+    }
+
     objectsFor(
         setId: string,
         scope: ScopeRef,
