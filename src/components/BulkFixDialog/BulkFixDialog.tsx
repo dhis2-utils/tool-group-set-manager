@@ -126,15 +126,20 @@ interface GroupOutcome {
     groupId: string
     requested: number
     accepted: number
-    errors: string[]
+    /** Every batch this group was split into (D2/spec 6.1's ~1,000 id
+     * batches), kept individually rather than only summed -- see C1 below. */
+    batches: BatchOutcome[]
 }
 
 /**
- * A group set's write can split one group across several batches (D2/spec
- * 6.1's ~1,000 id batches). The result panel reports per group, not per
- * batch, so batches for the same group are summed here before rendering --
- * see the module doc on `BatchOutcome` for why a group can legitimately
- * appear as both applied and unaccounted (one batch of several failed).
+ * A group set's write can split one group across several batches. The
+ * result panel reports per group, not per batch, so batches for the same
+ * group are collected here -- but summed counts are for *display* only
+ * (M2); classification in `outcomeText` below works batch by batch,
+ * because summing before classifying is exactly the bug fix round 1's C1
+ * describes: an over-reporting batch (the server can report more than was
+ * requested -- see `acceptedCount`'s doc comment in `writes.ts`) and a
+ * short batch can cancel out in the sums while both sit in `unaccounted`.
  */
 function aggregateOutcomes(outcomes: BatchOutcome[]): GroupOutcome[] {
     const byGroup = new Map<string, GroupOutcome>()
@@ -143,13 +148,11 @@ function aggregateOutcomes(outcomes: BatchOutcome[]): GroupOutcome[] {
             groupId: o.groupId,
             requested: 0,
             accepted: 0,
-            errors: [],
+            batches: [],
         }
         existing.requested += o.requested
         existing.accepted += o.accepted
-        if (o.error) {
-            existing.errors.push(o.error)
-        }
+        existing.batches.push(o)
         byGroup.set(o.groupId, existing)
     })
     return Array.from(byGroup.values())
@@ -157,44 +160,101 @@ function aggregateOutcomes(outcomes: BatchOutcome[]): GroupOutcome[] {
 
 type OutcomeTone = 'valid' | 'warning' | 'error'
 
+/** A batch the server confirmed in full, with no error. */
+function isFullyApplied(b: BatchOutcome): boolean {
+    return !b.error && b.accepted === b.requested
+}
+
 /**
  * D3: the three outcomes need distinct wording, and a partial acceptance
  * must never be called a success -- the writer refuses to guess which ids
- * landed (see `writeMemberships`'s doc comment), so the panel names the
- * group, says plainly that fewer changes were accepted than sent, and
- * tells the user those objects need re-reading rather than implying
- * anything worked.
+ * landed (see `writeMemberships`'s doc comment). Classification is done
+ * batch by batch (fix round 1's C1), never on the summed counts: a group
+ * is `valid` only when EVERY one of its batches was confirmed in full.
+ *
+ * A group split across batches where some were confirmed and some were not
+ * (fix round 1's I1) is neither a clean success nor an outright failure --
+ * part of its change is real and permanent on the server, so it gets its
+ * own wording rather than being folded into "failed". Only a group with
+ * zero confirmed batches and at least one hard error is reported as
+ * failed; zero confirmed batches with no error at all (a silent partial
+ * accept) is reported as a partial acceptance, same as today.
  */
 function outcomeText(
     o: GroupOutcome,
     groupName: string
 ): { text: string; tone: OutcomeTone } {
-    if (o.errors.length > 0) {
+    const fullyApplied = o.batches.filter(isFullyApplied)
+    const notConfirmed = o.batches.filter((b) => !isFullyApplied(b))
+    const errors = notConfirmed
+        .map((b) => b.error)
+        .filter((e): e is string => Boolean(e))
+
+    if (notConfirmed.length === 0) {
         return {
-            tone: 'error',
-            text: interpolate(i18n.t('{name} failed with error {error}'), {
+            tone: 'valid',
+            text: interpolate(i18n.t('All changes applied to {name}'), {
                 name: groupName,
-                error: o.errors.join('; '),
             }),
         }
     }
-    if (o.accepted !== o.requested) {
+
+    if (fullyApplied.length > 0) {
+        // I1: some of this group's batches landed and some did not -- never
+        // "failed", since part of the change is real and permanent.
         return {
             tone: 'warning',
             text: interpolate(
                 i18n.t(
-                    '{name} accepted fewer changes than were sent -- the affected objects need to be re-read from the server'
+                    '{name} accepted {accepted} of {requested} changes -- some of its batches were confirmed and some were not, and the objects in the unconfirmed batches need to be re-read from the server'
                 ),
-                { name: groupName }
+                {
+                    name: groupName,
+                    accepted: o.accepted,
+                    requested: o.requested,
+                }
             ),
         }
     }
-    return {
-        tone: 'valid',
-        text: interpolate(i18n.t('All changes applied to {name}'), {
-            name: groupName,
-        }),
+
+    if (errors.length > 0) {
+        return {
+            tone: 'error',
+            text: interpolate(
+                i18n.t(
+                    '{name} failed with error {error} -- the affected objects need to be re-read from the server'
+                ),
+                { name: groupName, error: errors.join('; ') }
+            ),
+        }
     }
+
+    // M2: show the numbers -- "accepted N of M" is more actionable than a
+    // bare "fewer than were sent".
+    return {
+        tone: 'warning',
+        text: interpolate(
+            i18n.t(
+                '{name} accepted {accepted} of {requested} changes -- the affected objects need to be re-read from the server'
+            ),
+            { name: groupName, accepted: o.accepted, requested: o.requested }
+        ),
+    }
+}
+
+/**
+ * I5: a retry only ever resends the groups its own `changes` named
+ * (built from the previous result's `unaccounted`, D2) -- so the outcomes
+ * for every OTHER group must survive untouched, or the panel would
+ * silently drop a group's real, permanent result. `next` replaces `prev`
+ * only for the groups it actually reports on.
+ */
+function mergeOutcomes(
+    prev: BatchOutcome[],
+    next: BatchOutcome[]
+): BatchOutcome[] {
+    const nextGroupIds = new Set(next.map((o) => o.groupId))
+    return [...prev.filter((o) => !nextGroupIds.has(o.groupId)), ...next]
 }
 
 export const BulkFixDialog = ({
@@ -213,7 +273,7 @@ export const BulkFixDialog = ({
         () => createFetcher(baseUrl, apiVersion),
         [baseUrl, apiVersion]
     )
-    const { client } = useEngine()
+    const { client, reload } = useEngine()
     const { write, isWriting } = useMembershipWrite()
 
     const [step, setStep] = useState<Step>('action')
@@ -264,6 +324,19 @@ export const BulkFixDialog = ({
     } | null>(null)
     const [writeResult, setWriteResult] =
         useState<MembershipWriteResult | null>(null)
+    // I5: the panel's own record of every group reported on so far, merged
+    // across the original apply and any retries -- `writeResult` alone only
+    // ever holds the LATEST write's outcomes, which would silently drop an
+    // earlier group's real result once a retry replaces it.
+    const [mergedOutcomes, setMergedOutcomes] = useState<BatchOutcome[]>([])
+    // I4: `write()` can reject (`invalidateType` runs uncaught, after the
+    // server change has already happened -- see `useMembershipWrite`'s doc
+    // comment) without this ever becoming a `writeResult`. Without this
+    // state the apply step would render a blank panel: no progress, no
+    // result, no error, with the write having genuinely reached the
+    // server. Cleared at the start of every write so a stale error from a
+    // previous attempt cannot linger over a fresh one.
+    const [applyError, setApplyError] = useState<string | null>(null)
 
     useEffect(() => {
         let cancelled = false
@@ -318,6 +391,16 @@ export const BulkFixDialog = ({
         }
     }
 
+    // I7: the new group's id changes the set, and per the cache contract
+    // (CLAUDE.md 4.4) the IndexedDB snapshot is only reused when the group
+    // ids match the server -- so a non-forced reload here is guaranteed to
+    // re-fetch rather than serve the stale snapshot that lacks the new
+    // group. Without this, `planAssignment` throws "Unknown target group"
+    // the moment the dialog tries to plan against a group it only knows
+    // about locally (`createdGroup`), and the app's headline remedy --
+    // create a catch-all, then bulk-move into it -- dead-ends in the same
+    // session it was created. `createdGroup` stays as the belt-and-braces
+    // path for a reload that itself fails.
     const handleCreateCatchAll = async () => {
         setCreating(true)
         setCreateError(null)
@@ -326,6 +409,7 @@ export const BulkFixDialog = ({
             setCreatedGroup(created)
             setTargetTouched(true)
             setTargetGroupId(created.id)
+            await reload(false)
         } catch (e) {
             setCreateError(e instanceof Error ? e.message : String(e))
         } finally {
@@ -483,6 +567,17 @@ export const BulkFixDialog = ({
     const changeSetAction: ChangeSet['action'] =
         action === 'moveToCatchAll' ? 'move' : 'assign'
 
+    // I6: the result panel's group-name lookup needs the same merged list
+    // `targetOptions` already builds -- a freshly created catch-all group
+    // is not yet part of `set.groups` (see the comment on `createdGroup`
+    // above), so without this a result naming it renders the raw UID.
+    const allGroups = [
+        ...set.groups,
+        ...(createdGroup && !set.groups.some((g) => g.id === createdGroup.id)
+            ? [createdGroup]
+            : []),
+    ]
+
     // D5: the plan the preview rendered is the plan applied -- `plan.changes`
     // is read once here and never recomputed, so a user can never end up
     // applying something other than what they were shown.
@@ -493,17 +588,28 @@ export const BulkFixDialog = ({
         setStep('apply')
         setProgress(null)
         setWriteResult(null)
-        void write({
+        setMergedOutcomes([])
+        setApplyError(null)
+        write({
             set,
             changes: plan.changes,
             action: changeSetAction,
             note,
             targetGroupId,
             onProgress: (done, total) => setProgress({ done, total }),
-        }).then((result) => {
-            setWriteResult(result)
-            onApplied(result)
         })
+            .then((result) => {
+                setWriteResult(result)
+                setMergedOutcomes(result.outcomes)
+                onApplied(result)
+            })
+            .catch((e) => {
+                // I4: the server write already happened by the time this
+                // could reject (`invalidateType` runs after it, uncaught,
+                // in `useMembershipWrite`) -- never render this as if
+                // nothing happened.
+                setApplyError(e instanceof Error ? e.message : String(e))
+            })
     }
 
     // D2: retry is built from the previous result's `unaccounted` batches,
@@ -514,25 +620,31 @@ export const BulkFixDialog = ({
             return
         }
         setProgress(null)
-        void write({
+        setApplyError(null)
+        write({
             set,
             changes: writeResult.unaccounted,
             action: changeSetAction,
             note,
             targetGroupId,
             onProgress: (done, total) => setProgress({ done, total }),
-        }).then((result) => {
-            setWriteResult(result)
-            onApplied(result)
         })
+            .then((result) => {
+                setWriteResult(result)
+                // I5: merge over only the groups this retry actually
+                // reported on -- every other group's earlier, real outcome
+                // must survive on the panel.
+                setMergedOutcomes((prev) =>
+                    mergeOutcomes(prev, result.outcomes)
+                )
+                onApplied(result)
+            })
+            .catch((e) => {
+                setApplyError(e instanceof Error ? e.message : String(e))
+            })
     }
 
-    const targetOptions = [
-        ...set.groups,
-        ...(createdGroup && !set.groups.some((g) => g.id === createdGroup.id)
-            ? [createdGroup]
-            : []),
-    ].map((g) => (
+    const targetOptions = allGroups.map((g) => (
         <SingleSelectOption key={g.id} value={g.id} label={g.displayName} />
     ))
 
@@ -694,28 +806,36 @@ export const BulkFixDialog = ({
                         )}
                         {writeResult && !isWriting && (
                             <div className={styles.resultPanel}>
-                                {aggregateOutcomes(writeResult.outcomes).map(
-                                    (o) => {
-                                        const groupName =
-                                            set.groups.find(
-                                                (g) => g.id === o.groupId
-                                            )?.displayName ?? o.groupId
-                                        const { text, tone } = outcomeText(
-                                            o,
-                                            groupName
-                                        )
-                                        return (
-                                            <NoticeBox
-                                                key={o.groupId}
-                                                error={tone === 'error'}
-                                                warning={tone === 'warning'}
-                                                valid={tone === 'valid'}
-                                            >
-                                                {text}
-                                            </NoticeBox>
-                                        )
-                                    }
+                                {/* M1: an empty plan produces no batches at
+                                    all (writeMemberships never calls
+                                    onProgress for one either) -- without
+                                    this, the panel would render nothing but
+                                    a Close button and no explanation. */}
+                                {mergedOutcomes.length === 0 && (
+                                    <NoticeBox>
+                                        {i18n.t('There was nothing to apply')}
+                                    </NoticeBox>
                                 )}
+                                {aggregateOutcomes(mergedOutcomes).map((o) => {
+                                    const groupName =
+                                        allGroups.find(
+                                            (g) => g.id === o.groupId
+                                        )?.displayName ?? o.groupId
+                                    const { text, tone } = outcomeText(
+                                        o,
+                                        groupName
+                                    )
+                                    return (
+                                        <NoticeBox
+                                            key={o.groupId}
+                                            error={tone === 'error'}
+                                            warning={tone === 'warning'}
+                                            valid={tone === 'valid'}
+                                        >
+                                            {text}
+                                        </NoticeBox>
+                                    )
+                                })}
                                 {writeResult.engineError && (
                                     <NoticeBox
                                         warning
@@ -742,6 +862,23 @@ export const BulkFixDialog = ({
                                 )}
                             </div>
                         )}
+                        {/* I4: the write's own promise rejected -- the
+                            server change may well be real (the rejection
+                            comes from cache invalidation, which runs after
+                            the server write in useMembershipWrite), so this
+                            must never be silence. */}
+                        {applyError && !isWriting && (
+                            <NoticeBox
+                                error
+                                title={i18n.t(
+                                    'The result could not be confirmed'
+                                )}
+                            >
+                                {i18n.t(
+                                    'The write may have reached the server, but this dialog could not confirm what happened to it -- reload and check History to see what changed'
+                                )}
+                            </NoticeBox>
+                        )}
                     </div>
                 )}
             </ModalContent>
@@ -753,7 +890,9 @@ export const BulkFixDialog = ({
                         cannot dismiss it and lose the result. Once the
                         result panel is up, "Cancel" becomes the deliberate
                         dismissal the user makes to close it. */}
-                    {step === 'apply' && writeResult && !isWriting ? (
+                    {step === 'apply' &&
+                    !isWriting &&
+                    (writeResult || applyError) ? (
                         <Button onClick={onClose}>{i18n.t('Close')}</Button>
                     ) : (
                         <Button onClick={onClose} disabled={isWriting}>

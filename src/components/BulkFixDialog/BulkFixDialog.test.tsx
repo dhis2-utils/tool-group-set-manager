@@ -28,8 +28,9 @@ jest.mock('@/hooks/useEngineQuery', () => ({
 }))
 
 const mockClientCall = jest.fn()
+const mockReload = jest.fn(async () => undefined)
 jest.mock('@/hooks/useEngine', () => ({
-    useEngine: () => ({ client: { call: mockClientCall } }),
+    useEngine: () => ({ client: { call: mockClientCall }, reload: mockReload }),
 }))
 
 const mockWrite = jest.fn()
@@ -189,6 +190,29 @@ describe('BulkFixDialog action step', () => {
                 screen.getByText('Other/unknown Ownership')
             ).toBeInTheDocument()
         )
+    })
+
+    it('reloads the engine snapshot after creating the catch-all group (I7) -- otherwise the new group stays unknown to planAssignment for the rest of the session', async () => {
+        mockCreateCatchAllGroup.mockResolvedValue({
+            id: 'created-id',
+            displayName: 'Other/unknown Ownership',
+        })
+        render(
+            <BulkFixDialog
+                set={set}
+                scope={scope}
+                filter={{}}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        const createButton = await screen.findByRole('button', {
+            name: /create.*other\/unknown/i,
+        })
+        await act(async () => {
+            fireEvent.click(createButton)
+        })
+        await waitFor(() => expect(mockReload).toHaveBeenCalledWith(false))
     })
 
     it('choosing "assign all to one group" changes the computed plan accordingly', async () => {
@@ -758,7 +782,10 @@ describe('BulkFixDialog apply step', () => {
 
     const changes = [{ groupId: 'g2', additions: ['a1', 'a2'], deletions: [] }]
 
-    async function goToApply(onApplied = jest.fn()) {
+    async function goToApply(
+        onApplied = jest.fn(),
+        planChanges: typeof changes = changes
+    ) {
         mockLoadConfig.mockResolvedValue({
             requiredLevels: {},
             catchAllGroup: { own: 'g2' },
@@ -767,7 +794,7 @@ describe('BulkFixDialog apply step', () => {
         mockUseEngineQuery.mockImplementation((method: string) => {
             if (method === 'planAssignment') {
                 return {
-                    data: plan({ changes, affected: 2 }),
+                    data: plan({ changes: planChanges, affected: 2 }),
                     isLoading: false,
                     error: null,
                 }
@@ -791,7 +818,15 @@ describe('BulkFixDialog apply step', () => {
             expect(screen.getByText('Beta')).toBeInTheDocument()
         )
         fireEvent.click(screen.getByRole('button', { name: /next/i }))
-        await screen.findByText('+2 / -0')
+        const additions = planChanges.reduce(
+            (n, c) => n + c.additions.length,
+            0
+        )
+        const deletions = planChanges.reduce(
+            (n, c) => n + c.deletions.length,
+            0
+        )
+        await screen.findByText(`+${additions} / -${deletions}`)
         return screen.getByRole('button', { name: /^apply/i })
     }
 
@@ -812,6 +847,79 @@ describe('BulkFixDialog apply step', () => {
                 changes,
                 targetGroupId: 'g2',
             })
+        )
+    })
+
+    // Fix round 1, I3: the previous version of this test used the same
+    // mocked `plan` object for every `planAssignment` call, so a dialog
+    // that recomputed the plan at apply time (bypassing the snapshot the
+    // preview actually rendered) would still pass -- the recompute would
+    // just return the identical object. Here the mock's own return value
+    // changes to a second, different plan *before* Apply is clicked but
+    // *without* an intervening render (nothing between the switch and the
+    // click causes React to re-render) -- simulating a background
+    // `planAssignment` requery landing right after the preview was shown.
+    // `handleApply`'s closure was created on the last committed render, so
+    // it can only see this second plan if something reads fresh data at
+    // click time instead of using the `plan` already in scope.
+    it("applies the plan the preview actually rendered, not a plan recomputed later (I3 -- guards against the vacuous 'same object every call' mock)", async () => {
+        const changesA = [
+            { groupId: 'g2', additions: ['a1', 'a2'], deletions: [] },
+        ]
+        const changesB = [{ groupId: 'g1', additions: ['zzz'], deletions: [] }]
+        let currentChanges: typeof changesA | typeof changesB = changesA
+        mockLoadConfig.mockResolvedValue({
+            requiredLevels: {},
+            catchAllGroup: { own: 'g2' },
+            includeTracker: false,
+        })
+        mockUseEngineQuery.mockImplementation((method: string) => {
+            if (method === 'planAssignment') {
+                return {
+                    data: plan({ changes: currentChanges, affected: 2 }),
+                    isLoading: false,
+                    error: null,
+                }
+            }
+            return {
+                data: { total: 2, offset: 0, items: [] },
+                isLoading: false,
+                error: null,
+            }
+        })
+        mockWrite.mockResolvedValue({
+            outcomes: [{ groupId: 'g2', requested: 2, accepted: 2 }],
+            applied: changesA,
+            unaccounted: [],
+            changeSet: {} as never,
+        })
+        render(
+            <BulkFixDialog
+                set={setForApply}
+                scope={scope}
+                filter={{}}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        await waitFor(() =>
+            expect(screen.getByText('Beta')).toBeInTheDocument()
+        )
+        fireEvent.click(screen.getByRole('button', { name: /next/i }))
+        // Confirms the screen genuinely rendered plan A before the switch.
+        await screen.findByText('+2 / -0')
+
+        currentChanges = changesB
+        const applyButton = screen.getByRole('button', { name: /^apply/i })
+        await act(async () => {
+            fireEvent.click(applyButton)
+        })
+
+        expect(mockWrite).toHaveBeenCalledWith(
+            expect.objectContaining({ changes: changesA })
+        )
+        expect(mockWrite).not.toHaveBeenCalledWith(
+            expect.objectContaining({ changes: changesB })
         )
     })
 
@@ -863,19 +971,28 @@ describe('BulkFixDialog apply step', () => {
             screen.getByText(/All changes applied to Alpha/)
         ).toBeInTheDocument()
         const betaText = screen.getByText(/Beta/)
-        expect(betaText.textContent).toMatch(/fewer/i)
+        expect(betaText.textContent).toMatch(/fewer|accepted/i)
         expect(betaText.textContent).toMatch(/re-read/i)
         expect(betaText.textContent?.toLowerCase()).not.toMatch(/success/)
     })
 
-    it('a failed batch offers a retry that sends only what failed', async () => {
-        mockWrite.mockResolvedValueOnce({
+    // Fix round 1, Critical (C1): the previous `aggregateOutcomes` summed
+    // `requested`/`accepted` across a group's batches and classified on the
+    // sums. A group split into an over-reporting batch (1010/1000 -- the
+    // server can report MORE than was sent, see `acceptedCount`'s doc
+    // comment in writes.ts) and a short batch (990/1000) sums to 2000/2000
+    // and would render "All changes applied" while BOTH batches actually
+    // sit in `unaccounted`. Classification must be per batch.
+    it('never reports "All changes applied" when a group\'s batches disagree, even if their over/under counts sum to a perfect total (Critical C1)', async () => {
+        mockWrite.mockResolvedValue({
             outcomes: [
-                { groupId: 'g2', requested: 2, accepted: 0, error: 'HTTP 500' },
+                { groupId: 'g2', requested: 1000, accepted: 1010 },
+                { groupId: 'g2', requested: 1000, accepted: 990 },
             ],
             applied: [],
             unaccounted: [
-                { groupId: 'g2', additions: ['a1', 'a2'], deletions: [] },
+                { groupId: 'g2', additions: [], deletions: [] },
+                { groupId: 'g2', additions: [], deletions: [] },
             ],
             changeSet: {} as never,
         })
@@ -883,14 +1000,68 @@ describe('BulkFixDialog apply step', () => {
         await act(async () => {
             fireEvent.click(applyButton)
         })
+        await waitFor(() =>
+            expect(screen.getByText(/Beta/)).toBeInTheDocument()
+        )
+        expect(
+            screen.queryByText(/All changes applied to Beta/)
+        ).not.toBeInTheDocument()
+        // Retry must still be offered -- both batches are unaccounted.
+        expect(
+            screen.getByRole('button', { name: /retry/i })
+        ).toBeInTheDocument()
+    })
+
+    // Fix round 1, I1: a group can have some batches confirmed in full and
+    // others not (one errored, say) -- part of its change is real and
+    // permanent, so it must not be reported as simply "failed".
+    it('says a group has partially landed, not "failed", when some of its batches were confirmed and one errored', async () => {
+        mockWrite.mockResolvedValue({
+            outcomes: [
+                { groupId: 'g2', requested: 500, accepted: 500 },
+                {
+                    groupId: 'g2',
+                    requested: 500,
+                    accepted: 0,
+                    error: 'HTTP 500',
+                },
+            ],
+            applied: [],
+            unaccounted: [{ groupId: 'g2', additions: [], deletions: [] }],
+            changeSet: {} as never,
+        })
+        const applyButton = await goToApply()
+        await act(async () => {
+            fireEvent.click(applyButton)
+        })
+        const betaText = await screen.findByText(/Beta/)
+        expect(betaText.textContent?.toLowerCase()).not.toMatch(/failed/)
+        expect(betaText.textContent).toMatch(/500 of 1000|re-read/i)
+    })
+
+    it('a failed batch offers a retry that sends only what failed', async () => {
+        mockWrite.mockResolvedValueOnce({
+            outcomes: [{ groupId: 'g2', requested: 3, accepted: 2 }],
+            applied: [],
+            // Fix round 1, I2: strictly a SUBSET of the plan's changes
+            // (a1,a2,a3) -- the previous fixture was deep-equal to the
+            // plan's own `changes`, so a retry that (wrongly) resent the
+            // whole original plan would pass this test unchanged.
+            unaccounted: [{ groupId: 'g2', additions: ['a3'], deletions: [] }],
+            changeSet: {} as never,
+        })
+        const applyButton = await goToApply(undefined, [
+            { groupId: 'g2', additions: ['a1', 'a2', 'a3'], deletions: [] },
+        ])
+        await act(async () => {
+            fireEvent.click(applyButton)
+        })
         const retryButton = await screen.findByRole('button', {
             name: /retry/i,
         })
         mockWrite.mockResolvedValueOnce({
-            outcomes: [{ groupId: 'g2', requested: 2, accepted: 2 }],
-            applied: [
-                { groupId: 'g2', additions: ['a1', 'a2'], deletions: [] },
-            ],
+            outcomes: [{ groupId: 'g2', requested: 1, accepted: 1 }],
+            applied: [{ groupId: 'g2', additions: ['a3'], deletions: [] }],
             unaccounted: [],
             changeSet: {} as never,
         })
@@ -899,11 +1070,202 @@ describe('BulkFixDialog apply step', () => {
         })
         expect(mockWrite).toHaveBeenLastCalledWith(
             expect.objectContaining({
-                changes: [
-                    { groupId: 'g2', additions: ['a1', 'a2'], deletions: [] },
-                ],
+                changes: [{ groupId: 'g2', additions: ['a3'], deletions: [] }],
             })
         )
+        const lastCallChanges = mockWrite.mock.calls[
+            mockWrite.mock.calls.length - 1
+        ][0].changes as { additions: string[] }[]
+        expect(lastCallChanges.some((c) => c.additions.includes('a1'))).toBe(
+            false
+        )
+        expect(lastCallChanges.some((c) => c.additions.includes('a2'))).toBe(
+            false
+        )
+    })
+
+    // Fix round 1, I5: a retry's result must not erase the earlier write's
+    // outcomes for groups it did not retry -- only the group(s) it actually
+    // reported on should be replaced.
+    it('keeps an earlier fully-applied group visible on the panel after a retry that only concerns a different group', async () => {
+        mockWrite.mockResolvedValueOnce({
+            outcomes: [
+                { groupId: 'g1', requested: 1, accepted: 1 },
+                { groupId: 'g2', requested: 1, accepted: 0, error: 'HTTP 500' },
+            ],
+            applied: [{ groupId: 'g1', additions: [], deletions: [] }],
+            unaccounted: [{ groupId: 'g2', additions: ['a1'], deletions: [] }],
+            changeSet: {} as never,
+        })
+        const applyButton = await goToApply()
+        await act(async () => {
+            fireEvent.click(applyButton)
+        })
+        await screen.findByText(/All changes applied to Alpha/)
+
+        const retryButton = screen.getByRole('button', { name: /retry/i })
+        mockWrite.mockResolvedValueOnce({
+            outcomes: [{ groupId: 'g2', requested: 1, accepted: 1 }],
+            applied: [{ groupId: 'g2', additions: ['a1'], deletions: [] }],
+            unaccounted: [],
+            changeSet: {} as never,
+        })
+        await act(async () => {
+            fireEvent.click(retryButton)
+        })
+
+        // Alpha's earlier, real success must still be on the panel.
+        expect(
+            screen.getByText(/All changes applied to Alpha/)
+        ).toBeInTheDocument()
+        expect(
+            screen.getByText(/All changes applied to Beta/)
+        ).toBeInTheDocument()
+    })
+
+    // Fix round 1, I6: a freshly created catch-all group is not yet part of
+    // `set.groups` (see the comment on `createdGroup`) -- the result panel
+    // must name it properly, the same way `targetOptions` already does,
+    // rather than falling back to the raw UID.
+    it('names a freshly created catch-all group by its display name in the result panel, not its raw id', async () => {
+        mockCreateCatchAllGroup.mockResolvedValue({
+            id: 'created-id',
+            displayName: 'Other/unknown Ownership',
+        })
+        mockLoadConfig.mockResolvedValue({
+            requiredLevels: {},
+            catchAllGroup: {},
+            includeTracker: false,
+        })
+        mockUseEngineQuery.mockImplementation((method: string) => {
+            if (method === 'planAssignment') {
+                return {
+                    data: plan({
+                        changes: [
+                            {
+                                groupId: 'created-id',
+                                additions: ['a1'],
+                                deletions: [],
+                            },
+                        ],
+                        affected: 1,
+                    }),
+                    isLoading: false,
+                    error: null,
+                }
+            }
+            return {
+                data: { total: 1, offset: 0, items: [] },
+                isLoading: false,
+                error: null,
+            }
+        })
+        mockWrite.mockResolvedValue({
+            outcomes: [{ groupId: 'created-id', requested: 1, accepted: 1 }],
+            applied: [
+                { groupId: 'created-id', additions: ['a1'], deletions: [] },
+            ],
+            unaccounted: [],
+            changeSet: {} as never,
+        })
+        render(
+            <BulkFixDialog
+                set={setForApply}
+                scope={scope}
+                filter={{}}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        const createButton = await screen.findByRole('button', {
+            name: /create.*other\/unknown/i,
+        })
+        await act(async () => {
+            fireEvent.click(createButton)
+        })
+        await waitFor(() =>
+            expect(
+                screen.getByText('Other/unknown Ownership')
+            ).toBeInTheDocument()
+        )
+        fireEvent.click(screen.getByRole('button', { name: /next/i }))
+        await screen.findByText('+1 / -0')
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /^apply/i }))
+        })
+        await waitFor(() =>
+            expect(
+                screen.getByText(/All changes applied to Other\/unknown/)
+            ).toBeInTheDocument()
+        )
+        expect(screen.queryByText(/created-id/)).not.toBeInTheDocument()
+    })
+
+    // Fix round 1, I4: `write()` can reject (cache invalidation runs after
+    // the server change, uncaught, in useMembershipWrite) -- without
+    // handling this, the apply step renders a blank panel even though the
+    // server write may well have succeeded.
+    it('shows an error rather than a blank panel when write() rejects (I4)', async () => {
+        mockWrite.mockRejectedValueOnce(new Error('indexedDB blew up'))
+        const applyButton = await goToApply()
+        await act(async () => {
+            fireEvent.click(applyButton)
+        })
+        expect(
+            await screen.findByText(/could not confirm/i)
+        ).toBeInTheDocument()
+        // The user must still be able to leave the dialog.
+        expect(
+            screen.getByRole('button', { name: /^close$/i })
+        ).toBeInTheDocument()
+    })
+
+    // Fix round 1, M1: an empty plan produces no batches (writeMemberships
+    // never calls onProgress for one either) -- the panel must say so
+    // explicitly rather than rendering nothing.
+    it('shows an explicit notice when there is nothing to apply (M1)', async () => {
+        mockUseEngineQuery.mockImplementation((method: string) => {
+            if (method === 'planAssignment') {
+                return {
+                    data: plan({ changes: [], affected: 0 }),
+                    isLoading: false,
+                    error: null,
+                }
+            }
+            return {
+                data: { total: 0, offset: 0, items: [] },
+                isLoading: false,
+                error: null,
+            }
+        })
+        mockLoadConfig.mockResolvedValue({
+            requiredLevels: {},
+            catchAllGroup: { own: 'g2' },
+            includeTracker: false,
+        })
+        mockWrite.mockResolvedValue({
+            outcomes: [],
+            applied: [],
+            unaccounted: [],
+            changeSet: {} as never,
+        })
+        render(
+            <BulkFixDialog
+                set={setForApply}
+                scope={scope}
+                filter={{}}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        await waitFor(() =>
+            expect(screen.getByText('Beta')).toBeInTheDocument()
+        )
+        fireEvent.click(screen.getByRole('button', { name: /next/i }))
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /^apply/i }))
+        })
+        expect(await screen.findByText(/nothing to apply/i)).toBeInTheDocument()
     })
 
     it('cannot be dismissed mid-write in a way that loses the result (D4)', async () => {
@@ -947,11 +1309,21 @@ describe('BulkFixDialog apply step', () => {
             fireEvent.click(screen.getByRole('button', { name: /^apply/i }))
         })
 
-        const cancelButton = screen.queryByRole('button', { name: /^cancel$/i })
-        if (cancelButton) {
-            expect(cancelButton).toBeDisabled()
-            fireEvent.click(cancelButton)
-        }
+        // Fix round 1, M3: asserted unconditionally -- the previous version
+        // wrapped this in `if (cancelButton)`, so renaming the button would
+        // have made the whole check pass vacuously.
+        const cancelButton = screen.getByRole('button', { name: /^cancel$/i })
+        expect(cancelButton).toBeDisabled()
+        fireEvent.click(cancelButton)
+        expect(onClose).not.toHaveBeenCalled()
+
+        // Fix round 1, M3: the other half of what the implementation
+        // blocks -- the Modal's own close affordance (Escape/backdrop,
+        // exposed here as its close button), not just this dialog's own
+        // Cancel button.
+        fireEvent.click(
+            screen.getByRole('button', { name: /close modal dialog/i })
+        )
         expect(onClose).not.toHaveBeenCalled()
     })
 })

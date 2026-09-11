@@ -244,6 +244,14 @@ export const GroupSetDetail = () => {
                     // this engine snapshot, so a non-forced reload is what
                     // picks up a group the dialog created or a membership
                     // change the write already applied locally.
+                    //
+                    // M4: this fires on every apply AND every retry while
+                    // the dialog is still open, so `set` (and therefore
+                    // `set.groups`) can change under the dialog mid-flow.
+                    // Harmless today -- the apply step never re-reads the
+                    // plan or re-renders the preview -- but a future change
+                    // to the apply/preview steps should not assume `set` is
+                    // stable for the dialog's lifetime.
                     onApplied={() => {
                         void reload(false)
                     }}
