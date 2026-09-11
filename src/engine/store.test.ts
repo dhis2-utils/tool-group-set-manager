@@ -284,6 +284,15 @@ describe('EngineStore', () => {
                 'Alpha A2',
                 'Beta One',
             ]
+            // These rebuild counts spy on `map` because the lowercase index
+            // builder is its only caller. That couples them to one way of
+            // writing the builder: rewritten as a `for` loop, the spy would
+            // never fire and these tests would fail rather than pass
+            // silently, so the coupling costs a false alarm on a refactor,
+            // never a missed regression. Counting the rebuilds is still
+            // right -- the alternative that was tried first, timing 20
+            // searches, had 1.12x of headroom and would have flaked in both
+            // directions (ruling P3-R10).
             const build = jest.spyOn(names, 'map')
             store.setNames('organisationUnit', names)
             store.objectsFor('own', scope, { text: 'alpha' }, 0, 10)
