@@ -2,7 +2,11 @@ import i18n from '@dhis2/d2-i18n'
 import { Card, Tag } from '@dhis2/ui'
 import React from 'react'
 import styles from './GroupSetCard.module.css'
+import { IntegrityLine } from '@/components/IntegrityLine/IntegrityLine'
+import { CheckSummary, ResolvedCheck } from '@/data/integrity'
 import { DashboardEntry } from '@/engine/store'
+import { ObjectType } from '@/engine/types'
+import { useIntegrity } from '@/hooks/useIntegrity'
 import { interpolate } from '@/utils/interpolate'
 
 interface Props {
@@ -37,9 +41,38 @@ const readOnlyLabel = (count: number) =>
         ? i18n.t('1 group read-only for you')
         : interpolate(i18n.t('{count} groups read-only for you'), { count })
 
+/**
+ * The one DHIS2-native check this card's line shows, chosen for the card's
+ * object type in the app's own preference order (see CANDIDATES in
+ * src/data/integrity.ts, whose iteration order LOGICAL_ORDER preserves):
+ * the first resolved check matching this set's object type. Spec 5.1 asks
+ * for a single result per card, not the full "relevant checks" list spec
+ * 5.2 gives the detail tab, so a set with more than one applicable check
+ * (org units have both the compulsory and the exclusive-groups checks)
+ * shows only its first match here -- Task 4's detail tab is where every
+ * relevant check gets its own line.
+ */
+function checkFor(
+    checks: ResolvedCheck[],
+    objectType: ObjectType
+): ResolvedCheck | undefined {
+    return checks.find((c) => c.objectType === objectType)
+}
+
 export const GroupSetCard = ({ entry, onOpen }: Props) => {
     const { set, summary, hasData } = entry
     const readOnlyGroups = set.groups.filter((g) => !g.canWrite).length
+    const { available, checks, summaries, stale } = useIntegrity()
+    // A user without the overlay (available === false, the normal case for
+    // a district manager) gets nothing from this at all -- not an empty
+    // element, not a placeholder, not a dash. `relevantCheck` stays
+    // undefined and the block below renders nothing.
+    const relevantCheck = available
+        ? checkFor(checks, set.objectType)
+        : undefined
+    const relevantSummary: CheckSummary | undefined = relevantCheck
+        ? summaries[relevantCheck.name]
+        : undefined
     // The same condition, and the same wording, as the summary matrix's
     // extra column (see SummaryMatrix's showUnassigned): only a set that is
     // neither compulsory nor a data dimension can hold objects that are in
@@ -133,6 +166,13 @@ export const GroupSetCard = ({ entry, onOpen }: Props) => {
                         ? readOnlyLabel(readOnlyGroups)
                         : i18n.t('You can edit all groups')}
                 </div>
+                {relevantCheck && relevantSummary && (
+                    <IntegrityLine
+                        check={relevantCheck}
+                        summary={relevantSummary}
+                        stale={stale.has(relevantCheck.name)}
+                    />
+                )}
             </div>
         </Card>
     )

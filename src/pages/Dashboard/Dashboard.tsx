@@ -7,7 +7,7 @@ import {
     SingleSelectOption,
 } from '@dhis2/ui'
 import React, { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import styles from './Dashboard.module.css'
 import { GroupSetCard } from '@/components/GroupSetCard/GroupSetCard'
 import { LoadProgress } from '@/components/LoadProgress/LoadProgress'
@@ -53,7 +53,7 @@ const sourceLabel = (kind: 'sqlView' | 'metadata') =>
         : i18n.t('Data loaded from the metadata API')
 
 export const Dashboard = () => {
-    const { client, status, error, sourceKind, reload } = useEngine()
+    const { client, status, error, sourceKind, fellBack, reload } = useEngine()
     const { rootId, isReady } = useScope()
     const navigate = useNavigate()
     const [onlyIssues, setOnlyIssues] = useState(true)
@@ -164,6 +164,28 @@ export const Dashboard = () => {
             {sourceKind && (
                 <p className={styles.note}>{sourceLabel(sourceKind)}</p>
             )}
+            {
+                // Closes Plan 2's deferred item: the D4 fallback is silent
+                // per-load, so a broken SQL view degrades every load with
+                // nothing telling the user it can be repaired. Gated on
+                // `fellBack`, never on `sourceKind === 'metadata'` alone --
+                // that reads identically on a server that never had SQL
+                // views at all, which must stay silent.
+                fellBack && (
+                    <NoticeBox title={i18n.t('A GSI SQL view failed to load')}>
+                        <p>
+                            {i18n.t(
+                                'Data is being loaded from the metadata API instead because one of the GSI SQL views could not be read. Performance may be slower until the view is repaired.'
+                            )}
+                        </p>
+                        <Link to="/settings">
+                            {i18n.t(
+                                'Go to Settings to check or repair the SQL views'
+                            )}
+                        </Link>
+                    </NoticeBox>
+                )
+            }
             {shownTypes.map((type) => {
                 // `entries` only gains a key for a type once its dashboard
                 // call has actually settled (see the effect above, which

@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-11T16:48:02.855Z\n"
-"PO-Revision-Date: 2026-09-11T16:48:02.855Z\n"
+"POT-Creation-Date: 2026-09-11T19:51:01.347Z\n"
+"PO-Revision-Date: 2026-09-11T19:51:01.347Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -191,6 +191,18 @@ msgstr "OK"
 
 msgid "You can edit all groups"
 msgstr "You can edit all groups"
+
+msgid "DHIS2 found 1 object across the whole instance as of {time}"
+msgstr "DHIS2 found 1 object across the whole instance as of {time}"
+
+msgid "DHIS2 found {count} objects across the whole instance as of {time}"
+msgstr "DHIS2 found {count} objects across the whole instance as of {time}"
+
+msgid "This check has not been run yet; run it from the DHIS2 integrity tab"
+msgstr "This check has not been run yet; run it from the DHIS2 integrity tab"
+
+msgid "Stale"
+msgstr "Stale"
 
 msgid "Loading group sets"
 msgstr "Loading group sets"
@@ -478,6 +490,21 @@ msgstr "Reload data"
 
 msgid "Loading failed"
 msgstr "Loading failed"
+
+msgid "A GSI SQL view failed to load"
+msgstr "A GSI SQL view failed to load"
+
+msgid ""
+"Data is being loaded from the metadata API instead because one of the GSI "
+"SQL views could not be read. Performance may be slower until the view is "
+"repaired."
+msgstr ""
+"Data is being loaded from the metadata API instead because one of the GSI "
+"SQL views could not be read. Performance may be slower until the view is "
+"repaired."
+
+msgid "Go to Settings to check or repair the SQL views"
+msgstr "Go to Settings to check or repair the SQL views"
 
 msgid "No group sets of this type"
 msgstr "No group sets of this type"

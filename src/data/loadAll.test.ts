@@ -136,13 +136,19 @@ describe('loadAll', () => {
         const cache = createMemoryCache()
         const engine = inlineEngine()
         const statuses: LoadStatus[] = []
-        const { groupSets } = await loadAll({
+        const { groupSets, fellBack } = await loadAll({
             source,
             fetcher,
             cache,
             engine,
             onStatus: (s) => statuses.push(s),
         })
+
+        // This source is 'metadata' from the start -- a server that never
+        // had SQL views at all -- so no fallback ever happened, and the
+        // flag must say so rather than being inferred from sourceKind
+        // (which is also 'metadata' here and would be indistinguishable).
+        expect(fellBack).toBe(false)
 
         // The indicator group set ('igs') is also returned: loadGroupSets
         // (already tested, unmodified) legitimately includes it since the
@@ -596,6 +602,10 @@ describe('loadAll', () => {
         // The app must end up reporting the source it actually used, not the
         // one it merely started with.
         expect(result.sourceKind).toBe('metadata')
+        // Distinct from the case above: this server did have a SQL view
+        // source that broke mid-load, so the flag must be true here even
+        // though sourceKind reads the same ('metadata') in both cases.
+        expect(result.fellBack).toBe(true)
         // Exactly one attempt against the broken SQL view source for
         // organisationUnit objects -- a retry wrapper around every read
         // would show up here as more than one.

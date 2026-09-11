@@ -152,11 +152,13 @@ async function commitOrRollback(
 function withSourceFallback(deps: Deps): {
     call: <T>(run: (source: DataSource) => Promise<T>) => Promise<T>
     current: () => DataSource
+    fellBack: () => boolean
 } {
     let activeSource = deps.source
     let fellBack = false
     return {
         current: () => activeSource,
+        fellBack: () => fellBack,
         async call<T>(run: (source: DataSource) => Promise<T>): Promise<T> {
             try {
                 return await run(activeSource)
@@ -172,9 +174,18 @@ function withSourceFallback(deps: Deps): {
     }
 }
 
-export async function loadAll(
-    deps: Deps
-): Promise<{ groupSets: GroupSetMeta[]; sourceKind: DataSource['kind'] }> {
+export async function loadAll(deps: Deps): Promise<{
+    groupSets: GroupSetMeta[]
+    sourceKind: DataSource['kind']
+    /**
+     * P3-R2: true only when `withSourceFallback` actually latched during
+     * this load -- never inferred from `sourceKind === 'metadata'`, which
+     * is equally true on a server that never had SQL views to begin with.
+     * This is what lets the dashboard tell "a view broke, go fix it" apart
+     * from "this server has no SQL views, say nothing".
+     */
+    fellBack: boolean
+}> {
     const source = withSourceFallback(deps)
     const status: LoadStatus = {
         phase: 'groupSets',
@@ -317,7 +328,11 @@ export async function loadAll(
     emit({ phase: 'evaluate', type: null, progress: null })
     await deps.engine.call('evaluate')
     emit({ phase: 'done', type: null, progress: null })
-    return { groupSets, sourceKind: source.current().kind }
+    return {
+        groupSets,
+        sourceKind: source.current().kind,
+        fellBack: source.fellBack(),
+    }
 }
 
 /**

@@ -14,11 +14,13 @@ const mockCallOverrides: {
     extraCleanOrgUnitSet: boolean
     worseOrgUnitSets: boolean
     dataElementSets: boolean
+    fellBack: boolean
 } = {
     dataElementError: null,
     extraCleanOrgUnitSet: false,
     worseOrgUnitSets: false,
     dataElementSets: false,
+    fellBack: false,
 }
 
 const cleanSet = (id: string, name: string) => ({
@@ -121,8 +123,24 @@ jest.mock('@/hooks/useEngine', () => ({
         },
         groupSets: [],
         sourceKind: 'metadata',
+        get fellBack() {
+            return mockCallOverrides.fellBack
+        },
         error: null,
         reload: async () => undefined,
+    }),
+}))
+jest.mock('@/hooks/useIntegrity', () => ({
+    useIntegrity: () => ({
+        available: false,
+        checks: [],
+        summaries: {},
+        stale: new Set(),
+        isRunning: false,
+        error: null,
+        run: async () => undefined,
+        markStale: () => undefined,
+        refresh: async () => undefined,
     }),
 }))
 jest.mock('@/hooks/useScope', () => ({
@@ -142,6 +160,36 @@ afterEach(() => {
     mockCallOverrides.extraCleanOrgUnitSet = false
     mockCallOverrides.worseOrgUnitSets = false
     mockCallOverrides.dataElementSets = false
+    mockCallOverrides.fellBack = false
+})
+
+it('shows the SQL view repair notice after a real fallback', async () => {
+    mockCallOverrides.fellBack = true
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+    expect(screen.getByText(/settings/i)).toBeInTheDocument()
+})
+
+it('stays silent on a metadata-only server that never fell back', async () => {
+    // sourceKind is 'metadata' here too (the mock's baseline), which is
+    // exactly the case the nudge must not trigger on -- a server that
+    // never had SQL views to begin with, distinguished only by fellBack.
+    mockCallOverrides.fellBack = false
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+    expect(screen.queryByText(/settings/i)).not.toBeInTheDocument()
 })
 
 it('lists sets with issues and hides clean ones by default', async () => {

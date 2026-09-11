@@ -21,6 +21,13 @@ interface EngineContextValue {
     status: LoadStatus | null
     groupSets: GroupSetMeta[]
     sourceKind: 'sqlView' | 'metadata' | null
+    /**
+     * P3-R2: true only when the most recent load actually fell back from a
+     * broken SQL view source to the metadata source mid-load (`loadAll`'s
+     * `fellBack`) -- never inferred from `sourceKind === 'metadata'`, which
+     * is also true on a server that never had SQL views at all.
+     */
+    fellBack: boolean
     error: string | null
     reload: (force: boolean) => Promise<void>
     /**
@@ -67,6 +74,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
     const [sourceKind, setSourceKind] = useState<'sqlView' | 'metadata' | null>(
         null
     )
+    const [fellBack, setFellBack] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
     // One IndexedDB connection per base URL, opened lazily on first use
@@ -96,6 +104,10 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
                     return
                 }
                 setSourceKind(source.kind)
+                // Reset here, before loadAll runs: a fresh attempt starts
+                // from "no fallback happened yet" rather than carrying
+                // forward a notice earned by a previous load.
+                setFellBack(false)
                 if (force) {
                     // A forced reload must never let an older, still-running
                     // load keep filling the engine after this reset -- but
@@ -130,6 +142,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
                     if (result.sourceKind) {
                         setSourceKind(result.sourceKind)
                     }
+                    setFellBack(result.fellBack)
                 }
             } catch (e) {
                 if (isCurrent()) {
@@ -187,6 +200,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
             status,
             groupSets,
             sourceKind,
+            fellBack,
             error,
             reload,
             invalidateType,
@@ -197,6 +211,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
             status,
             groupSets,
             sourceKind,
+            fellBack,
             error,
             reload,
             invalidateType,
