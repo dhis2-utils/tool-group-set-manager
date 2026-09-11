@@ -494,4 +494,117 @@ describe('loadAll', () => {
         expect(last.phase).toBe('done')
         expect(source.loads).toContain('objects:organisationUnit')
     })
+
+    // D4: a SQL view source that fails its first real read must degrade to
+    // the metadata source for the rest of that load, not report a broken
+    // app -- and it must not retry the SQL view source again afterwards
+    // (the whole point is one fallback, not a wrapper around every read).
+    it('D4: falls back to the metadata source when the sql view source fails its first read', async () => {
+        const sqlViewCalls: string[] = []
+        const failingSqlSource: DataSource = {
+            kind: 'sqlView',
+            async loadObjects(type) {
+                sqlViewCalls.push(`objects:${type}`)
+                if (type === 'organisationUnit') {
+                    throw new Error('sql view read failed: HTTP 500')
+                }
+                return {
+                    objectType: type,
+                    ids: [],
+                    names: [],
+                    level: null,
+                    parentIds: null,
+                    domainType: null,
+                    categoryIdsOfOption: null,
+                }
+            },
+            async loadNames(type) {
+                sqlViewCalls.push(`names:${type}`)
+                return []
+            },
+            async loadMemberships(type) {
+                sqlViewCalls.push(`memberships:${type}`)
+                return { objectType: type, groups: [] }
+            },
+        }
+        const metadataFetcher = async (path: string) => {
+            if (path.startsWith('organisationUnits?fields=id,level,parent')) {
+                return new Response(
+                    JSON.stringify({
+                        organisationUnits: [
+                            { id: 'r', level: 1 },
+                            { id: 'a', level: 2, parent: { id: 'r' } },
+                        ],
+                    }),
+                    { status: 200 }
+                )
+            }
+            if (path.startsWith('organisationUnits?fields=id,displayName')) {
+                return new Response(
+                    JSON.stringify({
+                        organisationUnits: [
+                            { id: 'r', displayName: 'Root' },
+                            { id: 'a', displayName: 'A' },
+                        ],
+                    }),
+                    { status: 200 }
+                )
+            }
+            if (
+                path.startsWith('organisationUnitGroups/pub/organisationUnits')
+            ) {
+                return new Response(
+                    JSON.stringify({ organisationUnits: [{ id: 'a' }] }),
+                    { status: 200 }
+                )
+            }
+            if (path.startsWith('indicators?fields=id,displayName')) {
+                return new Response(
+                    JSON.stringify({
+                        indicators: [{ id: 'i1', displayName: 'Ind1' }],
+                    }),
+                    { status: 200 }
+                )
+            }
+            if (path.startsWith('indicatorGroups/ig1/indicators')) {
+                return new Response(
+                    JSON.stringify({ indicators: [{ id: 'i1' }] }),
+                    { status: 200 }
+                )
+            }
+            return fetcher(path)
+        }
+        const engine = inlineEngine()
+        const status: LoadStatus[] = []
+        const result = await loadAll({
+            source: failingSqlSource,
+            fetcher: metadataFetcher,
+            cache: createMemoryCache(),
+            engine,
+            onStatus: (s) => status.push(s),
+        })
+
+        // The load completed (no fatal error for organisationUnit) and the
+        // engine actually holds the org units the metadata fallback served.
+        expect(
+            status[status.length - 1].errors.organisationUnit
+        ).toBeUndefined()
+        expect(status[status.length - 1].phase).toBe('done')
+        expect(
+            engine.store.resolve('organisationUnit', [0, 1]).map((r) => r.id)
+        ).toEqual(['r', 'a'])
+        // The app must end up reporting the source it actually used, not the
+        // one it merely started with.
+        expect(result.sourceKind).toBe('metadata')
+        // Exactly one attempt against the broken SQL view source for
+        // organisationUnit objects -- a retry wrapper around every read
+        // would show up here as more than one.
+        expect(
+            sqlViewCalls.filter((c) => c === 'objects:organisationUnit')
+        ).toHaveLength(1)
+        // Once fallen back, later types must go straight to the metadata
+        // source rather than trying (and failing) the SQL view source too.
+        expect(sqlViewCalls).not.toContain('objects:indicator')
+        expect(sqlViewCalls).not.toContain('memberships:organisationUnit')
+    })
 })

@@ -8,6 +8,7 @@ import {
     NamedId,
     Progress,
 } from './sources/DataSource'
+import { createMetadataSource } from './sources/metadataSource'
 import { EngineClient } from '@/engine/client'
 import { GroupSetMeta, OBJECT_TYPES, ObjectType } from '@/engine/types'
 
@@ -129,9 +130,46 @@ async function commitOrRollback(
     }
 }
 
+/**
+ * D4: a SQL view read failure must degrade, not break. `activeSource` starts
+ * as whatever `selectSource` picked; the first time a call through it
+ * throws, this switches it to a fresh metadata source (built from the same
+ * fetcher) and retries that one call, for the rest of this load only --
+ * `fellBack` then latches so a second failure (a metadata read failing too)
+ * is a real, terminal error for its type rather than another fallback
+ * attempt. This is deliberately not a retry wrapper around every read: it
+ * is one guarded transition, reachable at most once per `loadAll` call, and
+ * only for the source kind (`sqlView`) that D4 exists for -- a metadata
+ * source's own failures are never "fallen back" from, there is nowhere left
+ * to fall back to.
+ */
+function withSourceFallback(deps: Deps): {
+    call: <T>(run: (source: DataSource) => Promise<T>) => Promise<T>
+    current: () => DataSource
+} {
+    let activeSource = deps.source
+    let fellBack = false
+    return {
+        current: () => activeSource,
+        async call<T>(run: (source: DataSource) => Promise<T>): Promise<T> {
+            try {
+                return await run(activeSource)
+            } catch (error) {
+                if (fellBack || activeSource.kind !== 'sqlView') {
+                    throw error
+                }
+                fellBack = true
+                activeSource = createMetadataSource(deps.fetcher)
+                return run(activeSource)
+            }
+        },
+    }
+}
+
 export async function loadAll(
     deps: Deps
-): Promise<{ groupSets: GroupSetMeta[] }> {
+): Promise<{ groupSets: GroupSetMeta[]; sourceKind: DataSource['kind'] }> {
+    const source = withSourceFallback(deps)
     const status: LoadStatus = {
         phase: 'groupSets',
         type: null,
@@ -206,15 +244,17 @@ export async function loadAll(
             }
 
             emit({ phase: 'objects', type, progress: null })
-            const objects = await deps.source.loadObjects(type, (p) =>
-                emit({ phase: 'objects', type, progress: p })
+            const objects = await source.call((s) =>
+                s.loadObjects(type, (p) =>
+                    emit({ phase: 'objects', type, progress: p })
+                )
             )
 
             emit({ phase: 'memberships', type, progress: null })
-            const memberships = await deps.source.loadMemberships(
-                type,
-                groupIds,
-                (p) => emit({ phase: 'memberships', type, progress: p })
+            const memberships = await source.call((s) =>
+                s.loadMemberships(type, groupIds, (p) =>
+                    emit({ phase: 'memberships', type, progress: p })
+                )
             )
 
             // Resolving both source fetches before calling the engine at
@@ -240,7 +280,7 @@ export async function loadAll(
                 emit({ phase: 'names', type, progress: null })
                 names = alignNames(
                     objects.ids,
-                    await deps.source.loadNames(type)
+                    await source.call((s) => s.loadNames(type))
                 )
                 await deps.engine.call('setNames', type, names)
             }
@@ -271,7 +311,7 @@ export async function loadAll(
     emit({ phase: 'evaluate', type: null, progress: null })
     await deps.engine.call('evaluate')
     emit({ phase: 'done', type: null, progress: null })
-    return { groupSets }
+    return { groupSets, sourceKind: source.current().kind }
 }
 
 /**

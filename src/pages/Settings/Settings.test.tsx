@@ -22,10 +22,12 @@ const mockGroupSets = [
 ]
 
 const mockReload = jest.fn()
+const mockClearCache = jest.fn(async () => undefined)
 const mockEngine = {
     groupSets: mockGroupSets,
     client: null as { call: jest.Mock } | null,
     reload: mockReload,
+    clearCache: mockClearCache,
 }
 jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => mockEngine,
@@ -67,11 +69,6 @@ jest.mock('@/utils/useApiDataQuery', () => ({
         },
         isLoading: false,
     }),
-}))
-
-const mockClearCache = jest.fn(async () => undefined)
-jest.mock('@/data/cache', () => ({
-    openCache: () => ({ clear: mockClearCache }),
 }))
 
 const mockCheckSqlViews = jest.fn()
@@ -148,7 +145,7 @@ describe('SQL view status', () => {
         ).not.toBeInTheDocument()
     })
 
-    it('offers to create the missing views when the user has the authority, and reports what was created', async () => {
+    it('offers to create the missing views when the user has the authority, reports what was created, and reloads onto the new source (I2)', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_MISSING)
         mockCanCreateSqlViews.mockResolvedValue(true)
         mockCreateOrRepairSqlViews.mockResolvedValue({
@@ -175,6 +172,59 @@ describe('SQL view status', () => {
         await waitFor(() =>
             expect(screen.getByText(/created 3 sql views/i)).toBeInTheDocument()
         )
+        // I2: without this, the app would stay on the metadata API until a
+        // manual reload -- on the instance that motivates this feature, the
+        // button would appear to do nothing.
+        expect(mockReload).toHaveBeenCalledWith(true)
+    })
+
+    it('reports which view failed and why, not just a count (M2)', async () => {
+        mockCheckSqlViews.mockResolvedValue(ALL_MISSING)
+        mockCanCreateSqlViews.mockResolvedValue(true)
+        mockCreateOrRepairSqlViews.mockResolvedValue({
+            created: ['GSI_ORGUNITS', 'GSI_ORGUNIT_NAMES'],
+            repaired: [],
+            failed: [
+                {
+                    code: 'GSI_ORGUNIT_MEMBERSHIPS',
+                    message: 'HTTP 500 executing view',
+                },
+            ],
+        })
+        render(<Settings />)
+        const button = await screen.findByRole('button', {
+            name: /create sql views/i,
+        })
+        await act(async () => {
+            fireEvent.click(button)
+        })
+        expect(screen.getByText(/GSI_ORGUNIT_MEMBERSHIPS/)).toBeInTheDocument()
+        expect(screen.getByText(/HTTP 500 executing view/)).toBeInTheDocument()
+        // A partial failure is not a reason to reload if nothing was
+        // created or repaired -- but here two of three were, so it should.
+        expect(mockReload).toHaveBeenCalledWith(true)
+    })
+
+    it('does not reload when nothing was created or repaired', async () => {
+        mockCheckSqlViews.mockResolvedValue(ALL_MISSING)
+        mockCanCreateSqlViews.mockResolvedValue(true)
+        mockCreateOrRepairSqlViews.mockResolvedValue({
+            created: [],
+            repaired: [],
+            failed: [
+                { code: 'GSI_ORGUNITS', message: 'boom' },
+                { code: 'GSI_ORGUNIT_NAMES', message: 'boom' },
+                { code: 'GSI_ORGUNIT_MEMBERSHIPS', message: 'boom' },
+            ],
+        })
+        render(<Settings />)
+        const button = await screen.findByRole('button', {
+            name: /create sql views/i,
+        })
+        await act(async () => {
+            fireEvent.click(button)
+        })
+        expect(mockReload).not.toHaveBeenCalled()
     })
 
     it('shows the status and an explanation, never a create button, for a user without the authority', async () => {
@@ -193,10 +243,58 @@ describe('SQL view status', () => {
             screen.getByText(/do not have the required authority/i)
         ).toBeInTheDocument()
     })
+
+    // M1
+    it('shows an explanation, never a create button, when it could not determine authority', async () => {
+        mockCheckSqlViews.mockResolvedValue(ALL_MISSING)
+        mockCanCreateSqlViews.mockResolvedValue(null)
+        render(<Settings />)
+        await waitFor(() =>
+            expect(
+                screen.getByText('GSI org unit hierarchy')
+            ).toBeInTheDocument()
+        )
+        expect(
+            screen.queryByRole('button', { name: /create sql views/i })
+        ).not.toBeInTheDocument()
+        expect(
+            screen.getByText(/could not determine whether you can create/i)
+        ).toBeInTheDocument()
+    })
+
+    // I1
+    it('shows an explicit error and a retry option, never an endless spinner, when the status check itself fails', async () => {
+        mockCheckSqlViews.mockRejectedValue(new Error('HTTP 500'))
+        mockCanCreateSqlViews.mockResolvedValue(true)
+        render(<Settings />)
+        await waitFor(() =>
+            expect(
+                screen.getByText(/could not check sql view status/i)
+            ).toBeInTheDocument()
+        )
+        expect(screen.getByText('HTTP 500')).toBeInTheDocument()
+        expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+
+        // Retrying re-runs the same, safe (read-only) status check.
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /try again/i }))
+        })
+        await waitFor(() =>
+            expect(
+                screen.getByText('GSI org unit hierarchy')
+            ).toBeInTheDocument()
+        )
+    })
 })
 
 describe('required levels', () => {
-    it('saves the selected levels for an org unit group set and takes effect without a reload', async () => {
+    // M3: this pins that Settings calls setRequiredLevels correctly and
+    // never calls reload itself over this -- NOT that the change takes
+    // effect without a reload, which is a claim about useGsiConfig's own
+    // wiring and is pinned there (useGsiConfig.test.tsx), independent of
+    // this component's mocked version of the hook.
+    it('saves the selected levels for an org unit group set, and never calls reload itself', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
         mockCanCreateSqlViews.mockResolvedValue(true)
         render(<Settings />)
@@ -211,9 +309,29 @@ describe('required levels', () => {
         await waitFor(() =>
             expect(mockSetRequiredLevels).toHaveBeenCalledWith('own', [2])
         )
-        // D1: no reload call is needed for the change to take effect -- the
-        // hook itself pushes the new config into the engine.
         expect(mockReload).not.toHaveBeenCalled()
+    })
+
+    // I3
+    it('reports a save failure rather than discarding it silently', async () => {
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        mockCanCreateSqlViews.mockResolvedValue(true)
+        mockSetRequiredLevels.mockRejectedValueOnce(new Error('HTTP 403'))
+        render(<Settings />)
+        const placeholder = await screen.findByText('Choose required levels')
+        await act(async () => {
+            fireEvent.click(placeholder)
+        })
+        const option = await screen.findByText('District')
+        await act(async () => {
+            fireEvent.click(option)
+        })
+        await waitFor(() =>
+            expect(
+                screen.getByText(/could not save required levels/i)
+            ).toBeInTheDocument()
+        )
+        expect(screen.getByText('HTTP 403')).toBeInTheDocument()
     })
 })
 
@@ -232,6 +350,48 @@ describe('catch-all mapping', () => {
         })
         await waitFor(() =>
             expect(mockSetCatchAllGroup).toHaveBeenCalledWith('own', 'g2')
+        )
+    })
+
+    // I3
+    it('reports a save failure rather than discarding it silently', async () => {
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        mockCanCreateSqlViews.mockResolvedValue(true)
+        mockSetCatchAllGroup.mockRejectedValueOnce(new Error('HTTP 403'))
+        render(<Settings />)
+        const placeholder = await screen.findByText('Choose catch-all group')
+        await act(async () => {
+            fireEvent.click(placeholder)
+        })
+        const option = await screen.findByText('Group two')
+        await act(async () => {
+            fireEvent.click(option)
+        })
+        await waitFor(() =>
+            expect(
+                screen.getByText(/could not save the catch-all group/i)
+            ).toBeInTheDocument()
+        )
+    })
+})
+
+describe('tracker toggle', () => {
+    // I3
+    it('reports a save failure rather than discarding it silently', async () => {
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        mockCanCreateSqlViews.mockResolvedValue(true)
+        mockSetIncludeTracker.mockRejectedValueOnce(new Error('HTTP 403'))
+        render(<Settings />)
+        const checkbox = await screen.findByLabelText(
+            /include tracker attributes/i
+        )
+        await act(async () => {
+            fireEvent.click(checkbox)
+        })
+        await waitFor(() =>
+            expect(
+                screen.getByText(/could not save the tracker data setting/i)
+            ).toBeInTheDocument()
         )
     })
 })

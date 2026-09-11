@@ -28,10 +28,37 @@ export interface SqlViewCheck {
 }
 
 /**
+ * C1: metadata alone (code, type, `access.data.read`) cannot tell an
+ * executed view from an orphaned one that was created but never
+ * successfully executed -- a failed create-then-execute (see
+ * `createOrRepairSqlViews`) or a view someone else created by hand and
+ * never ran look identical to a healthy one on every field this endpoint
+ * returns. Only an actual read proves the database view exists, so
+ * "usable" has to mean "was just read successfully", not "looks right on
+ * paper" -- otherwise Settings reports an unreadable view as Usable, and
+ * the repair button skips it forever because it already looks fine.
+ *
+ * `pageSize=1` (rather than `paging=false`, which the real read path in
+ * `sqlViewSource.ts` uses) keeps this cheap regardless of how large the
+ * underlying view's result set is -- this runs on every Settings page
+ * load, for up to three views, and must never itself become the slow
+ * metadata-API-scale request this whole feature exists to avoid.
+ */
+async function probeReadable(fetcher: Fetcher, id: string): Promise<boolean> {
+    try {
+        const response = await fetcher(`sqlViews/${id}/data.csv?pageSize=1`)
+        return response.ok
+    } catch {
+        return false
+    }
+}
+
+/**
  * The current server-side status of the three GSI SQL views, one entry per
- * definition regardless of whether it exists yet. Read-only: this never
- * creates or executes anything, so it is safe to call just to render the
- * Settings page.
+ * definition regardless of whether it exists yet. Only reads: the one
+ * additional call this makes beyond the metadata lookup is the read probe
+ * above, never a create or an execute, so it is safe to call just to render
+ * the Settings page.
  */
 export async function checkSqlViews(fetcher: Fetcher): Promise<SqlViewCheck[]> {
     const codes = SQL_VIEW_DEFINITIONS.map((d) => d.code)
@@ -40,24 +67,31 @@ export async function checkSqlViews(fetcher: Fetcher): Promise<SqlViewCheck[]> {
         `sqlViews?fields=id,code,type,access[data[read]]&filter=code:in:[${codes.join(',')}]&paging=false`
     )
     const byCode = new Map(body.sqlViews.map((v) => [v.code, v]))
-    return SQL_VIEW_DEFINITIONS.map((def) => {
-        const v = byCode.get(def.code)
-        const readable = Boolean(v?.access.data?.read)
-        const usable = Boolean(
-            v &&
-            readable &&
-            v.type !== undefined &&
-            USABLE_TYPES.includes(v.type)
-        )
-        return {
-            code: def.code,
-            name: def.name,
-            id: v?.id ?? null,
-            type: v?.type,
-            readable,
-            usable,
-        }
-    })
+    return Promise.all(
+        SQL_VIEW_DEFINITIONS.map(async (def) => {
+            const v = byCode.get(def.code)
+            const readable = Boolean(v?.access.data?.read)
+            const metadataUsable = Boolean(
+                v &&
+                readable &&
+                v.type !== undefined &&
+                USABLE_TYPES.includes(v.type)
+            )
+            // Only probe when the metadata bar already passes: a view with
+            // the wrong code, type or sharing is already known unusable,
+            // and there is nothing to gain from also reading its data.
+            const usable =
+                metadataUsable && v ? await probeReadable(fetcher, v.id) : false
+            return {
+                code: def.code,
+                name: def.name,
+                id: v?.id ?? null,
+                type: v?.type,
+                readable,
+                usable,
+            }
+        })
+    )
 }
 
 const CREATE_AUTHORITIES = ['ALL', 'F_SQLVIEW_PUBLIC_ADD']
@@ -134,11 +168,40 @@ async function executeView(fetcher: Fetcher, id: string): Promise<void> {
 }
 
 /**
+ * Best-effort: the view was just created by this same call and its execute
+ * failed, so there is nothing left to preserve. If the delete itself also
+ * fails there is nothing more this function can do about it -- the
+ * original execute failure is still what gets reported to the caller, and
+ * a later Settings load will find the orphan again (now correctly reported
+ * as unusable by `checkSqlViews`'s read probe) rather than an app that
+ * silently prefers it.
+ */
+async function deleteView(fetcher: Fetcher, id: string): Promise<void> {
+    await fetcher(`sqlViews/${id}`, { method: 'DELETE' })
+}
+
+/**
  * Creates every missing view and repairs every existing-but-unusable one,
  * skipping anything already usable. D2: creating is two calls -- create,
  * then execute -- and a create whose execute then fails is reported as a
- * failure, never as a partial "created". D3: an existing view is never
- * deleted and recreated, only re-executed.
+ * failure, never as a partial "created".
+ *
+ * C1: D2 held only at the level of this function's return value -- it
+ * correctly reported a failed execute as `failed`, but the view it had just
+ * created was left behind on the server, where `findSqlViews` and
+ * `checkSqlViews`'s old metadata-only check would both have accepted it
+ * (right code, right type, readable) and the app would switch to a source
+ * that 500s on every read. Deleting the view when ONLY its own execute
+ * fails closes that hole at the source rather than merely reporting it:
+ * the server is left exactly as it was before this click, for a view this
+ * call itself just created.
+ *
+ * D3 stands for everything else: an existing view (one this call did not
+ * just create) is never deleted, whether its repair-execute succeeds or
+ * fails -- deleting something this app did not create on a re-execute
+ * failure would be a much larger, unrelated destructive action, not a
+ * repair. Its unusable state after a failed repair is now also visible and
+ * repair-again-able, thanks to `checkSqlViews`'s read probe.
  */
 export async function createOrRepairSqlViews(
     fetcher: Fetcher,
@@ -164,7 +227,12 @@ export async function createOrRepairSqlViews(
                     continue
                 }
                 const id = await createView(fetcher, def)
-                await executeView(fetcher, id)
+                try {
+                    await executeView(fetcher, id)
+                } catch (executeError) {
+                    await deleteView(fetcher, id).catch(() => undefined)
+                    throw executeError
+                }
                 created.push(check.code)
             }
         } catch (e) {

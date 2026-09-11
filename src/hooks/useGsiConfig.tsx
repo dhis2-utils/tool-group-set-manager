@@ -77,6 +77,17 @@ export const GsiConfigProvider = ({
         }
     }, [fetcher])
 
+    // M4: this pushes the new config into the worker, but nothing here
+    // invalidates whatever `useEngineQuery` consumers elsewhere already
+    // hold -- that hook only re-runs its query on a key or
+    // `status.phase`/`status.type` change, neither of which a config change
+    // touches. It is safe today only because Settings is its own route: a
+    // consumer like Dashboard is a different mounted component and remounts
+    // (and so re-queries) on navigation back to it. A future control that
+    // changes required levels or the tracker toggle from *within* an
+    // already-mounted Dashboard/GroupSetDetail (an in-place settings panel,
+    // say) would need to invalidate those consumers explicitly, or it would
+    // silently keep showing numbers computed against the old config.
     useEffect(() => {
         if (!client || !isLoaded) {
             return

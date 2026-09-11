@@ -13,7 +13,6 @@ import {
 } from '@dhis2/ui'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import styles from './Settings.module.css'
-import { openCache } from '@/data/cache'
 import { createFetcher } from '@/data/fetcher'
 import {
     canCreateSqlViews,
@@ -41,13 +40,17 @@ const repairedSummary = (count: number) =>
         ? i18n.t('Repaired 1 SQL view')
         : interpolate(i18n.t('Repaired {count} SQL views'), { count })
 
-const failedSummary = (count: number) =>
-    count === 1
-        ? i18n.t('1 SQL view could not be created or repaired')
-        : interpolate(
-              i18n.t('{count} SQL views could not be created or repaired'),
-              { count }
-          )
+/**
+ * M2: the count alone doesn't say which view failed or why. No colon in the
+ * template (the i18n scanner reads a colon as its own namespace separator
+ * and drops the key -- see CLAUDE.md), so this reads as one clause per
+ * failed view rather than a "label: value" pair.
+ */
+const failedDetail = (failed: { code: string; message: string }) =>
+    interpolate(i18n.t('{code} could not be created or repaired — {message}'), {
+        code: failed.code,
+        message: failed.message,
+    })
 
 export const Settings = () => {
     const { baseUrl, apiVersion } = useConfig() as {
@@ -58,8 +61,7 @@ export const Settings = () => {
         () => createFetcher(baseUrl, apiVersion),
         [baseUrl, apiVersion]
     )
-    const cache = useMemo(() => openCache(baseUrl), [baseUrl])
-    const { groupSets, reload } = useEngine()
+    const { groupSets, reload, clearCache } = useEngine()
     const {
         config,
         isLoaded: configLoaded,
@@ -73,20 +75,49 @@ export const Settings = () => {
     // failed) -- only `true` ever shows the create/repair button.
     const [canManage, setCanManage] = useState<boolean | null>(null)
     const [checking, setChecking] = useState(true)
+    // I1: a failing status check is itself a real, distinct state -- never
+    // conflated with "still checking" (which would spin forever) or with
+    // "checked and found nothing usable" (which would offer a create button
+    // that may just repeat the same failure).
+    const [checkError, setCheckError] = useState<string | null>(null)
     const [creating, setCreating] = useState(false)
     const [createSummary, setCreateSummary] = useState<string | null>(null)
+    const [createFailures, setCreateFailures] = useState<
+        { code: string; message: string }[]
+    >([])
     const [createError, setCreateError] = useState<string | null>(null)
     const [clearingCache, setClearingCache] = useState(false)
+    // I3: every saver below reports its own failure into one of these,
+    // rather than the write vanishing silently. Keyed by which control
+    // caused it, so one save's error cannot outlive the control that raised
+    // it or be mistaken for a different one's.
+    const [requiredLevelsError, setRequiredLevelsError] = useState<
+        string | null
+    >(null)
+    const [catchAllError, setCatchAllError] = useState<string | null>(null)
+    const [trackerError, setTrackerError] = useState<string | null>(null)
 
     const refreshStatus = useCallback(async () => {
         setChecking(true)
-        const [nextChecks, nextCanManage] = await Promise.all([
-            checkSqlViews(fetcher),
-            canCreateSqlViews(fetcher),
-        ])
-        setChecks(nextChecks)
-        setCanManage(nextCanManage)
-        setChecking(false)
+        setCheckError(null)
+        try {
+            const [nextChecks, nextCanManage] = await Promise.all([
+                checkSqlViews(fetcher),
+                canCreateSqlViews(fetcher),
+            ])
+            setChecks(nextChecks)
+            setCanManage(nextCanManage)
+        } catch (e) {
+            // I1: `checkSqlViews` (unlike `canCreateSqlViews`) can reject --
+            // a 403, a 500 with an HTML body, a dropped connection -- and
+            // without this the section would spin forever on an unhandled
+            // rejection instead of telling the user anything.
+            setChecks(null)
+            setCanManage(null)
+            setCheckError(e instanceof Error ? e.message : String(e))
+        } finally {
+            setChecking(false)
+        }
     }, [fetcher])
 
     useEffect(() => {
@@ -100,6 +131,7 @@ export const Settings = () => {
         setCreating(true)
         setCreateError(null)
         setCreateSummary(null)
+        setCreateFailures([])
         try {
             const result = await createOrRepairSqlViews(fetcher, checks)
             const parts: string[] = []
@@ -109,11 +141,18 @@ export const Settings = () => {
             if (result.repaired.length > 0) {
                 parts.push(repairedSummary(result.repaired.length))
             }
-            if (result.failed.length > 0) {
-                parts.push(failedSummary(result.failed.length))
-            }
             setCreateSummary(parts.length > 0 ? parts.join(' — ') : null)
+            setCreateFailures(result.failed)
             await refreshStatus()
+            // I2: on the very instances that motivate this feature, staying
+            // on the metadata API until a manual reload would make this
+            // button appear to do nothing. Any view this call actually
+            // created or repaired can change which source `useEngine`
+            // should be using, so a real reload -- not just a re-check of
+            // status -- is what puts the app on the fast path immediately.
+            if (result.created.length > 0 || result.repaired.length > 0) {
+                await reload(true)
+            }
         } catch (e) {
             setCreateError(e instanceof Error ? e.message : String(e))
         } finally {
@@ -124,7 +163,7 @@ export const Settings = () => {
     const handleClearCache = async () => {
         setClearingCache(true)
         try {
-            await cache.clear()
+            await clearCache()
             await reload(true)
         } finally {
             setClearingCache(false)
@@ -159,6 +198,25 @@ export const Settings = () => {
                 <h2 className={styles.heading}>{i18n.t('SQL views')}</h2>
                 {checking && checks === null ? (
                     <CircularLoader small />
+                ) : checkError ? (
+                    // I1: without this, a failing checkSqlViews (a 403, a
+                    // 500 with an HTML body, a dropped connection) left the
+                    // spinner above running forever with an unhandled
+                    // rejection behind it, and no way for the user to know
+                    // why. `refreshStatus` is safe to call again -- it does
+                    // not create or execute anything -- so retrying is a
+                    // plain reload, not a repair attempt.
+                    <NoticeBox
+                        error
+                        title={i18n.t('Could not check SQL view status')}
+                    >
+                        {checkError}
+                        <div>
+                            <Button small onClick={() => void refreshStatus()}>
+                                {i18n.t('Try again')}
+                            </Button>
+                        </div>
+                    </NoticeBox>
                 ) : (
                     <>
                         {(checks ?? []).map((check) => (
@@ -216,11 +274,14 @@ export const Settings = () => {
                                 )}
                             </NoticeBox>
                         )}
-                        {createSummary && (
+                        {(createSummary || createFailures.length > 0) && (
                             <NoticeBox
                                 title={i18n.t('SQL view update complete')}
                             >
-                                {createSummary}
+                                {createSummary && <div>{createSummary}</div>}
+                                {createFailures.map((f) => (
+                                    <div key={f.code}>{failedDetail(f)}</div>
+                                ))}
                             </NoticeBox>
                         )}
                         {createError && (
@@ -258,12 +319,28 @@ export const Settings = () => {
                                 }: {
                                     selected: string[]
                                 }) => {
-                                    void setRequiredLevels(
+                                    setRequiredLevelsError(null)
+                                    setRequiredLevels(
                                         set.id,
                                         selected
                                             .map(Number)
                                             .sort((a, b) => a - b)
-                                    )
+                                    ).catch((e: unknown) => {
+                                        // I3: `datastore.ts` deliberately
+                                        // rethrows anything but a 404 here,
+                                        // precisely so a transient failure
+                                        // is never mistaken for "nothing to
+                                        // merge" and silently erases other
+                                        // group sets' saved levels -- that
+                                        // real rejection must not then be
+                                        // dropped on the floor by this call
+                                        // site.
+                                        setRequiredLevelsError(
+                                            e instanceof Error
+                                                ? e.message
+                                                : String(e)
+                                        )
+                                    })
                                 }}
                             >
                                 {levels.map((l) => (
@@ -277,6 +354,14 @@ export const Settings = () => {
                         </div>
                     </div>
                 ))}
+                {requiredLevelsError && (
+                    <NoticeBox
+                        error
+                        title={i18n.t('Could not save required levels')}
+                    >
+                        {requiredLevelsError}
+                    </NoticeBox>
+                )}
             </div>
 
             <div className={styles.section}>
@@ -298,7 +383,16 @@ export const Settings = () => {
                                 }: {
                                     selected: string
                                 }) => {
-                                    void setCatchAllGroup(set.id, selected)
+                                    setCatchAllError(null)
+                                    setCatchAllGroup(set.id, selected).catch(
+                                        (e: unknown) => {
+                                            setCatchAllError(
+                                                e instanceof Error
+                                                    ? e.message
+                                                    : String(e)
+                                            )
+                                        }
+                                    )
                                 }}
                             >
                                 {set.groups.map((g) => (
@@ -312,6 +406,14 @@ export const Settings = () => {
                         </div>
                     </div>
                 ))}
+                {catchAllError && (
+                    <NoticeBox
+                        error
+                        title={i18n.t('Could not save the catch-all group')}
+                    >
+                        {catchAllError}
+                    </NoticeBox>
+                )}
             </div>
 
             <div className={styles.section}>
@@ -323,9 +425,24 @@ export const Settings = () => {
                     checked={config.includeTracker}
                     disabled={!configLoaded}
                     onChange={({ checked }: { checked: boolean }) => {
-                        void setIncludeTracker(checked)
+                        setTrackerError(null)
+                        setIncludeTracker(checked).catch((e: unknown) => {
+                            setTrackerError(
+                                e instanceof Error ? e.message : String(e)
+                            )
+                        })
                     }}
                 />
+                {trackerError && (
+                    <NoticeBox
+                        error
+                        title={i18n.t(
+                            'Could not save the tracker data setting'
+                        )}
+                    >
+                        {trackerError}
+                    </NoticeBox>
+                )}
             </div>
 
             <div className={styles.section}>

@@ -13,6 +13,7 @@ jest.mock('@dhis2/app-runtime', () => ({
 }))
 
 const mockCacheRemove = jest.fn(async () => undefined)
+const mockCacheClear = jest.fn(async () => undefined)
 
 interface MockStatus {
     phase: string
@@ -44,18 +45,29 @@ const mockLoadAll = jest.fn(defaultLoadAllImpl)
 jest.mock('@/data/loadAll', () => ({
     loadAll: (deps: MockLoadAllDeps) => mockLoadAll(deps),
 }))
-jest.mock('@/data/sources/selectSource', () => ({
-    selectSource: async () => ({
+type MockSelectSourceResult = {
+    source: { kind: 'sqlView' | 'metadata' }
+    sqlViews: {
+        orgUnits: string
+        orgUnitNames: string
+        orgUnitMemberships: string
+    } | null
+}
+const mockSelectSource = jest.fn<Promise<MockSelectSourceResult>, unknown[]>(
+    async () => ({
         source: { kind: 'metadata' },
         sqlViews: null,
-    }),
+    })
+)
+jest.mock('@/data/sources/selectSource', () => ({
+    selectSource: (...args: unknown[]) => mockSelectSource(...args),
 }))
 jest.mock('@/data/cache', () => ({
     openCache: () => ({
         get: async () => undefined,
         put: async () => undefined,
         remove: mockCacheRemove,
-        clear: async () => undefined,
+        clear: mockCacheClear,
     }),
 }))
 
@@ -120,6 +132,12 @@ beforeEach(() => {
     mockLoadAll.mockReset()
     mockLoadAll.mockImplementation(defaultLoadAllImpl)
     mockCacheRemove.mockClear()
+    mockCacheClear.mockClear()
+    mockSelectSource.mockReset()
+    mockSelectSource.mockImplementation(async () => ({
+        source: { kind: 'metadata' as const },
+        sqlViews: null,
+    }))
 })
 
 it('invalidateType calls the cache with only the given type', async () => {
@@ -134,6 +152,16 @@ it('invalidateType calls the cache with only the given type', async () => {
     // its own.
     expect(mockCacheRemove).toHaveBeenCalledTimes(1)
     expect(mockCacheRemove).toHaveBeenCalledWith('organisationUnit')
+})
+
+// M5: Settings clears the cache through this rather than opening its own
+// second `openCache(baseUrl)` connection.
+it("clearCache clears the engine's own cache", async () => {
+    const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
+    await act(async () => {
+        await result.current.clearCache()
+    })
+    expect(mockCacheClear).toHaveBeenCalledTimes(1)
 })
 
 it('exposes a null client before the creation effect has run, then a live one after', async () => {
@@ -168,6 +196,31 @@ it('loads on mount and exposes status, group sets and source kind', async () => 
     expect(screen.getByText('1')).toBeInTheDocument()
     expect(screen.getByText('metadata')).toBeInTheDocument()
     expect(mockLoadAll).toHaveBeenCalledTimes(1)
+})
+
+it('D4: reflects a sourceKind loadAll fell back to, not just the one selectSource initially picked', async () => {
+    mockSelectSource.mockImplementation(async () => ({
+        source: { kind: 'sqlView' as const },
+        sqlViews: {
+            orgUnits: 'v1',
+            orgUnitNames: 'v2',
+            orgUnitMemberships: 'v3',
+        },
+    }))
+    mockLoadAll.mockImplementationOnce(async ({ onStatus }) => {
+        onStatus(doneStatus)
+        // Simulates loadAll's own D4 fallback: it started against the
+        // sqlView source selectSource picked, but a read failed and it
+        // finished the load against the metadata source instead.
+        return { groupSets: [{ id: 's1' }], sourceKind: 'metadata' as const }
+    })
+    render(
+        <EngineProvider>
+            <Probe />
+        </EngineProvider>
+    )
+    await waitFor(() => expect(screen.getByText('done')).toBeInTheDocument())
+    expect(screen.getByText('metadata')).toBeInTheDocument()
 })
 
 it('unmount terminates the client exactly once', async () => {

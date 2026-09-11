@@ -31,6 +31,15 @@ interface EngineContextValue {
      * cache entry directly.
      */
     invalidateType: (type: ObjectType) => Promise<void>
+    /**
+     * M5: Settings' "clear cache" action goes through this rather than
+     * opening its own `openCache(baseUrl)` connection -- there is exactly
+     * one `Cache` per base URL, owned by this provider (`cacheRef`), and a
+     * second connection opened elsewhere would not be wrong today (IndexedDB
+     * allows it) but has no reason to exist and would be one more place a
+     * future change to how the cache is opened must remember to touch.
+     */
+    clearCache: () => Promise<void>
 }
 
 const EngineContext = createContext<EngineContextValue | null>(null)
@@ -112,6 +121,15 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
                 })
                 if (isCurrent()) {
                     setGroupSets(result.groupSets)
+                    // D4: `result.sourceKind` is the source actually used,
+                    // which can differ from the one selected above if
+                    // loadAll fell back from a broken SQL view source to
+                    // the metadata source partway through -- re-set it so
+                    // the label the user sees (see Dashboard's sourceLabel)
+                    // reflects reality rather than the initial guess.
+                    if (result.sourceKind) {
+                        setSourceKind(result.sourceKind)
+                    }
                 }
             } catch (e) {
                 if (isCurrent()) {
@@ -128,6 +146,10 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
         },
         [getCache]
     )
+
+    const clearCache = useCallback(async () => {
+        await getCache().clear()
+    }, [getCache])
 
     // Create and terminate the worker together, in the same effect: if
     // creation only happened in the render body while termination lived in
@@ -168,8 +190,18 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
             error,
             reload,
             invalidateType,
+            clearCache,
         }),
-        [client, status, groupSets, sourceKind, error, reload, invalidateType]
+        [
+            client,
+            status,
+            groupSets,
+            sourceKind,
+            error,
+            reload,
+            invalidateType,
+            clearCache,
+        ]
     )
     return (
         <EngineContext.Provider value={value}>

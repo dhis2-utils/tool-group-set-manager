@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-11T13:22:40.737Z\n"
-"PO-Revision-Date: 2026-09-11T13:22:40.737Z\n"
+"POT-Creation-Date: 2026-09-11T14:08:26.981Z\n"
+"PO-Revision-Date: 2026-09-11T14:08:26.982Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -568,14 +568,17 @@ msgstr "Repaired 1 SQL view"
 msgid "Repaired {count} SQL views"
 msgstr "Repaired {count} SQL views"
 
-msgid "1 SQL view could not be created or repaired"
-msgstr "1 SQL view could not be created or repaired"
-
-msgid "{count} SQL views could not be created or repaired"
-msgstr "{count} SQL views could not be created or repaired"
+msgid "{code} could not be created or repaired — {message}"
+msgstr "{code} could not be created or repaired — {message}"
 
 msgid "SQL views"
 msgstr "SQL views"
+
+msgid "Could not check SQL view status"
+msgstr "Could not check SQL view status"
+
+msgid "Try again"
+msgstr "Try again"
 
 msgid "Usable"
 msgstr "Usable"
@@ -619,14 +622,23 @@ msgstr "Required organisation unit levels"
 msgid "Choose required levels"
 msgstr "Choose required levels"
 
+msgid "Could not save required levels"
+msgstr "Could not save required levels"
+
 msgid "Choose catch-all group"
 msgstr "Choose catch-all group"
+
+msgid "Could not save the catch-all group"
+msgstr "Could not save the catch-all group"
 
 msgid "Tracker data"
 msgstr "Tracker data"
 
 msgid "Include tracker attributes and data elements by default"
 msgstr "Include tracker attributes and data elements by default"
+
+msgid "Could not save the tracker data setting"
+msgstr "Could not save the tracker data setting"
 
 msgid "Cache"
 msgstr "Cache"
