@@ -93,25 +93,56 @@ describe('saveIncludeTracker', () => {
 })
 
 describe('saveRequiredLevels and saveCatchAllGroup', () => {
-    it('merges one set into the shared document without a GET call, reading only to preserve other sets', async () => {
+    it('reads the shared document first and merges one set into it, preserving other sets', async () => {
         // The document holds every group set's levels together, so saving
-        // one set's levels must not erase another's.
-        const calls: { method: string; path: string }[] = []
+        // one set's levels must not erase another's -- exercised here by
+        // asserting the written body actually contains both entries.
+        const writes: unknown[] = []
         const fetcher = async (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
-            calls.push({ method, path })
             if (method === 'GET') {
                 return json({ other: [1] })
             }
+            writes.push(JSON.parse(init?.body as string))
             return json({}, 200)
         }
         await saveRequiredLevels(fetcher, 'own', [2, 3])
-        const write = calls.find((c) => c.method === 'POST')
-        expect(write).toBeDefined()
-        expect(calls[0].method).toBe('GET')
+        expect(writes).toEqual([{ other: [1], own: [2, 3] }])
     })
 
-    it('saveCatchAllGroup writes the group id under the set id', async () => {
+    it('saveRequiredLevels writes directly when no document exists yet', async () => {
+        const writes: unknown[] = []
+        const fetcher = async (path: string, init?: RequestInit) => {
+            const method = init?.method ?? 'GET'
+            if (method === 'GET') {
+                return notFound()
+            }
+            writes.push(JSON.parse(init?.body as string))
+            return json({}, 200)
+        }
+        await saveRequiredLevels(fetcher, 'own', [2, 3])
+        expect(writes).toEqual([{ own: [2, 3] }])
+    })
+
+    it('saveRequiredLevels rethrows a non-404 failure reading the current document, rather than treating it as absent', async () => {
+        // Swallowing this the way loadConfig does would let the write that
+        // follows erase every other group set's saved levels.
+        const writes: unknown[] = []
+        const fetcher = async (path: string, init?: RequestInit) => {
+            const method = init?.method ?? 'GET'
+            if (method === 'GET') {
+                return new Response('forbidden', { status: 403 })
+            }
+            writes.push(JSON.parse(init?.body as string))
+            return json({}, 200)
+        }
+        await expect(
+            saveRequiredLevels(fetcher, 'own', [2, 3])
+        ).rejects.toThrow()
+        expect(writes).toEqual([])
+    })
+
+    it('saveCatchAllGroup writes the group id under the set id when no document exists yet', async () => {
         const writes: unknown[] = []
         const fetcher = async (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
@@ -123,6 +154,38 @@ describe('saveRequiredLevels and saveCatchAllGroup', () => {
         }
         await saveCatchAllGroup(fetcher, 'own', 'catch-all-group')
         expect(writes).toEqual([{ own: 'catch-all-group' }])
+    })
+
+    it('saveCatchAllGroup merges into the shared document, preserving other sets', async () => {
+        const writes: unknown[] = []
+        const fetcher = async (path: string, init?: RequestInit) => {
+            const method = init?.method ?? 'GET'
+            if (method === 'GET') {
+                return json({ other: 'other-group' })
+            }
+            writes.push(JSON.parse(init?.body as string))
+            return json({}, 200)
+        }
+        await saveCatchAllGroup(fetcher, 'own', 'catch-all-group')
+        expect(writes).toEqual([
+            { other: 'other-group', own: 'catch-all-group' },
+        ])
+    })
+
+    it('saveCatchAllGroup rethrows a non-404 failure reading the current document, rather than treating it as absent', async () => {
+        const writes: unknown[] = []
+        const fetcher = async (path: string, init?: RequestInit) => {
+            const method = init?.method ?? 'GET'
+            if (method === 'GET') {
+                return new Response('server error', { status: 500 })
+            }
+            writes.push(JSON.parse(init?.body as string))
+            return json({}, 200)
+        }
+        await expect(
+            saveCatchAllGroup(fetcher, 'own', 'catch-all-group')
+        ).rejects.toThrow()
+        expect(writes).toEqual([])
     })
 })
 
@@ -149,6 +212,38 @@ describe('listChangeSets', () => {
         }
         const result = await listChangeSets(fetcher)
         expect(result.map((c) => c.id)).toEqual(['cs2', 'cs1'])
+    })
+
+    it('breaks a tie on createdAt deterministically by id, regardless of the order keys were listed in', async () => {
+        // A plain "a.createdAt < b.createdAt ? 1 : -1" gives both a<b and
+        // b<a as true when the timestamps are equal: an inconsistent
+        // comparator, not merely an arbitrary one, whose result for a tie
+        // then depends on the order the namespace happened to list its
+        // keys in -- and so can differ between renders. A proper
+        // comparator with an id tiebreak gives the same order regardless.
+        const sameInstant = '2024-01-01T00:00:00.000Z'
+        const first = changeSet('cs1', sameInstant)
+        const second = changeSet('cs2', sameInstant)
+        const fetcherWithKeyOrder =
+            (keys: string[]) => async (path: string) => {
+                if (path.endsWith(`/${NAMESPACE}`)) {
+                    return json(keys)
+                }
+                if (path.endsWith('history-cs1')) {
+                    return json(first)
+                }
+                if (path.endsWith('history-cs2')) {
+                    return json(second)
+                }
+                return notFound()
+            }
+        const a = await listChangeSets(
+            fetcherWithKeyOrder(['history-cs1', 'history-cs2'])
+        )
+        const b = await listChangeSets(
+            fetcherWithKeyOrder(['history-cs2', 'history-cs1'])
+        )
+        expect(a.map((c) => c.id)).toEqual(b.map((c) => c.id))
     })
 })
 
@@ -177,24 +272,54 @@ describe('saveChangeSet', () => {
 })
 
 describe('canWriteDataStore', () => {
-    it('reports no write access on a 403 rather than throwing', async () => {
-        const fetcher = async () => new Response('forbidden', { status: 403 })
+    it('writes and deletes a probe key to confirm write access, rather than inferring it from a read', async () => {
+        const calls: string[] = []
+        const fetcher = async (path: string, init?: RequestInit) => {
+            calls.push(init?.method ?? 'GET')
+            return json({}, 200)
+        }
+        await expect(canWriteDataStore(fetcher)).resolves.toBe(true)
+        expect(calls).toEqual(['POST', 'DELETE'])
+    })
+
+    it('reports no write access when the probe write is forbidden, rather than throwing', async () => {
+        const fetcher = async (path: string, init?: RequestInit) => {
+            const method = init?.method ?? 'GET'
+            if (method === 'POST') {
+                return new Response('forbidden', { status: 403 })
+            }
+            return json({}, 200)
+        }
         await expect(canWriteDataStore(fetcher)).resolves.toBe(false)
     })
 
-    it('reports write access when the namespace does not exist yet', async () => {
-        const fetcher = async () => notFound()
+    it('reports write access even when the probe key already existed (POST 409, falls back to PUT)', async () => {
+        const fetcher = async (path: string, init?: RequestInit) => {
+            const method = init?.method ?? 'GET'
+            if (method === 'POST') {
+                return new Response('{}', { status: 409 })
+            }
+            return json({}, 200)
+        }
         await expect(canWriteDataStore(fetcher)).resolves.toBe(true)
     })
 
-    it('reports write access when the namespace is readable', async () => {
-        const fetcher = async () => json(['config-general'])
+    it('reports write access even when the best-effort cleanup delete fails', async () => {
+        const fetcher = async (path: string, init?: RequestInit) => {
+            if ((init?.method ?? 'GET') === 'DELETE') {
+                throw new Error('network down')
+            }
+            return json({}, 200)
+        }
         await expect(canWriteDataStore(fetcher)).resolves.toBe(true)
     })
 
-    it('reports no write access rather than throwing on a network failure', async () => {
-        const fetcher = async () => {
-            throw new Error('network down')
+    it('reports no write access rather than throwing on a network failure during the write', async () => {
+        const fetcher = async (path: string, init?: RequestInit) => {
+            if ((init?.method ?? 'GET') === 'POST') {
+                throw new Error('network down')
+            }
+            return json({}, 200)
         }
         await expect(canWriteDataStore(fetcher)).resolves.toBe(false)
     })

@@ -41,6 +41,33 @@ async function readDocument<T>(
 }
 
 /**
+ * Reads one document for the read-modify-write path in front of a shared-
+ * document save (`saveRequiredLevels`, `saveCatchAllGroup`). Unlike
+ * `readDocument`, only a 404 -- the document genuinely does not exist yet
+ * -- is treated as absent here. A transient 403, a 500, or a dropped
+ * connection must not be read the same way: the write that follows would
+ * merge the new entry into an empty object and silently erase every other
+ * group set's saved value. Refusing to save while the dataStore is
+ * briefly unreachable is the correct behaviour, so anything but a 404 is
+ * rethrown to the caller instead of swallowed.
+ */
+async function readCurrentForMerge<T>(
+    fetcher: Fetcher,
+    key: string
+): Promise<T | undefined> {
+    const response = await fetcher(keyPath(key))
+    if (response.status === 404) {
+        return undefined
+    }
+    if (!response.ok) {
+        throw new Error(
+            `Failed to read ${key} before saving: HTTP ${response.status}`
+        )
+    }
+    return (await response.json()) as T
+}
+
+/**
  * Writes to the key with a POST (create). The dataStore answers a POST to
  * an existing key with 409, so that case is retried with the same body as
  * a PUT (update) instead. There is no way to know in advance which verb
@@ -110,7 +137,7 @@ export async function saveRequiredLevels(
     levels: number[]
 ): Promise<void> {
     const current =
-        (await readDocument<Record<string, number[]>>(
+        (await readCurrentForMerge<Record<string, number[]>>(
             fetcher,
             'config-required-levels'
         )) ?? {}
@@ -127,7 +154,7 @@ export async function saveCatchAllGroup(
     groupId: string
 ): Promise<void> {
     const current =
-        (await readDocument<Record<string, string>>(
+        (await readCurrentForMerge<Record<string, string>>(
             fetcher,
             'config-catch-all'
         )) ?? {}
@@ -161,7 +188,20 @@ export async function listChangeSets(fetcher: Fetcher): Promise<ChangeSet[]> {
     )
     return changeSets
         .filter((c): c is ChangeSet => c !== undefined)
-        .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+        .sort((a, b) => {
+            // A plain "a < b ? 1 : -1" is not a comparator, just an
+            // arbitrary order: two change sets created in the same
+            // millisecond compare as less-than in both directions, which
+            // is inconsistent rather than merely unspecified. Fall back to
+            // id so the History page's order is stable across renders.
+            if (a.createdAt !== b.createdAt) {
+                return a.createdAt < b.createdAt ? 1 : -1
+            }
+            if (a.id !== b.id) {
+                return a.id < b.id ? 1 : -1
+            }
+            return 0
+        })
 }
 
 export async function saveChangeSet(
@@ -171,19 +211,34 @@ export async function saveChangeSet(
     await writeDocument(fetcher, `history-${changeSet.id}`, changeSet)
 }
 
+const PROBE_KEY = 'write-probe'
+
 /**
- * Whether the current user can write to the namespace. A 403 is the only
- * signal that write access is missing; anything else -- including a 404,
- * which just means the namespace has not been created yet on a fresh
- * instance -- is treated as writable, and a network failure is treated as
- * "cannot write" rather than thrown into a caller deciding whether to show
- * fix actions.
+ * Whether the current user can write to the namespace, found out by
+ * actually writing and then deleting a dedicated probe key rather than
+ * inferred from a read. A dataStore key exposes created/last-updated
+ * metadata but no per-namespace sharing object, so there is nothing to
+ * consult that would tell a read-only user from a read-write one without
+ * trying -- and inferring write access from read access risks telling a
+ * read-only user they may write, only to have the real write fail later.
+ * The cleanup delete is best-effort: the write already answered the
+ * question, so a delete that fails leaves a harmless leftover key rather
+ * than changing the answer.
+ *
+ * This costs a network round trip (two, when cleanup also succeeds), so
+ * it is meant for a one-off check -- gating the Settings page -- and not
+ * something to call before every load.
  */
 export async function canWriteDataStore(fetcher: Fetcher): Promise<boolean> {
     try {
-        const response = await fetcher(`dataStore/${NAMESPACE}`)
-        return response.status !== 403
+        await writeDocument(fetcher, PROBE_KEY, null)
     } catch {
         return false
     }
+    try {
+        await fetcher(keyPath(PROBE_KEY), { method: 'DELETE' })
+    } catch {
+        // Best-effort cleanup; see doc comment above.
+    }
+    return true
 }

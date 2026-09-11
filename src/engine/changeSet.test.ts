@@ -27,4 +27,15 @@ describe('invert', () => {
     it('inverts an empty change set to an empty list', () => {
         expect(invert({ ...base, changes: [] })).toEqual([])
     })
+
+    it('inverts a move: the same object leaves one group and enters another', () => {
+        const changes: GroupChange[] = [
+            { groupId: 'source', additions: [], deletions: ['obj1'] },
+            { groupId: 'target', additions: ['obj1'], deletions: [] },
+        ]
+        expect(invert({ ...base, action: 'move', changes })).toEqual([
+            { groupId: 'source', additions: ['obj1'], deletions: [] },
+            { groupId: 'target', additions: [], deletions: ['obj1'] },
+        ])
+    })
 })

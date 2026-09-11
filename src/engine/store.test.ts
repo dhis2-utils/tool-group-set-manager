@@ -1,3 +1,4 @@
+import { GroupChange } from './changeSet'
 import { EngineStore } from './store'
 import { GroupSetMeta, Status } from './types'
 
@@ -529,6 +530,27 @@ describe('EngineStore', () => {
             rootId: null,
         })[0].summary
         expect(after).toEqual(before)
+    })
+
+    it('applyChangeSet is idempotent: applying the same change twice matches applying it once', () => {
+        const changes: GroupChange[] = [
+            { groupId: 'priv', additions: [], deletions: ['b1'] },
+            { groupId: 'pub', additions: ['b1'], deletions: [] },
+        ]
+        const store = loadedStore()
+        store.applyChangeSet('organisationUnit', changes)
+        const once = store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: null,
+        })[0].summary
+
+        store.applyChangeSet('organisationUnit', changes)
+        const twice = store.dashboard({
+            objectType: 'organisationUnit',
+            rootId: null,
+        })[0].summary
+
+        expect(twice).toEqual(once)
     })
 
     it('applyChangeSet on a type with nothing loaded is a no-op, not a throw', () => {
