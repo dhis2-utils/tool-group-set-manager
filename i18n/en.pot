@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-11T21:37:00.826Z\n"
-"PO-Revision-Date: 2026-09-11T21:37:00.826Z\n"
+"POT-Creation-Date: 2026-09-11T22:32:56.171Z\n"
+"PO-Revision-Date: 2026-09-11T22:32:56.171Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -274,9 +274,6 @@ msgstr "{group} (read-only for you)"
 
 msgid "Conflict between {groups}"
 msgstr "Conflict between {groups}"
-
-msgid "Search matches the {count} rows loaded so far"
-msgstr "Search matches the {count} rows loaded so far"
 
 msgid ""
 "The change was saved to the server, but the screen could not be updated and "
@@ -628,8 +625,8 @@ msgstr "Any"
 msgid "Several groups (conflict)"
 msgstr "Several groups (conflict)"
 
-msgid "Search loaded rows"
-msgstr "Search loaded rows"
+msgid "Search"
+msgstr "Search"
 
 msgid "Clear area filter"
 msgstr "Clear area filter"

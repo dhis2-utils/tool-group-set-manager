@@ -129,16 +129,14 @@ beforeEach(() => {
 
 it('replaces the rows when the filter changes without scrolling, and still accepts the new filter pages', async () => {
     const { rerender } = render(
-        <ObjectsTable set={set} scope={scope} filter={{}} search="" />
+        <ObjectsTable set={set} scope={scope} filter={{}} />
     )
     await settle('Old', 1000)
     expect(screen.getByText('Old 0')).toBeInTheDocument()
 
     // No scrolling first: the new filter's request is for offset 0, exactly
     // the offset the previous filter's result carries.
-    rerender(
-        <ObjectsTable set={set} scope={scope} filter={{ level: 4 }} search="" />
-    )
+    rerender(<ObjectsTable set={set} scope={scope} filter={{ level: 4 }} />)
     expect(screen.queryByText('Old 0')).not.toBeInTheDocument()
     expect(lastPending().args[3]).toBe(0)
 
@@ -172,14 +170,14 @@ it('keeps the rows and does not duplicate the held page when the engine load pha
     // append it again. Covered before only by the hook's own unit test and
     // by the table's hand-rolled fake; this drives both for real.
     const { rerender } = render(
-        <ObjectsTable set={set} scope={scope} filter={{}} search="" />
+        <ObjectsTable set={set} scope={scope} filter={{}} />
     )
     await settle('Row', 1000)
     expect(screen.getByText('Row 0')).toBeInTheDocument()
     expect(mockPending.filter((p) => p.method === 'objectsFor')).toHaveLength(1)
 
     mockPhase = 'names'
-    rerender(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
+    rerender(<ObjectsTable set={set} scope={scope} filter={{}} />)
 
     // The same query, re-issued -- and the rows stay on screen throughout.
     expect(mockPending.filter((p) => p.method === 'objectsFor')).toHaveLength(2)
@@ -189,16 +187,15 @@ it('keeps the rows and does not duplicate the held page when the engine load pha
     await settle('Row', 1000)
     expect(screen.getByText('Row 0')).toBeInTheDocument()
 
-    // The page already held was not appended a second time: the search note
-    // counts the loaded rows, and "Row" matches every one of them.
-    rerender(<ObjectsTable set={set} scope={scope} filter={{}} search="Row" />)
-    expect(screen.getByText(/200 rows loaded so far/)).toBeInTheDocument()
+    // The page already held was not appended a second time: exactly one
+    // "Row 5" on screen, and the total is still the engine's real total.
+    rerender(<ObjectsTable set={set} scope={scope} filter={{}} />)
     expect(screen.getAllByText('Row 5')).toHaveLength(1)
     expect(screen.getByText(/1,000 objects/)).toBeInTheDocument()
 })
 
 it('assigns a row loaded through the real paging pipeline, confirming before it calls the write hook', async () => {
-    render(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
+    render(<ObjectsTable set={set} scope={scope} filter={{}} />)
     await settle('Row', 1000)
     expect(screen.getByText('Row 0')).toBeInTheDocument()
 

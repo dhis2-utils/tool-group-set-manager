@@ -5,7 +5,7 @@ import {
     SingleSelectField,
     SingleSelectOption,
 } from '@dhis2/ui'
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import styles from './GroupSetDetail.module.css'
 import { ObjectsTable } from '@/components/ObjectsTable/ObjectsTable'
 import { ObjectFilter } from '@/engine/queries'
@@ -23,6 +23,14 @@ interface Props {
 }
 
 type StatusChoice = 'all' | 'ok' | 'missing' | 'conflict'
+
+// Every keystroke that reached the filter directly was a worker round trip
+// and a full re-query at 200K scale, and the filter is also what the bulk
+// fix dialog reads its population from -- a half-typed query must not be
+// what a user opens that dialog on. 300ms after the last keystroke is what
+// actually reaches `onFilter`; the input itself always shows the pending,
+// undebounced value.
+const SEARCH_DEBOUNCE_MS = 300
 
 const statusChoiceOf = (f: ObjectFilter): StatusChoice => {
     if (!f.statuses) {
@@ -58,7 +66,28 @@ export const ObjectsTab = ({
     levels,
     onBulkFix,
 }: Props) => {
-    const [search, setSearch] = useState('')
+    // The input's own displayed value -- always the pending keystroke,
+    // never delayed by the debounce below (spec: "the pending value is
+    // what the input shows").
+    const [searchInput, setSearchInput] = useState(filter.text ?? '')
+    // `filter` is owned by the caller (GroupSetDetail) and can change for
+    // reasons unrelated to search -- a status or level pick -- while a
+    // debounce is outstanding. The ref (not an effect dependency) is what
+    // lets the debounce apply `text` on top of whichever filter is current
+    // when it actually fires, rather than the one in scope when typing
+    // started.
+    const filterRef = useRef(filter)
+    filterRef.current = filter
+    useEffect(() => {
+        const handle = setTimeout(() => {
+            const trimmed = searchInput.trim()
+            onFilter({
+                ...filterRef.current,
+                text: trimmed === '' ? undefined : trimmed,
+            })
+        }, SEARCH_DEBOUNCE_MS)
+        return () => clearTimeout(handle)
+    }, [searchInput])
     const isOrgUnit = set.objectType === 'organisationUnit'
     // `levels` resolves asynchronously and can later narrow (the same
     // `organisationUnitLevels`/user-roots timing GroupSetDetail documents
@@ -171,9 +200,9 @@ export const ObjectsTab = ({
                 </SingleSelectField>
                 <InputField
                     dense
-                    label={i18n.t('Search loaded rows')}
-                    value={search}
-                    onChange={({ value }) => setSearch(value ?? '')}
+                    label={i18n.t('Search')}
+                    value={searchInput}
+                    onChange={({ value }) => setSearchInput(value ?? '')}
                 />
                 {filter.ancestor !== undefined && (
                     <button
@@ -190,12 +219,7 @@ export const ObjectsTab = ({
                     {i18n.t('Bulk fix…')}
                 </Button>
             </div>
-            <ObjectsTable
-                set={set}
-                scope={scope}
-                filter={filter}
-                search={search}
-            />
+            <ObjectsTable set={set} scope={scope} filter={filter} />
         </div>
     )
 }

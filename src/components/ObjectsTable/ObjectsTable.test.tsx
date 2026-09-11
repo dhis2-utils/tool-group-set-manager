@@ -89,8 +89,9 @@ function createControllableEngineQuery() {
         }, [])
         const [state, setState] = React.useState<{
             data: unknown
+            settledKey: string | null
             isLoading: boolean
-        }>({ data: undefined, isLoading: true })
+        }>({ data: undefined, settledKey: null, isLoading: true })
         React.useEffect(() => {
             // Mirrors the real hook: disabled means no request at all, not
             // a request that never settles. `resolveParents` relies on this
@@ -107,14 +108,26 @@ function createControllableEngineQuery() {
             })
             promise.then((result) => {
                 if (!cancelled) {
-                    setState({ data: result, isLoading: false })
+                    setState({
+                        data: result,
+                        settledKey: key,
+                        isLoading: false,
+                    })
                 }
             })
             return () => {
                 cancelled = true
             }
         }, [key, epoch, enabled])
-        return { data: state.data, isLoading: state.isLoading, error: null }
+        // Mirrors the real hook's own masking (see the comment on its
+        // `useMemo` return in src/hooks/useEngineQuery.ts): a result for
+        // arguments no longer being asked about must never reach the
+        // consumer, even for the one render between a key change and that
+        // key's own request effect running -- the exact race that folded a
+        // stale filter's page into a freshly reset list.
+        return state.settledKey === key
+            ? { data: state.data, isLoading: state.isLoading, error: null }
+            : { data: undefined, isLoading: enabled, error: null }
     }
     // The offset is stamped on from the request itself, exactly as the store
     // echoes back the offset it was asked for.
@@ -254,7 +267,7 @@ it('renders rows with status and membership', async () => {
         groups: i === 1 ? [0, 1] : [0],
     }))
     mockObjectsPage({ total: 3, offset: 0, items })
-    render(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
+    render(<ObjectsTable set={set} scope={scope} filter={{}} />)
     await waitFor(() =>
         expect(screen.getByText('Facility 1')).toBeInTheDocument()
     )
@@ -267,7 +280,7 @@ it('pages by offset and appends, never re-requesting the rows it already has', a
         createControllableEngineQuery()
     mockUseEngineQuery.mockImplementation(useFakeQuery)
 
-    render(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
+    render(<ObjectsTable set={set} scope={scope} filter={{}} />)
     const firstPageArgs = lastCallArgs()
     // [setId, scope, filter, offset, limit]
     expect(firstPageArgs[3]).toBe(0)
@@ -332,75 +345,62 @@ it('pages by offset and appends, never re-requesting the rows it already has', a
     expect(pageRequests()).toEqual(['0/200', '200/200', '400/200'])
 })
 
-it('does not page at all while a search term is active, however few rows it matches', async () => {
+it('sends a text filter to the engine and renders a match that was never loaded before', async () => {
+    // The whole point of this task: search is a predicate the engine
+    // applies to the entire population, not a client-side filter over
+    // whatever pages happened to be in memory. Proof of that has to be a
+    // match beyond the first page -- a client-side filter over the first
+    // 200 loaded rows could never produce this row at all.
     const { useFakeQuery, resolve, resolveParentsFor } =
         createControllableEngineQuery()
     mockUseEngineQuery.mockImplementation(useFakeQuery)
 
     const { rerender } = render(
-        <ObjectsTable set={set} scope={scope} filter={{}} search="" />
+        <ObjectsTable set={set} scope={scope} filter={{}} />
     )
-    const items = makeItems(200)
+    const firstPageArgs = lastCallArgs()
+    const firstPageItems = makeItems(200)
     await act(async () => {
-        resolve(lastCallArgs(), { total: 100000, items })
+        resolve(firstPageArgs, { total: 100000, items: firstPageItems })
     })
     await act(async () => {
-        resolveParentsFor(items)
+        resolveParentsFor(firstPageItems)
     })
-    expect(pageRequests()).toEqual(['0/200'])
+    expect(screen.getByText('Item 5')).toBeInTheDocument()
 
-    // A search matching three of the 200 loaded rows. The last visible index
-    // is then permanently within 50 of the *filtered* list's end, which is
-    // what used to make every settled response ask for another page --
-    // one worker round-trip per page, all the way to the 100,000th row.
+    // A search term arrives as `filter.text` -- ObjectsTab's job, simulated
+    // here directly.
     rerender(
-        <ObjectsTable set={set} scope={scope} filter={{}} search="Item 19" />
+        <ObjectsTable set={set} scope={scope} filter={{ text: 'beyond' }} />
     )
-    const scrollEl = getScrollEl()
-    act(() => {
-        scrollEl.scrollTop = 0
-        fireEvent.scroll(scrollEl)
-        fireEvent.scroll(scrollEl)
-        fireEvent.scroll(scrollEl)
-    })
-    await waitFor(() =>
-        expect(screen.getByText('Item 190')).toBeInTheDocument()
-    )
-    expect(pageRequests()).toEqual(['0/200'])
-    // And the count line still tells the truth about both numbers.
-    expect(screen.getByText(/100,000 objects/)).toBeInTheDocument()
-    expect(screen.getByText(/200 rows loaded so far/)).toBeInTheDocument()
-})
+    expect((lastCallArgs()[2] as { text?: string }).text).toBe('beyond')
+    expect(lastCallArgs()[3]).toBe(0)
 
-it('resumes paging from where it left off once the search is cleared', async () => {
-    const { useFakeQuery, resolve, resolveParentsFor } =
-        createControllableEngineQuery()
-    mockUseEngineQuery.mockImplementation(useFakeQuery)
-
-    const { rerender } = render(
-        <ObjectsTable set={set} scope={scope} filter={{}} search="Item 1" />
-    )
-    const items = makeItems(200)
+    // The engine's own answer: one row, at object index 50000 -- an index
+    // that was never part of any page this table had loaded before the
+    // search.
+    const matchItems = [
+        {
+            index: 50000,
+            id: 'far0',
+            displayName: 'Beyond Match',
+            level: 4,
+            parentId: 'p',
+            status: 1,
+            groups: [0],
+        },
+    ]
     await act(async () => {
-        resolve(lastCallArgs(), { total: 1000, items })
+        resolve(lastCallArgs(), { total: 1, items: matchItems })
     })
     await act(async () => {
-        resolveParentsFor(items)
+        resolveParentsFor(matchItems)
     })
-    const scrollEl = getScrollEl()
-    act(() => {
-        scrollEl.scrollTop = 6000
-        fireEvent.scroll(scrollEl)
-    })
-    expect(pageRequests()).toEqual(['0/200'])
-
-    rerender(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
-    act(() => {
-        scrollEl.scrollTop = 6000
-        fireEvent.scroll(scrollEl)
-    })
-    // The 200 rows already loaded are kept; paging continues at 200.
-    await waitFor(() => expect(pageRequests()).toEqual(['0/200', '200/200']))
+    expect(screen.getByText('Beyond Match')).toBeInTheDocument()
+    // The total shown is the engine's real total for this query, not a
+    // count of what happened to be in memory.
+    expect(screen.getByText(/1 object\b/)).toBeInTheDocument()
+    expect(screen.queryByText('Item 5')).not.toBeInTheDocument()
 })
 
 it('resets paging to the first page when the filter changes', async () => {
@@ -409,7 +409,7 @@ it('resets paging to the first page when the filter changes', async () => {
     mockUseEngineQuery.mockImplementation(useFakeQuery)
 
     const { rerender } = render(
-        <ObjectsTable set={set} scope={scope} filter={{}} search="" />
+        <ObjectsTable set={set} scope={scope} filter={{}} />
     )
     const firstPageArgs = lastCallArgs()
     const firstPageItems = makeItems(200)
@@ -429,9 +429,7 @@ it('resets paging to the first page when the filter changes', async () => {
 
     // A different filter must go back to the first page, and must not keep
     // the rows the old filter had loaded.
-    rerender(
-        <ObjectsTable set={set} scope={scope} filter={{ level: 4 }} search="" />
-    )
+    rerender(<ObjectsTable set={set} scope={scope} filter={{ level: 4 }} />)
     await waitFor(() => expect(lastCallArgs()[3]).toBe(0))
     expect(screen.queryByText('Item 0')).not.toBeInTheDocument()
 })
@@ -442,14 +440,12 @@ it('does not let a slow response for the previous filter land once a new filter 
     mockUseEngineQuery.mockImplementation(useFakeQuery)
 
     const { rerender } = render(
-        <ObjectsTable set={set} scope={scope} filter={{}} search="" />
+        <ObjectsTable set={set} scope={scope} filter={{}} />
     )
     const staleArgs = lastCallArgs()
 
     // Change the filter before the first request has resolved at all.
-    rerender(
-        <ObjectsTable set={set} scope={scope} filter={{ level: 4 }} search="" />
-    )
+    rerender(<ObjectsTable set={set} scope={scope} filter={{ level: 4 }} />)
     const freshArgs = lastCallArgs()
     expect(freshArgs).not.toEqual(staleArgs)
 
@@ -488,9 +484,7 @@ it('ignores a repeat of the page it already holds, however often the request is 
         createControllableEngineQuery()
     mockUseEngineQuery.mockImplementation(useFakeQuery)
 
-    const { rerender } = render(
-        <ObjectsTable set={set} scope={scope} filter={{}} search="" />
-    )
+    render(<ObjectsTable set={set} scope={scope} filter={{}} />)
     const firstPageArgs = lastCallArgs()
     const items = makeItems(200)
     await act(async () => {
@@ -499,11 +493,6 @@ it('ignores a repeat of the page it already holds, however often the request is 
     await act(async () => {
         resolveParentsFor(items)
     })
-
-    // The search note is what reports the loaded row count; "Item" matches
-    // every loaded row, so it counts them all.
-    rerender(<ObjectsTable set={set} scope={scope} filter={{}} search="Item" />)
-    expect(screen.getByText(/200 rows loaded so far/)).toBeInTheDocument()
 
     // Two more phase changes, each re-requesting and re-resolving offset 0.
     for (let i = 0; i < 2; i++) {
@@ -518,7 +507,6 @@ it('ignores a repeat of the page it already holds, however often the request is 
         })
     }
 
-    expect(screen.getByText(/200 rows loaded so far/)).toBeInTheDocument()
     expect(screen.getAllByText('Item 5')).toHaveLength(1)
     expect(pageRequests()).toEqual(['0/200'])
 })
@@ -545,7 +533,7 @@ describe('parent column', () => {
                 parentId: null,
             },
         ])
-        render(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
+        render(<ObjectsTable set={set} scope={scope} filter={{}} />)
         await waitFor(() =>
             expect(screen.getByTestId('parent-ou0')).toHaveTextContent(
                 'District X'
@@ -560,7 +548,7 @@ describe('parent column', () => {
             createControllableEngineQuery()
         mockUseEngineQuery.mockImplementation(useFakeQuery)
 
-        render(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
+        render(<ObjectsTable set={set} scope={scope} filter={{}} />)
         const firstPageArgs = lastCallArgs()
         const items = makeItems(200)
         await act(async () => {
@@ -594,7 +582,7 @@ describe('parent column', () => {
         ]
         // The engine resolves no parent for a root: null in that position.
         mockObjectsPage({ total: 1, offset: 0, items }, [null])
-        render(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
+        render(<ObjectsTable set={set} scope={scope} filter={{}} />)
         await waitFor(() =>
             expect(screen.getByText('Country')).toBeInTheDocument()
         )
@@ -624,7 +612,7 @@ describe('parent column', () => {
         mockObjectsPage({ total: 1, offset: 0, items }, [
             { id: 'unnamed0', displayName: null },
         ])
-        render(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
+        render(<ObjectsTable set={set} scope={scope} filter={{}} />)
         await waitFor(() =>
             expect(screen.getByText('Ngelehun CHC')).toBeInTheDocument()
         )
@@ -647,14 +635,7 @@ describe('parent column', () => {
             },
         ]
         mockObjectsPage({ total: 1, offset: 0, items })
-        render(
-            <ObjectsTable
-                set={flatSet}
-                scope={flatScope}
-                filter={{}}
-                search=""
-            />
-        )
+        render(<ObjectsTable set={flatSet} scope={flatScope} filter={{}} />)
         await waitFor(() =>
             expect(screen.getByText('Data element A')).toBeInTheDocument()
         )
@@ -681,9 +662,7 @@ describe('interactive membership control', () => {
 
     const renderWithRows = (items: (typeof conflictRow)[]) => {
         mockObjectsPage({ total: items.length, offset: 0, items })
-        return render(
-            <ObjectsTable set={set} scope={scope} filter={{}} search="" />
-        )
+        return render(<ObjectsTable set={set} scope={scope} filter={{}} />)
     }
 
     it('assigning a conflict row to one group confirms, then writes a deletion from the other group and no addition to the already-held one', async () => {
@@ -737,14 +716,7 @@ describe('interactive membership control', () => {
             ],
         }
         mockObjectsPage({ total: 1, offset: 0, items: [conflictRow] })
-        render(
-            <ObjectsTable
-                set={restrictedSet}
-                scope={scope}
-                filter={{}}
-                search=""
-            />
-        )
+        render(<ObjectsTable set={restrictedSet} scope={scope} filter={{}} />)
         const buttons = screen.getAllByRole('button')
         expect(buttons[0]).toBeDisabled()
         expect(buttons[0]).toHaveAttribute(

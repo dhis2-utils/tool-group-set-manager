@@ -26,7 +26,6 @@ interface Props {
     set: GroupSetMeta
     scope: ScopeRef
     filter: ObjectFilter
-    search: string
 }
 
 type Row = ObjectsResult['items'][number]
@@ -74,11 +73,6 @@ const objectsCountLabel = (count: number) =>
         : interpolate(i18n.t('{count} objects'), {
               count: count.toLocaleString(),
           })
-
-const searchNote = (loaded: number) =>
-    interpolate(i18n.t('Search matches the {count} rows loaded so far'), {
-        count: loaded.toLocaleString(),
-    })
 
 /**
  * What has been loaded for one filter. `offset` is the offset of the page
@@ -205,7 +199,7 @@ function disabledReasonFor(row: Row, groups: GroupMeta[]): string | undefined {
         : undefined
 }
 
-export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
+export const ObjectsTable = ({ set, scope, filter }: Props) => {
     // D3: only organisation units have a hierarchy at all; the level and
     // parent columns (and the resolveParents call below) are both gated on
     // this, the same flag the level column already used.
@@ -432,14 +426,7 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
         })
     }, [data, parentPage, filterKey, isOrgUnit])
 
-    const rows = useMemo(() => {
-        const q = search.trim().toLowerCase()
-        return q
-            ? current.rows.filter((r) =>
-                  (r.displayName ?? r.id).toLowerCase().includes(q)
-              )
-            : current.rows
-    }, [current.rows, search])
+    const rows = current.rows
 
     const parentRef = useRef<HTMLDivElement>(null)
     const virtualizer = useVirtualizer({
@@ -453,18 +440,7 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
     const lastVisible = virtualItems[virtualItems.length - 1]?.index ?? 0
 
     const loadedCount = current.rows.length
-    const searchActive = search.trim() !== ''
-    // Two things this must not do. It must not measure "near the end"
-    // against the search-filtered `rows`: a search matching a handful of the
-    // loaded rows leaves the last visible index permanently within 50 of
-    // that short list, so every settled response asked for another page
-    // until the whole 266,000-row result set had been fetched, one worker
-    // round-trip per page. And it must not page while a search is active at
-    // all: the search only looks at rows already loaded, so paging in
-    // service of it would be paging the entire list in the hope of a match.
-    // The list is complete again the moment the search box is cleared.
     const requestNextPage =
-        !searchActive &&
         !isLoading &&
         current.total !== null &&
         loadedCount < current.total &&
@@ -498,7 +474,6 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
         <div>
             <p className={styles.count}>
                 {objectsCountLabel(current.total)}
-                {searchActive && ` · ${searchNote(loadedCount)}`}
                 {isLoading && ` · ${i18n.t('Loading more rows…')}`}
             </p>
             <div className={styles.head} style={gridStyle}>
