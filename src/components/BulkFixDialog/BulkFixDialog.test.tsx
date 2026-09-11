@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { BulkFixDialog } from './BulkFixDialog'
+import { EngineStore } from '@/engine/store'
+import { GroupSetMeta, Status } from '@/engine/types'
 
 jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://server', apiVersion: 42 }),
@@ -30,6 +32,12 @@ jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => ({ client: { call: mockClientCall } }),
 }))
 
+const VIOLATION_STATUSES = [
+    Status.MissingError,
+    Status.MissingWarning,
+    Status.Conflict,
+]
+
 const set = {
     id: 'own',
     displayName: 'Ownership',
@@ -57,12 +65,14 @@ const plan = (
     overrides: Partial<{
         changes: unknown[]
         affected: number
-        skipped: string[]
+        skippedCount: number
+        skippedSample: string[]
     }> = {}
 ) => ({
     changes: [],
     affected: 0,
-    skipped: [],
+    skippedCount: 0,
+    skippedSample: [],
     ...overrides,
 })
 
@@ -199,31 +209,24 @@ describe('BulkFixDialog action step', () => {
         fireEvent.click(screen.getByText(/choose group|choose target group/i))
         fireEvent.click(screen.getByText('Alpha'))
 
-        mockUseEngineQuery.mockImplementation(
-            (method: string, args: unknown[]) => {
-                if (method === 'planAssignment') {
-                    expect(args[3]).toBe('g1') // Alpha's id, not the catch-all
-                    return {
-                        data: plan({ affected: 3 }),
-                        isLoading: false,
-                        error: null,
-                    }
-                }
-                return {
-                    data: { total: 0, offset: 0, items: [] },
-                    isLoading: false,
-                    error: null,
-                }
-            }
-        )
-
         fireEvent.click(screen.getByRole('button', { name: /next/i }))
+        // The assertion is made where a miss fails loudly (a `waitFor`
+        // matcher), not inside a mock factory that could silently never
+        // run again if the call shape changed underneath it.
         await waitFor(() =>
             expect(mockUseEngineQuery).toHaveBeenCalledWith(
                 'planAssignment',
-                expect.arrayContaining(['g1']),
+                expect.arrayContaining(['g1']), // Alpha's id, not the catch-all
                 true
             )
+        )
+        // "assign all" keeps the full filter it was opened with -- no
+        // forced violation-only restriction (that is "move to catch-all"
+        // only, see the Critical-fix describe block below).
+        expect(mockUseEngineQuery).toHaveBeenCalledWith(
+            'planAssignment',
+            ['own', scope, {}, 'g1', undefined],
+            true
         )
     })
 })
@@ -251,7 +254,7 @@ describe('BulkFixDialog preview step', () => {
         fireEvent.click(screen.getByRole('button', { name: /next/i }))
     }
 
-    it("shows totals equal to the selection's size", async () => {
+    it("shows a headline count equal to the plan's own affected count (I1)", async () => {
         mockUseEngineQuery.mockImplementation((method: string) => {
             if (method === 'planAssignment') {
                 return {
@@ -270,7 +273,7 @@ describe('BulkFixDialog preview step', () => {
                 }
             }
             return {
-                data: { total: 0, offset: 0, items: [] },
+                data: { total: 3, offset: 0, items: [] },
                 isLoading: false,
                 error: null,
             }
@@ -279,7 +282,64 @@ describe('BulkFixDialog preview step', () => {
         expect(await screen.findByText('3 objects')).toBeInTheDocument()
     })
 
-    it('downloads the full list as CSV', async () => {
+    it("does not show the population total as the headline when it exceeds the plan's affected count (I1)", async () => {
+        mockUseEngineQuery.mockImplementation((method: string) => {
+            if (method === 'planAssignment') {
+                return {
+                    data: plan({
+                        changes: [
+                            { groupId: 'g2', additions: ['a1'], deletions: [] },
+                        ],
+                        affected: 1,
+                    }),
+                    isLoading: false,
+                    error: null,
+                }
+            }
+            return {
+                data: { total: 10, offset: 0, items: [] },
+                isLoading: false,
+                error: null,
+            }
+        })
+        await goToPreview('Beta')
+        expect(await screen.findByText('1 object')).toBeInTheDocument()
+        expect(
+            screen.getByText(/10 objects match this view/)
+        ).toBeInTheDocument()
+    })
+
+    it("passes planAssignment's own changes into ChangeSetPreview (I2)", async () => {
+        mockUseEngineQuery.mockImplementation((method: string) => {
+            if (method === 'planAssignment') {
+                return {
+                    data: plan({
+                        changes: [
+                            {
+                                groupId: 'g2',
+                                additions: ['a1', 'a2', 'a3', 'a4'],
+                                deletions: [],
+                            },
+                        ],
+                        affected: 4,
+                    }),
+                    isLoading: false,
+                    error: null,
+                }
+            }
+            return {
+                data: { total: 4, offset: 0, items: [] },
+                isLoading: false,
+                error: null,
+            }
+        })
+        await goToPreview('Beta')
+        // A stub that ignored `planAssignment` entirely would never render
+        // this -- it comes straight from `plan.changes[0]`.
+        expect(await screen.findByText('+4 / -0')).toBeInTheDocument()
+    })
+
+    it('downloads the full list as CSV, sanitising the group set name for the filename (M8)', async () => {
         mockUseEngineQuery.mockImplementation((method: string) => {
             if (method === 'planAssignment') {
                 return {
@@ -324,6 +384,14 @@ describe('BulkFixDialog preview step', () => {
         const clickSpy = jest
             .spyOn(HTMLAnchorElement.prototype, 'click')
             .mockImplementation(() => undefined)
+        let downloadName = ''
+        jest.spyOn(
+            HTMLAnchorElement.prototype,
+            'download',
+            'set'
+        ).mockImplementation(function (this: HTMLAnchorElement, value: string) {
+            downloadName = value
+        })
 
         await goToPreview('Beta')
         const downloadButton = await screen.findByRole('button', {
@@ -338,10 +406,123 @@ describe('BulkFixDialog preview step', () => {
             'objectsFor',
             'own',
             scope,
-            {},
+            // Default action is "move to catch-all": the population is
+            // restricted to violation statuses regardless of the `{}`
+            // filter the dialog was opened with (the Critical fix).
+            { statuses: VIOLATION_STATUSES },
             0,
             expect.any(Number)
         )
+        expect(downloadName).toBe('Ownership.csv')
         clickSpy.mockRestore()
+    })
+})
+
+describe('BulkFixDialog Critical fix: move-to-catch-all never touches a correctly categorised object', () => {
+    function buildRealStore(): { store: EngineStore; testSet: GroupSetMeta } {
+        const testSet: GroupSetMeta = {
+            id: 'own',
+            displayName: 'Ownership',
+            objectType: 'organisationUnit',
+            compulsory: true,
+            dataDimension: true,
+            canWrite: true,
+            groups: [
+                { id: 'alpha', displayName: 'Alpha', canWrite: true },
+                {
+                    id: 'other',
+                    displayName: 'Other/unknown Ownership',
+                    canWrite: true,
+                },
+            ],
+        }
+        const store = new EngineStore()
+        store.loadObjects({
+            objectType: 'organisationUnit',
+            ids: ['ok1', 'missing1', 'conflict1'],
+            names: ['OK1', 'Missing1', 'Conflict1'],
+            level: null,
+            parentIds: null,
+            domainType: null,
+            categoryIdsOfOption: null,
+        })
+        store.setGroupSets([testSet])
+        store.loadMemberships({
+            objectType: 'organisationUnit',
+            groups: [
+                { groupId: 'alpha', memberIds: ['ok1', 'conflict1'] },
+                { groupId: 'other', memberIds: ['conflict1'] },
+            ],
+        })
+        store.evaluate()
+        return { store, testSet }
+    }
+
+    it('opening over a filter matching both OK and violating objects, and choosing move-to-catch-all, never touches the OK object', async () => {
+        const { store, testSet } = buildRealStore()
+        let lastPlan: ReturnType<EngineStore['planAssignment']> | undefined
+        mockUseEngineQuery.mockImplementation(
+            (method: string, args: unknown[], enabled?: boolean) => {
+                if (!enabled) {
+                    return { data: undefined, isLoading: false, error: null }
+                }
+                if (method === 'planAssignment') {
+                    const result = store.planAssignment(
+                        args[0] as string,
+                        args[1] as Parameters<EngineStore['planAssignment']>[1],
+                        args[2] as Parameters<EngineStore['planAssignment']>[2],
+                        args[3] as string,
+                        args[4] as string[] | undefined
+                    )
+                    lastPlan = result
+                    return { data: result, isLoading: false, error: null }
+                }
+                if (method === 'objectsFor') {
+                    const result = store.objectsFor(
+                        args[0] as string,
+                        args[1] as Parameters<EngineStore['objectsFor']>[1],
+                        args[2] as Parameters<EngineStore['objectsFor']>[2],
+                        args[3] as number,
+                        args[4] as number
+                    )
+                    return { data: result, isLoading: false, error: null }
+                }
+                return { data: undefined, isLoading: false, error: null }
+            }
+        )
+        // No name match ("Other/unknown Ownership" matches, so it is
+        // preselected) and no configured mapping -- default action is
+        // already "move to catch-all".
+        render(
+            <BulkFixDialog
+                set={testSet}
+                scope={scope}
+                // A filter matching everything: OK, missing and conflict.
+                filter={{}}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        await waitFor(() =>
+            expect(
+                screen.getByText('Other/unknown Ownership')
+            ).toBeInTheDocument()
+        )
+        fireEvent.click(screen.getByRole('button', { name: /next/i }))
+
+        await waitFor(() => expect(lastPlan).toBeDefined())
+        expect(lastPlan!.changes.some((c) => c.additions.includes('ok1'))).toBe(
+            false
+        )
+        expect(lastPlan!.changes.some((c) => c.deletions.includes('ok1'))).toBe(
+            false
+        )
+        // The violations are still acted on: missing1 is added to the
+        // catch-all, and conflict1 (alpha + other already) loses its
+        // now-redundant alpha membership.
+        const otherChange = lastPlan!.changes.find((c) => c.groupId === 'other')
+        expect(otherChange?.additions).toEqual(['missing1'])
+        const alphaChange = lastPlan!.changes.find((c) => c.groupId === 'alpha')
+        expect(alphaChange?.deletions).toEqual(['conflict1'])
     })
 })

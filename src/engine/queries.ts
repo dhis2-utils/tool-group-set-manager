@@ -200,6 +200,22 @@ export interface ObjectFilter {
     /** -1 = no group, -2 = conflict, >= 0 = that group position */
     group?: number
     ancestor?: number
+    /**
+     * Restricts the population to exactly these object ids, when given.
+     * Requires the caller (`listObjects`) to also be given the type's own
+     * id array -- `queries.ts` otherwise works entirely in index space
+     * (see `group`/`ancestor` above, both positions rather than ids) and
+     * has no id table of its own. `objectsFor`/`planAssignment` in
+     * `store.ts` are the only two callers, and both already hold that
+     * array (`TypeIndex.ids`), so passing it costs them nothing.
+     *
+     * Exists so one population definition -- this filter -- can serve a
+     * plan, its sample, and its CSV export identically. Before this, a
+     * caller with a `selection` (ids, not a scope+filter) had no way to
+     * ask `objectsFor` for that same population, so the sample and CSV
+     * fell back to guessing or going empty (see BulkFixDialog).
+     */
+    ids?: string[]
 }
 
 export function listObjects(
@@ -207,7 +223,8 @@ export function listObjects(
     m: SetMembership,
     h: Hierarchy | null,
     scopeRoot: number,
-    filter: ObjectFilter
+    filter: ObjectFilter,
+    ids?: string[]
 ): Int32Array {
     const statusMask = new Uint8Array(8)
     if (filter.statuses) {
@@ -216,6 +233,7 @@ export function listObjects(
         statusMask.fill(1)
         statusMask[Status.NotApplicable] = 0
     }
+    const idFilter = filter.ids ? new Set(filter.ids) : null
     const out: number[] = []
     forEachInScope(status.length, h, scopeRoot, (i) => {
         if (statusMask[status[i]] === 0) {
@@ -234,6 +252,13 @@ export function listObjects(
             filter.ancestor !== undefined &&
             (h === null || !isInSubtree(h, filter.ancestor, i))
         ) {
+            return
+        }
+        // No `ids` array to check against means nothing can match: a
+        // caller that asks for `filter.ids` and forgets to pass the id
+        // array gets an empty result rather than silently ignoring the
+        // predicate and returning everything.
+        if (idFilter && !(ids && idFilter.has(ids[i]))) {
             return
         }
         out.push(i)

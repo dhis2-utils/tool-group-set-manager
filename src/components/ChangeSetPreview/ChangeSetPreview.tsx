@@ -22,8 +22,16 @@ export interface ChangeSetPreviewObjects {
     total: number
     /** the first page of the population, Name/Now/After sample rows */
     sample: PreviewRow[]
-    /** objects the plan could not touch because a group involved is read-only */
-    skipped: SkippedRow[]
+    /**
+     * How many objects the plan could not touch because a group involved
+     * is read-only. Kept apart from `skippedSample` (I4): the exact count
+     * is cheap and always shown, but the ids themselves are capped
+     * upstream (`SKIPPED_SAMPLE_LIMIT` in `src/engine/store.ts`), so this
+     * component must never assume `skippedSample.length === skippedCount`.
+     */
+    skippedCount: number
+    /** a bounded sample of the skipped objects, resolved to display names */
+    skippedSample: SkippedRow[]
 }
 
 interface Props {
@@ -53,7 +61,13 @@ function namesOf(positions: number[], groups: GroupMeta[]): string {
  * second, independent guess at the outcome. This is what keeps the After
  * column unable to disagree with what will actually be written.
  */
-function afterIds(
+/**
+ * M1: the one place this arithmetic lives. `BulkFixDialog`'s CSV export
+ * needs the exact same "what group would this row end up in" computation
+ * (for its own After column) and imports this rather than keeping a
+ * second copy that could quietly drift from what the preview shows.
+ */
+export function afterIds(
     row: PreviewRow,
     groups: GroupMeta[],
     changes: GroupChange[]
@@ -137,14 +151,28 @@ export const ChangeSetPreview = ({ changes, groups, objects }: Props) => {
                     </tbody>
                 </table>
             )}
-            {objects.skipped.length > 0 && (
+            {objects.skippedCount > 0 && (
                 <div className={styles.callout}>
-                    <p>{skippedMessage(objects.skipped.length)}</p>
-                    <p>
-                        {objects.skipped
-                            .map((s) => s.displayName ?? s.id)
-                            .join(', ')}
-                    </p>
+                    <p>{skippedMessage(objects.skippedCount)}</p>
+                    {objects.skippedSample.length > 0 && (
+                        <p>
+                            {objects.skippedSample
+                                .map((s) => s.displayName ?? s.id)
+                                .join(', ')}
+                            {objects.skippedCount >
+                                objects.skippedSample.length && (
+                                <>
+                                    {' '}
+                                    {interpolate(i18n.t('and {count} more'), {
+                                        count: (
+                                            objects.skippedCount -
+                                            objects.skippedSample.length
+                                        ).toLocaleString(),
+                                    })}
+                                </>
+                            )}
+                        </p>
+                    )}
                 </div>
             )}
         </div>

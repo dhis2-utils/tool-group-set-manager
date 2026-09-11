@@ -620,7 +620,8 @@ describe('EngineStore.planAssignment', () => {
         // a2 is in pub+priv already: needs only a deletion from priv.
         // b1 is in priv only: needs an addition to pub and a deletion from priv.
         expect(plan.affected).toBe(2)
-        expect(plan.skipped).toEqual([])
+        expect(plan.skippedCount).toBe(0)
+        expect(plan.skippedSample).toEqual([])
         const pubChange = plan.changes.find((c) => c.groupId === 'pub')
         const privChange = plan.changes.find((c) => c.groupId === 'priv')
         expect(pubChange?.additions.sort()).toEqual(['b1'])
@@ -634,14 +635,16 @@ describe('EngineStore.planAssignment', () => {
         const plan = store.planAssignment('own', scope, {}, 'pub', ['a1'])
         expect(plan.affected).toBe(0)
         expect(plan.changes).toEqual([])
-        expect(plan.skipped).toEqual([])
+        expect(plan.skippedCount).toBe(0)
+        expect(plan.skippedSample).toEqual([])
     })
 
     it('skips an object that would need a deletion from a read-only group', () => {
         const store = storeWithGroups(true, false)
         const plan = store.planAssignment('own', scope, { level: 3 }, 'pub')
         // a2 and b1 both need a deletion from priv, which is read-only.
-        expect(plan.skipped.sort()).toEqual(['a2', 'b1'])
+        expect(plan.skippedCount).toBe(2)
+        expect(plan.skippedSample.slice().sort()).toEqual(['a2', 'b1'])
         expect(plan.affected).toBe(0)
         expect(plan.changes).toEqual([])
     })
@@ -654,7 +657,8 @@ describe('EngineStore.planAssignment', () => {
         // a deletion from priv, which is writable -- not blocked by pub's
         // read-only status. b1 needs an addition to the read-only pub, so
         // it is skipped.
-        expect(plan.skipped).toEqual(['b1'])
+        expect(plan.skippedCount).toBe(1)
+        expect(plan.skippedSample).toEqual(['b1'])
         expect(plan.affected).toBe(1)
         const privChange = plan.changes.find((c) => c.groupId === 'priv')
         expect(privChange?.deletions).toEqual(['a2'])
@@ -665,7 +669,8 @@ describe('EngineStore.planAssignment', () => {
         const store = storeWithGroups(true, true)
         const plan = store.planAssignment('own', scope, {}, 'pub', ['b1'])
         expect(plan.affected).toBe(1)
-        expect(plan.skipped).toEqual([])
+        expect(plan.skippedCount).toBe(0)
+        expect(plan.skippedSample).toEqual([])
         const pubChange = plan.changes.find((c) => c.groupId === 'pub')
         const privChange = plan.changes.find((c) => c.groupId === 'priv')
         expect(pubChange?.additions).toEqual(['b1'])
@@ -675,5 +680,58 @@ describe('EngineStore.planAssignment', () => {
     it('throws for an unknown target group id', () => {
         const store = storeWithGroups(true, true)
         expect(() => store.planAssignment('own', scope, {}, 'nope')).toThrow()
+    })
+
+    it('dedupes a selection with repeated ids (M4)', () => {
+        const store = storeWithGroups(true, true)
+        const plan = store.planAssignment('own', scope, {}, 'pub', [
+            'b1',
+            'b1',
+            'b1',
+        ])
+        expect(plan.affected).toBe(1)
+    })
+
+    it('caps the returned skipped sample without undercounting skippedCount', () => {
+        const set: GroupSetMeta = {
+            ...ownership,
+            groups: [
+                { id: 'pub', displayName: 'Public', canWrite: true },
+                { id: 'priv', displayName: 'Private', canWrite: false },
+            ],
+        }
+        const ids = Array.from({ length: 60 }, (_, i) => `o${i}`)
+        const store = new EngineStore()
+        store.loadObjects({
+            objectType: 'organisationUnit',
+            ids,
+            names: ids,
+            level: null,
+            parentIds: null,
+            domainType: null,
+            categoryIdsOfOption: null,
+        })
+        store.setGroupSets([set])
+        store.loadMemberships({
+            objectType: 'organisationUnit',
+            groups: [
+                { groupId: 'pub', memberIds: [] },
+                { groupId: 'priv', memberIds: ids },
+            ],
+        })
+        store.evaluate()
+        const plan = store.planAssignment(
+            'own',
+            { objectType: 'organisationUnit', rootId: null },
+            {},
+            'pub'
+        )
+        // Every one of the 60 objects needs a deletion from the read-only
+        // priv group, so all 60 are skipped -- but only up to the sample
+        // limit comes back as ids.
+        expect(plan.skippedCount).toBe(60)
+        expect(plan.skippedSample).toHaveLength(50)
+        expect(plan.changes).toEqual([])
+        expect(plan.affected).toBe(0)
     })
 })

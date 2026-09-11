@@ -5,8 +5,101 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-10T21:04:32.954Z\n"
-"PO-Revision-Date: 2026-09-10T21:04:32.954Z\n"
+"POT-Creation-Date: 2026-09-11T09:13:28.092Z\n"
+"PO-Revision-Date: 2026-09-11T09:13:28.094Z\n"
+
+msgid "1 object"
+msgstr "1 object"
+
+msgid "{count} objects"
+msgstr "{count} objects"
+
+msgid "No group"
+msgstr "No group"
+
+msgid "Object"
+msgstr "Object"
+
+msgid "Current groups"
+msgstr "Current groups"
+
+msgid "New group"
+msgstr "New group"
+
+msgid "Bulk fix {name}"
+msgstr "Bulk fix {name}"
+
+msgid "Move to catch-all group"
+msgstr "Move to catch-all group"
+
+msgid "Assign all to one group"
+msgstr "Assign all to one group"
+
+msgid "Catch-all group"
+msgstr "Catch-all group"
+
+msgid "Target group"
+msgstr "Target group"
+
+msgid "Choose target group"
+msgstr "Choose target group"
+
+msgid "Creating…"
+msgstr "Creating…"
+
+msgid "Create Other/unknown {name}"
+msgstr "Create Other/unknown {name}"
+
+msgid "Could not create the group"
+msgstr "Could not create the group"
+
+msgid ""
+"Only objects missing from this set or in conflict are moved here -- "
+"correctly assigned objects are left alone, whatever filter this was opened "
+"with"
+msgstr ""
+"Only objects missing from this set or in conflict are moved here -- "
+"correctly assigned objects are left alone, whatever filter this was opened "
+"with"
+
+msgid "{count} objects match this view"
+msgstr "{count} objects match this view"
+
+msgid "Download full list as CSV"
+msgstr "Download full list as CSV"
+
+msgid "Note for History (optional)"
+msgstr "Note for History (optional)"
+
+msgid "Cancel"
+msgstr "Cancel"
+
+msgid "Back"
+msgstr "Back"
+
+msgid "Next"
+msgstr "Next"
+
+msgid "Not available yet"
+msgstr "Not available yet"
+
+msgid "Apply…"
+msgstr "Apply…"
+
+msgid "1 object was skipped because a group involved is read-only for you"
+msgstr "1 object was skipped because a group involved is read-only for you"
+
+msgid "{count} objects were skipped because a group involved is read-only for you"
+msgstr "{count} objects were skipped because a group involved is read-only for you"
+
+msgid "Now"
+msgstr "Now"
+
+msgid "After"
+msgstr "After"
+
+msgid "and {count} more"
+msgstr "and {count} more"
 
 msgid "1 group"
 msgstr "1 group"
@@ -89,6 +182,9 @@ msgstr "{done} of {total}"
 msgid "Keep {group} and remove the others"
 msgstr "Keep {group} and remove the others"
 
+msgid "{group} is read-only for you"
+msgstr "{group} is read-only for you"
+
 msgid "Conflict, choose the group to keep"
 msgstr "Conflict, choose the group to keep"
 
@@ -101,17 +197,37 @@ msgstr "No group matches"
 msgid "{group} (current)"
 msgstr "{group} (current)"
 
+msgid "{group} (read-only for you)"
+msgstr "{group} (read-only for you)"
+
 msgid "Conflict between {groups}"
 msgstr "Conflict between {groups}"
 
-msgid "1 object"
-msgstr "1 object"
-
-msgid "{count} objects"
-msgstr "{count} objects"
-
 msgid "Search matches the {count} rows loaded so far"
 msgstr "Search matches the {count} rows loaded so far"
+
+msgid ""
+"The change was saved to the server, but the screen could not be updated and "
+"it could not be recorded in History. Reload to see it."
+msgstr ""
+"The change was saved to the server, but the screen could not be updated and "
+"it could not be recorded in History. Reload to see it."
+
+msgid ""
+"The change was saved to the server, but the screen could not be updated to "
+"show it. Reload to see it."
+msgstr ""
+"The change was saved to the server, but the screen could not be updated to "
+"show it. Reload to see it."
+
+msgid "The change was saved to the server, but could not be recorded in History."
+msgstr "The change was saved to the server, but could not be recorded in History."
+
+msgid "Assigned {name} to {group}"
+msgstr "Assigned {name} to {group}"
+
+msgid "The group change could not be fully applied. Reload and try again."
+msgstr "The group change could not be fully applied. Reload and try again."
 
 msgid "Loading more rows…"
 msgstr "Loading more rows…"
@@ -128,6 +244,19 @@ msgstr "Status"
 msgid "Group in this set"
 msgstr "Group in this set"
 
+msgid "Confirm group change"
+msgstr "Confirm group change"
+
+msgid ""
+"{name} will be assigned to {group} and removed from any other group in this "
+"set"
+msgstr ""
+"{name} will be assigned to {group} and removed from any other group in this "
+"set"
+
+msgid "Assign"
+msgstr "Assign"
+
 msgid "Scope"
 msgstr "Scope"
 
@@ -136,9 +265,6 @@ msgstr "Change"
 
 msgid "Choose the organisation unit to work in"
 msgstr "Choose the organisation unit to work in"
-
-msgid "Cancel"
-msgstr "Cancel"
 
 msgid "Missing (warning)"
 msgstr "Missing (warning)"
@@ -194,6 +320,12 @@ msgstr "Reload data"
 msgid "Loading failed"
 msgstr "Loading failed"
 
+msgid "No group sets of this type"
+msgstr "No group sets of this type"
+
+msgid "There are no group sets of this type on this instance."
+msgstr "There are no group sets of this type on this instance."
+
 msgid "This type's summary could not be computed"
 msgstr "This type's summary could not be computed"
 
@@ -205,9 +337,6 @@ msgstr "Dashboard"
 
 msgid "Scope ({name})"
 msgstr "Scope ({name})"
-
-msgid "Not available yet"
-msgstr "Not available yet"
 
 msgid "Set properties…"
 msgstr "Set properties…"
@@ -233,9 +362,6 @@ msgstr "Group"
 msgid "Any"
 msgstr "Any"
 
-msgid "No group"
-msgstr "No group"
-
 msgid "Several groups (conflict)"
 msgstr "Several groups (conflict)"
 
@@ -244,6 +370,9 @@ msgstr "Search loaded rows"
 
 msgid "Clear area filter"
 msgstr "Clear area filter"
+
+msgid "Bulk fix…"
+msgstr "Bulk fix…"
 
 msgid "Includes organisation units above the {level} level"
 msgstr "Includes organisation units above the {level} level"

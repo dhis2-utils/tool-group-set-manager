@@ -17,8 +17,10 @@ import {
 import React, { useEffect, useMemo, useState } from 'react'
 import styles from './BulkFixDialog.module.css'
 import {
+    afterIds,
     ChangeSetPreview,
     ChangeSetPreviewObjects,
+    PreviewRow,
 } from '@/components/ChangeSetPreview/ChangeSetPreview'
 import { toCsv } from '@/data/csv'
 import { loadConfig } from '@/data/datastore'
@@ -26,7 +28,7 @@ import { createFetcher } from '@/data/fetcher'
 import { createCatchAllGroup } from '@/data/metadataWrites'
 import { ObjectFilter } from '@/engine/queries'
 import { AssignmentPlan, ObjectsResult, ScopeRef } from '@/engine/store'
-import { GroupSetMeta } from '@/engine/types'
+import { GroupSetMeta, Status } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
 import { MembershipWriteResult } from '@/hooks/useMembershipWrite'
@@ -55,10 +57,29 @@ type Action = 'moveToCatchAll' | 'assignAll'
 type Step = 'action' | 'preview' | 'apply'
 
 const SAMPLE_SIZE = 20
+// M3: fetched larger than the displayed sample so rows the plan actually
+// changes can be sorted to the front before slicing down to SAMPLE_SIZE --
+// otherwise a page full of already-correct rows (no change at all) could
+// fill the whole visible sample while the real changes sit further down.
+const SAMPLE_FETCH_SIZE = 100
 const CSV_PAGE_SIZE = 1000
 
 /** A group whose own name suggests it is the catch-all for its set. */
 const CATCH_ALL_NAME_PATTERN = /other|unknown/i
+
+/**
+ * Spec 3.2/3.4's violations: missing from a set that requires membership
+ * (at error or warning severity) or in conflict between two of its
+ * groups. "Move to catch-all" is restricted to exactly this population
+ * (see the Critical fix in task-7-fix1.md) -- an object with any other
+ * status is, by definition, already correctly categorised, and moving it
+ * would strip it out of the group it is correctly in.
+ */
+const VIOLATION_STATUSES = [
+    Status.MissingError,
+    Status.MissingWarning,
+    Status.Conflict,
+]
 
 const objectsCountLabel = (count: number) =>
     count === 1
@@ -67,40 +88,31 @@ const objectsCountLabel = (count: number) =>
               count: count.toLocaleString(),
           })
 
-/**
- * The group ids a row (identified by its current group positions) would
- * end up in once `changes` is applied -- the same arithmetic
- * `ChangeSetPreview` uses for its After column, reused here so the CSV
- * export can never disagree with the preview or with what would be
- * written (D3).
- */
-function afterGroupIds(
-    row: { id: string; currentPositions: number[] },
-    groups: GroupSetMeta['groups'],
-    changes: AssignmentPlan['changes']
-): string[] {
-    const { id, currentPositions } = row
-    const ids = new Set(
-        currentPositions
-            .map((p) => groups[p]?.id)
-            .filter((g): g is string => Boolean(g))
-    )
-    changes.forEach((change) => {
-        if (change.deletions.includes(id)) {
-            ids.delete(change.groupId)
-        }
-        if (change.additions.includes(id)) {
-            ids.add(change.groupId)
-        }
-    })
-    return Array.from(ids)
-}
-
 function namesOf(ids: string[], groups: GroupSetMeta['groups']): string {
     const names = ids
         .map((id) => groups.find((g) => g.id === id)?.displayName)
         .filter((n): n is string => Boolean(n))
     return names.length > 0 ? names.join(', ') : i18n.t('No group')
+}
+
+/** A row whose After differs from its Now -- the plan actually changes it. */
+function rowIsChanged(
+    row: PreviewRow,
+    groups: GroupSetMeta['groups'],
+    changes: AssignmentPlan['changes']
+): boolean {
+    const now = row.groups
+        .map((p) => groups[p]?.id)
+        .filter((id): id is string => Boolean(id))
+        .slice()
+        .sort()
+    const after = afterIds(row, groups, changes).slice().sort()
+    return now.length !== after.length || now.some((id, i) => id !== after[i])
+}
+
+/** Filesystem-unsafe characters a group set's own display name could contain. */
+function safeFileName(name: string): string {
+    return name.replace(/[\\/:*?"<>|]/g, '_')
 }
 
 export const BulkFixDialog = ({
@@ -143,6 +155,14 @@ export const BulkFixDialog = ({
     // here so the target SingleSelect has an option for it immediately
     // (@dhis2/ui's SingleSelect throws if `selected` names no option at
     // all), rather than waiting on a reload this dialog does not trigger.
+    //
+    // M6 caveats carried forward for the task that adds Apply: (1) the
+    // reload must actually happen once Apply confirms the write, or this
+    // locally-tracked option is all this dialog will ever show, even after
+    // the group is genuinely part of `set.groups` server-side; (2)
+    // `createdGroup` has no `canWrite` of its own -- the engine's own
+    // `GroupMeta` for it (once loaded) is the only authority a plan can
+    // trust for whether it is writable.
     const [createdGroup, setCreatedGroup] = useState<{
         id: string
         displayName: string
@@ -185,13 +205,18 @@ export const BulkFixDialog = ({
         setTargetGroupId(catchAllCandidateId ?? '')
     }, [configLoaded, catchAllCandidateId, targetTouched, action])
 
+    // M7: one branch each, no redundant `setTargetTouched` call. Switching
+    // to "move to catch-all" clears `targetTouched` so the effect above
+    // re-applies the preselection; switching to "assign all" marks the
+    // target touched (so that effect leaves it alone) and clears it back
+    // to empty, since the catch-all's preselected target must not silently
+    // carry over as the "assign all" target.
     const handleAction = (next: Action) => {
         setAction(next)
-        setTargetTouched(next === 'moveToCatchAll' ? targetTouched : true)
-        setTargetGroupId(
-            next === 'moveToCatchAll' ? (catchAllCandidateId ?? '') : ''
-        )
-        if (next === 'moveToCatchAll') {
+        if (next === 'assignAll') {
+            setTargetTouched(true)
+            setTargetGroupId('')
+        } else {
             setTargetTouched(false)
         }
     }
@@ -211,6 +236,28 @@ export const BulkFixDialog = ({
         }
     }
 
+    // Critical fix (task-7-fix1.md): "move to catch-all" must never
+    // include a correctly categorised object, whatever filter or selection
+    // the dialog was opened with -- `planAssignment` has no notion of
+    // `Status` at all, so an unrestricted population handed to it while
+    // moving to the catch-all would strip every already-correct object out
+    // of its correct group. This is the one population definition used for
+    // the plan, the sample and the CSV (I5): `ids` (new predicate, added to
+    // `ObjectFilter`/`listObjects` for exactly this) carries a `selection`
+    // through as the same population everywhere, and `statuses` is forced
+    // to the violation set for "move to catch-all" regardless of what the
+    // dialog was opened with. "Assign all to one group" is a deliberate
+    // bulk re-categorisation the user chose, so it keeps the full,
+    // unrestricted filter it was opened with.
+    const populationFilter: ObjectFilter = useMemo(() => {
+        const base: ObjectFilter = selection
+            ? { ...filter, ids: selection }
+            : filter
+        return action === 'moveToCatchAll'
+            ? { ...base, statuses: VIOLATION_STATUSES }
+            : base
+    }, [filter, selection, action])
+
     const previewEnabled = step === 'preview' && targetGroupId !== ''
     const {
         data: plan,
@@ -218,27 +265,40 @@ export const BulkFixDialog = ({
         error: planError,
     } = useEngineQuery<AssignmentPlan>(
         'planAssignment',
-        [set.id, scope, filter, targetGroupId, selection],
+        [set.id, scope, populationFilter, targetGroupId, selection],
         previewEnabled
     )
 
-    // D4: the sample is simply the first page of the same population
-    // `objectsFor` already pages for the Objects table. When a selection is
-    // given there is no `ObjectFilter` that means "these exact ids", so the
-    // sample (and the CSV export below) fall back to showing none rather
-    // than a population that does not match the selection.
-    const sampleEnabled = previewEnabled && !selection
+    // D4: the sample pages through the same `objectsFor` the Objects table
+    // uses, now with `populationFilter` -- so a `selection` (via the new
+    // `ids` predicate, I5) produces the same population here as it does
+    // for the plan, rather than an empty sample.
     const { data: sampleResult } = useEngineQuery<ObjectsResult>(
         'objectsFor',
-        [set.id, scope, filter, 0, SAMPLE_SIZE],
-        sampleEnabled
+        [set.id, scope, populationFilter, 0, SAMPLE_FETCH_SIZE],
+        previewEnabled
     )
 
-    const skippedRows = useMemo(() => {
+    const displaySample = useMemo(() => {
+        if (!sampleResult || !plan) {
+            return []
+        }
+        const changed: PreviewRow[] = []
+        const unchanged: PreviewRow[] = []
+        sampleResult.items.forEach((row) => {
+            ;(rowIsChanged(row, set.groups, plan.changes)
+                ? changed
+                : unchanged
+            ).push(row)
+        })
+        return [...changed, ...unchanged].slice(0, SAMPLE_SIZE)
+    }, [sampleResult, plan, set.groups])
+
+    const skippedSample = useMemo(() => {
         if (!plan) {
             return []
         }
-        return plan.skipped.map((id) => ({
+        return plan.skippedSample.map((id) => ({
             id,
             displayName:
                 sampleResult?.items.find((r) => r.id === id)?.displayName ??
@@ -247,9 +307,10 @@ export const BulkFixDialog = ({
     }, [plan, sampleResult])
 
     const previewObjects: ChangeSetPreviewObjects = {
-        total: selection ? selection.length : (sampleResult?.total ?? 0),
-        sample: selection ? [] : (sampleResult?.items ?? []),
-        skipped: skippedRows,
+        total: sampleResult?.total ?? 0,
+        sample: displaySample,
+        skippedCount: plan?.skippedCount ?? 0,
+        skippedSample,
     }
 
     const handleDownloadCsv = async () => {
@@ -266,61 +327,46 @@ export const BulkFixDialog = ({
                     i18n.t('New group'),
                 ],
             ]
-            if (selection) {
-                // No per-id resolution exists yet to look up a selected
-                // object's current groups without shipping a national
-                // population across the worker boundary; the row is still
-                // listed, just with the current-groups column left blank.
-                selection.forEach((id) => {
-                    rows.push([id, '', namesOf([targetGroupId], set.groups)])
+            // I5: the same `populationFilter` the plan and the sample use,
+            // so the CSV can never list a row the plan disagrees with.
+            let offset = 0
+            let total = Infinity
+            while (offset < total) {
+                const page = await client.call<ObjectsResult>(
+                    'objectsFor',
+                    set.id,
+                    scope,
+                    populationFilter,
+                    offset,
+                    CSV_PAGE_SIZE
+                )
+                total = page.total
+                page.items.forEach((item) => {
+                    rows.push([
+                        item.displayName ?? item.id,
+                        namesOf(
+                            item.groups
+                                .map((p) => set.groups[p]?.id)
+                                .filter((g): g is string => Boolean(g)),
+                            set.groups
+                        ),
+                        namesOf(
+                            afterIds(item, set.groups, plan.changes),
+                            set.groups
+                        ),
+                    ])
                 })
-            } else {
-                let offset = 0
-                let total = Infinity
-                while (offset < total) {
-                    const page = await client.call<ObjectsResult>(
-                        'objectsFor',
-                        set.id,
-                        scope,
-                        filter,
-                        offset,
-                        CSV_PAGE_SIZE
-                    )
-                    total = page.total
-                    page.items.forEach((item) => {
-                        rows.push([
-                            item.displayName ?? item.id,
-                            namesOf(
-                                item.groups
-                                    .map((p) => set.groups[p]?.id)
-                                    .filter((g): g is string => Boolean(g)),
-                                set.groups
-                            ),
-                            namesOf(
-                                afterGroupIds(
-                                    {
-                                        id: item.id,
-                                        currentPositions: item.groups,
-                                    },
-                                    set.groups,
-                                    plan.changes
-                                ),
-                                set.groups
-                            ),
-                        ])
-                    })
-                    if (page.items.length === 0) {
-                        break
-                    }
-                    offset += page.items.length
+                if (page.items.length === 0) {
+                    break
                 }
+                offset += page.items.length
             }
             const csv = toCsv(rows)
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
             const url = URL.createObjectURL(blob)
             const link = document.createElement('a')
             link.href = url
-            link.download = `${set.displayName}.csv`
+            link.download = `${safeFileName(set.displayName)}.csv`
             document.body.appendChild(link)
             link.click()
             document.body.removeChild(link)
@@ -350,7 +396,7 @@ export const BulkFixDialog = ({
     return (
         <Modal position="middle" onClose={onClose} large>
             <ModalTitle>
-                {interpolate(i18n.t('Bulk fix: {name}'), {
+                {interpolate(i18n.t('Bulk fix {name}'), {
                     name: set.displayName,
                 })}
             </ModalTitle>
@@ -415,9 +461,34 @@ export const BulkFixDialog = ({
                         {planError && <NoticeBox error>{planError}</NoticeBox>}
                         {plan && (
                             <>
+                                {action === 'moveToCatchAll' && (
+                                    <NoticeBox>
+                                        {i18n.t(
+                                            'Only objects missing from this set or in conflict are moved here -- correctly assigned objects are left alone, whatever filter this was opened with'
+                                        )}
+                                    </NoticeBox>
+                                )}
+                                {/* I1: the headline is what the plan will
+                                    actually write, never a second count of
+                                    the population -- that number can be
+                                    larger (skipped or already-correct
+                                    objects contribute nothing to it), so it
+                                    is shown only as separate context. */}
                                 <p className={styles.summary}>
-                                    {objectsCountLabel(previewObjects.total)}
+                                    {objectsCountLabel(plan.affected)}
                                 </p>
+                                {previewObjects.total !== plan.affected && (
+                                    <p className={styles.contextNote}>
+                                        {interpolate(
+                                            i18n.t(
+                                                '{count} objects match this view'
+                                            ),
+                                            {
+                                                count: previewObjects.total.toLocaleString(),
+                                            }
+                                        )}
+                                    </p>
+                                )}
                                 <ChangeSetPreview
                                     changes={plan.changes}
                                     groups={set.groups}

@@ -24,7 +24,12 @@ describe('ChangeSetPreview', () => {
             <ChangeSetPreview
                 changes={changes}
                 groups={groups}
-                objects={{ total: 3, sample: [], skipped: [] }}
+                objects={{
+                    total: 3,
+                    sample: [],
+                    skippedCount: 0,
+                    skippedSample: [],
+                }}
             />
         )
         const pubChange = changes.find((c) => c.groupId === 'pub')
@@ -57,7 +62,8 @@ describe('ChangeSetPreview', () => {
                     sample: [
                         { id: 'b1', displayName: 'B1', groups: [1] }, // priv
                     ],
-                    skipped: [],
+                    skippedCount: 0,
+                    skippedSample: [],
                 }}
             />
         )
@@ -75,7 +81,8 @@ describe('ChangeSetPreview', () => {
                 objects={{
                     total: 0,
                     sample: [],
-                    skipped: [{ id: 'x1', displayName: 'Skipped One' }],
+                    skippedCount: 1,
+                    skippedSample: [{ id: 'x1', displayName: 'Skipped One' }],
                 }}
             />
         )
@@ -83,12 +90,35 @@ describe('ChangeSetPreview', () => {
         expect(screen.getByText(/read-only/i)).toBeInTheDocument()
     })
 
+    it('shows the exact skipped count and "and N more" when the sample is capped (I4)', () => {
+        render(
+            <ChangeSetPreview
+                changes={[]}
+                groups={groups}
+                objects={{
+                    total: 0,
+                    sample: [],
+                    skippedCount: 120,
+                    skippedSample: [{ id: 'x1', displayName: 'Skipped One' }],
+                }}
+            />
+        )
+        expect(screen.getByText(/120 objects/)).toBeInTheDocument()
+        expect(screen.getByText(/Skipped One/)).toBeInTheDocument()
+        expect(screen.getByText(/and 119 more/)).toBeInTheDocument()
+    })
+
     it('renders no read-only callout when nothing was skipped', () => {
         render(
             <ChangeSetPreview
                 changes={[]}
                 groups={groups}
-                objects={{ total: 0, sample: [], skipped: [] }}
+                objects={{
+                    total: 0,
+                    sample: [],
+                    skippedCount: 0,
+                    skippedSample: [],
+                }}
             />
         )
         expect(screen.queryByText(/read-only/i)).not.toBeInTheDocument()

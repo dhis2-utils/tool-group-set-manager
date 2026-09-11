@@ -46,13 +46,24 @@ export interface MatrixResult {
     groups: GroupMeta[]
 }
 
+/**
+ * I4: how many `AssignmentPlan.skipped*` ids `planAssignment` keeps and
+ * returns. The exact count (`skippedCount`) is unbounded and cheap; the
+ * ids themselves are kept only up to this limit, so a national-scale plan
+ * with many read-only-blocked objects cannot grow the response (or the
+ * preview's rendered text) with population size.
+ */
+export const SKIPPED_SAMPLE_LIMIT = 50
+
 export interface AssignmentPlan {
     /** additions to the target, deletions from every other group of the set */
     changes: GroupChange[]
     /** how many objects the plan moves */
     affected: number
-    /** ids skipped because a group they are in, or the target, is read-only */
-    skipped: string[]
+    /** how many objects were skipped because a group involved is read-only */
+    skippedCount: number
+    /** up to `SKIPPED_SAMPLE_LIMIT` of the skipped ids, for display */
+    skippedSample: string[]
 }
 
 export interface ObjectsResult {
@@ -442,10 +453,18 @@ export class EngineStore {
         }
         const targetWritable = state.set.groups[targetIndex].canWrite
 
-        let indexes: ArrayLike<number>
+        // M2: kept as the typed array `listObjects` already returns, or a
+        // plain array resolved from `selection` -- never copied through
+        // `Array.from` into a second array of up to 200,000 boxed numbers
+        // just to get a `.forEach`.
+        let indexes: Int32Array | number[]
         if (selection) {
+            // M4: a duplicate id in `selection` must not double-count
+            // `affected` or list an id twice in `skipped` -- `changes`
+            // itself already dedupes via its `Set`s, so a naive selection
+            // would silently disagree with its own `affected` count.
             const resolved: number[] = []
-            selection.forEach((id) => {
+            new Set(selection).forEach((id) => {
                 const idx = t.indexOf.get(id)
                 if (idx !== undefined) {
                     resolved.push(idx)
@@ -458,33 +477,40 @@ export class EngineStore {
                 state.membership,
                 t.hierarchy,
                 this.scopeRoot(t, scope),
-                filter
+                filter,
+                t.ids
             )
         }
 
         const additions = new Set<string>()
         const deletionsByGroup = new Map<number, Set<string>>()
-        const skipped: string[] = []
+        // I4: only a bounded sample of skipped ids is kept -- the count is
+        // exact, but the array crossing back to the caller (and, from
+        // there, into `ChangeSetPreview`'s rendered text) cannot be
+        // allowed to scale with the population, the same reason `changes`
+        // and `affected` return ids and counts rather than resolved rows.
+        const skippedSample: string[] = []
+        let skippedCount = 0
         let affected = 0
 
-        Array.from(indexes, (idx) => idx).forEach((idx) => {
+        for (let k = 0; k < indexes.length; k++) {
+            const idx = indexes[k]
             const id = t.ids[idx]
             const positions = groupsOf(state.membership, idx)
             if (positions.length === 1 && positions[0] === targetIndex) {
-                return // Already the sole member of the target: no change.
+                continue // Already the sole member of the target: no change.
             }
             const needsAddition = !positions.includes(targetIndex)
             const deletionPositions = positions.filter((p) => p !== targetIndex)
-            if (needsAddition && !targetWritable) {
-                skipped.push(id)
-                return
-            }
-            const blockedDeletion = deletionPositions.some(
-                (p) => !state.set.groups[p].canWrite
-            )
-            if (blockedDeletion) {
-                skipped.push(id)
-                return
+            const blocked =
+                (needsAddition && !targetWritable) ||
+                deletionPositions.some((p) => !state.set.groups[p].canWrite)
+            if (blocked) {
+                skippedCount++
+                if (skippedSample.length < SKIPPED_SAMPLE_LIMIT) {
+                    skippedSample.push(id)
+                }
+                continue
             }
             if (needsAddition) {
                 additions.add(id)
@@ -498,7 +524,7 @@ export class EngineStore {
                 ids.add(id)
             })
             affected++
-        })
+        }
 
         const changes: GroupChange[] = []
         if (additions.size > 0) {
@@ -516,7 +542,7 @@ export class EngineStore {
             })
         })
 
-        return { changes, affected, skipped }
+        return { changes, affected, skippedCount, skippedSample }
     }
 
     objectsFor(
@@ -532,7 +558,8 @@ export class EngineStore {
             state.membership,
             t.hierarchy,
             this.scopeRoot(t, scope),
-            filter
+            filter,
+            t.ids
         )
         const slice = all.subarray(offset, offset + limit)
         return {

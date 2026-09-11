@@ -226,6 +226,35 @@ describe('listObjects', () => {
             )
         ).toEqual([3, 5])
     })
+
+    it('filters by an id predicate, combined with other filters', () => {
+        const ids = ['root', 'A', 'B', 'a1', 'a2', 'b1']
+        expect(
+            Array.from(listObjects(status, m, h, 0, { ids: ['a1', 'b1'] }, ids))
+        ).toEqual([3, 5])
+        // Combined with a status filter that excludes one of the ids.
+        expect(
+            Array.from(
+                listObjects(
+                    status,
+                    m,
+                    h,
+                    0,
+                    { ids: ['a1', 'a2'], statuses: [Status.Ok] },
+                    ids
+                )
+            )
+        ).toEqual([3])
+    })
+
+    it('matches nothing when filter.ids is given but the id array is not', () => {
+        // A caller that asks for the `ids` predicate but forgets to pass
+        // the type's id array gets an empty result, not the predicate
+        // silently ignored (which would return the whole population).
+        expect(
+            Array.from(listObjects(status, m, h, 0, { ids: ['a1'] }))
+        ).toEqual([])
+    })
 })
 
 describe('forEachInScope corruption handling', () => {

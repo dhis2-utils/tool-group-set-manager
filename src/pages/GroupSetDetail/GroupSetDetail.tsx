@@ -26,6 +26,18 @@ type DetailTab = 'overview' | 'objects'
 /** Used only while nothing at all is known about the scope's level yet. */
 const DEFAULT_LEVEL = 1
 
+/**
+ * Spec 5.3: the header's "Fix issues…" is the card/header shortcut that
+ * "preselects all violations of one rule" -- opening it unfiltered would
+ * hand the bulk fix dialog every correctly categorised object too (see
+ * task-7-fix1.md's Critical finding).
+ */
+const VIOLATION_STATUSES = [
+    Status.MissingError,
+    Status.MissingWarning,
+    Status.Conflict,
+]
+
 export const GroupSetDetail = () => {
     const { setId = '' } = useParams()
     const { groupSets } = useEngine()
@@ -176,7 +188,12 @@ export const GroupSetDetail = () => {
                     <Button small disabled title={i18n.t('Not available yet')}>
                         {i18n.t('Set properties…')}
                     </Button>
-                    <Button small onClick={() => setBulkFixFilter({})}>
+                    <Button
+                        small
+                        onClick={() =>
+                            setBulkFixFilter({ statuses: VIOLATION_STATUSES })
+                        }
+                    >
                         {i18n.t('Fix issues…')}
                     </Button>
                 </div>
