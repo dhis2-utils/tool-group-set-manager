@@ -12,3 +12,13 @@
     font-size: 12px;
     color: var(--colors-grey600);
 }
+.progressRow {
+    display: flex;
+    align-items: center;
+    gap: var(--spacers-dp8);
+}
+.resultPanel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacers-dp8);
+}

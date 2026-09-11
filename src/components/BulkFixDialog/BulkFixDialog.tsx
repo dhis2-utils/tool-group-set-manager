@@ -26,6 +26,11 @@ import { toCsv } from '@/data/csv'
 import { loadConfig } from '@/data/datastore'
 import { createFetcher } from '@/data/fetcher'
 import { createCatchAllGroup } from '@/data/metadataWrites'
+import {
+    aggregateOutcomes,
+    mergeOutcomes,
+    outcomeText,
+} from '@/data/writeOutcomes'
 import { BatchOutcome } from '@/data/writes'
 import { ChangeSet } from '@/engine/changeSet'
 import { ObjectFilter } from '@/engine/queries'
@@ -120,141 +125,6 @@ function rowIsChanged(
 /** Filesystem-unsafe characters a group set's own display name could contain. */
 function safeFileName(name: string): string {
     return name.replace(/[\\/:*?"<>|]/g, '_')
-}
-
-interface GroupOutcome {
-    groupId: string
-    requested: number
-    accepted: number
-    /** Every batch this group was split into (D2/spec 6.1's ~1,000 id
-     * batches), kept individually rather than only summed -- see C1 below. */
-    batches: BatchOutcome[]
-}
-
-/**
- * A group set's write can split one group across several batches. The
- * result panel reports per group, not per batch, so batches for the same
- * group are collected here -- but summed counts are for *display* only
- * (M2); classification in `outcomeText` below works batch by batch,
- * because summing before classifying is exactly the bug fix round 1's C1
- * describes: an over-reporting batch (the server can report more than was
- * requested -- see `acceptedCount`'s doc comment in `writes.ts`) and a
- * short batch can cancel out in the sums while both sit in `unaccounted`.
- */
-function aggregateOutcomes(outcomes: BatchOutcome[]): GroupOutcome[] {
-    const byGroup = new Map<string, GroupOutcome>()
-    outcomes.forEach((o) => {
-        const existing = byGroup.get(o.groupId) ?? {
-            groupId: o.groupId,
-            requested: 0,
-            accepted: 0,
-            batches: [],
-        }
-        existing.requested += o.requested
-        existing.accepted += o.accepted
-        existing.batches.push(o)
-        byGroup.set(o.groupId, existing)
-    })
-    return Array.from(byGroup.values())
-}
-
-type OutcomeTone = 'valid' | 'warning' | 'error'
-
-/** A batch the server confirmed in full, with no error. */
-function isFullyApplied(b: BatchOutcome): boolean {
-    return !b.error && b.accepted === b.requested
-}
-
-/**
- * D3: the three outcomes need distinct wording, and a partial acceptance
- * must never be called a success -- the writer refuses to guess which ids
- * landed (see `writeMemberships`'s doc comment). Classification is done
- * batch by batch (fix round 1's C1), never on the summed counts: a group
- * is `valid` only when EVERY one of its batches was confirmed in full.
- *
- * A group split across batches where some were confirmed and some were not
- * (fix round 1's I1) is neither a clean success nor an outright failure --
- * part of its change is real and permanent on the server, so it gets its
- * own wording rather than being folded into "failed". Only a group with
- * zero confirmed batches and at least one hard error is reported as
- * failed; zero confirmed batches with no error at all (a silent partial
- * accept) is reported as a partial acceptance, same as today.
- */
-function outcomeText(
-    o: GroupOutcome,
-    groupName: string
-): { text: string; tone: OutcomeTone } {
-    const fullyApplied = o.batches.filter(isFullyApplied)
-    const notConfirmed = o.batches.filter((b) => !isFullyApplied(b))
-    const errors = notConfirmed
-        .map((b) => b.error)
-        .filter((e): e is string => Boolean(e))
-
-    if (notConfirmed.length === 0) {
-        return {
-            tone: 'valid',
-            text: interpolate(i18n.t('All changes applied to {name}'), {
-                name: groupName,
-            }),
-        }
-    }
-
-    if (fullyApplied.length > 0) {
-        // I1: some of this group's batches landed and some did not -- never
-        // "failed", since part of the change is real and permanent.
-        return {
-            tone: 'warning',
-            text: interpolate(
-                i18n.t(
-                    '{name} accepted {accepted} of {requested} changes -- some of its batches were confirmed and some were not, and the objects in the unconfirmed batches need to be re-read from the server'
-                ),
-                {
-                    name: groupName,
-                    accepted: o.accepted,
-                    requested: o.requested,
-                }
-            ),
-        }
-    }
-
-    if (errors.length > 0) {
-        return {
-            tone: 'error',
-            text: interpolate(
-                i18n.t(
-                    '{name} failed with error {error} -- the affected objects need to be re-read from the server'
-                ),
-                { name: groupName, error: errors.join('; ') }
-            ),
-        }
-    }
-
-    // M2: show the numbers -- "accepted N of M" is more actionable than a
-    // bare "fewer than were sent".
-    return {
-        tone: 'warning',
-        text: interpolate(
-            i18n.t(
-                '{name} accepted {accepted} of {requested} changes -- the affected objects need to be re-read from the server'
-            ),
-            { name: groupName, accepted: o.accepted, requested: o.requested }
-        ),
-    }
-}
-
-/**
- * I5: a retry only ever resends the groups its own `changes` named
- * (built from the previous result's `unaccounted`, D2) -- so the outcomes
- * for every OTHER group must survive untouched, or the panel would
- * silently drop a group's real, permanent result. `next` replaces `prev`
- * only for the groups it actually reports on.
- */
-function mergeOutcomes(
-    prev: BatchOutcome[],
-    next: BatchOutcome[]
-): BatchOutcome[] {
-    const nextGroupIds = new Set(next.map((o) => o.groupId))
-    return [...prev.filter((o) => !nextGroupIds.has(o.groupId)), ...next]
 }
 
 export const BulkFixDialog = ({

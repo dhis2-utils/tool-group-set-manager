@@ -55,7 +55,14 @@ export function useChangeSets(): UseChangeSetsResult {
                 }
                 setChangeSets(page.changeSets)
                 setHasMore(page.hasMore)
-                setOffset(page.changeSets.length)
+                // M1 (fix round 1): advance by the window *requested*
+                // (PAGE_SIZE), not by the rows returned. `listChangeSets`
+                // pages by key index and silently drops any key whose
+                // document fails to read -- advancing by the returned
+                // count would make the very next page's `offset` overlap
+                // the key window just read, producing duplicate rows (and
+                // duplicate React keys, each with its own Revert).
+                setOffset(PAGE_SIZE)
                 setIsLoading(false)
             })
             .catch((e: unknown) => {
@@ -79,7 +86,8 @@ export function useChangeSets(): UseChangeSetsResult {
             .then((page) => {
                 setChangeSets((prev) => [...prev, ...page.changeSets])
                 setHasMore(page.hasMore)
-                setOffset((o) => o + page.changeSets.length)
+                // M1: see the matching comment in the initial-load effect.
+                setOffset((o) => o + PAGE_SIZE)
                 setIsLoadingMore(false)
             })
             .catch((e: unknown) => {

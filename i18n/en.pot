@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-11T12:06:46.936Z\n"
-"PO-Revision-Date: 2026-09-11T12:06:46.936Z\n"
+"POT-Creation-Date: 2026-09-11T12:48:16.306Z\n"
+"PO-Revision-Date: 2026-09-11T12:48:16.307Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -16,32 +16,6 @@ msgstr "{count} objects"
 
 msgid "No group"
 msgstr "No group"
-
-msgid "All changes applied to {name}"
-msgstr "All changes applied to {name}"
-
-msgid ""
-"{name} accepted {accepted} of {requested} changes -- some of its batches "
-"were confirmed and some were not, and the objects in the unconfirmed "
-"batches need to be re-read from the server"
-msgstr ""
-"{name} accepted {accepted} of {requested} changes -- some of its batches "
-"were confirmed and some were not, and the objects in the unconfirmed "
-"batches need to be re-read from the server"
-
-msgid ""
-"{name} failed with error {error} -- the affected objects need to be re-read "
-"from the server"
-msgstr ""
-"{name} failed with error {error} -- the affected objects need to be re-read "
-"from the server"
-
-msgid ""
-"{name} accepted {accepted} of {requested} changes -- the affected objects "
-"need to be re-read from the server"
-msgstr ""
-"{name} accepted {accepted} of {requested} changes -- the affected objects "
-"need to be re-read from the server"
 
 msgid "Object"
 msgstr "Object"
@@ -357,6 +331,32 @@ msgstr "All objects"
 msgid "Above the row level"
 msgstr "Above the row level"
 
+msgid "All changes applied to {name}"
+msgstr "All changes applied to {name}"
+
+msgid ""
+"{name} accepted {accepted} of {requested} changes -- some of its batches "
+"were confirmed and some were not, and the objects in the unconfirmed "
+"batches need to be re-read from the server"
+msgstr ""
+"{name} accepted {accepted} of {requested} changes -- some of its batches "
+"were confirmed and some were not, and the objects in the unconfirmed "
+"batches need to be re-read from the server"
+
+msgid ""
+"{name} failed with error {error} -- the affected objects need to be re-read "
+"from the server"
+msgstr ""
+"{name} failed with error {error} -- the affected objects need to be re-read "
+"from the server"
+
+msgid ""
+"{name} accepted {accepted} of {requested} changes -- the affected objects "
+"need to be re-read from the server"
+msgstr ""
+"{name} accepted {accepted} of {requested} changes -- the affected objects "
+"need to be re-read from the server"
+
 msgid "1 set without issues hidden"
 msgstr "1 set without issues hidden"
 
@@ -496,6 +496,16 @@ msgstr ""
 msgid "Note (optional)"
 msgstr "Note (optional)"
 
+msgid "Applying the revert…"
+msgstr "Applying the revert…"
+
+msgid ""
+"The revert was applied but could not itself be recorded in History, so it "
+"cannot in turn be reverted from here"
+msgstr ""
+"The revert was applied but could not itself be recorded in History, so it "
+"cannot in turn be reverted from here"
+
 msgid "Revert"
 msgstr "Revert"
 
@@ -504,6 +514,9 @@ msgstr "History"
 
 msgid "Could not load history"
 msgstr "Could not load history"
+
+msgid "Could not export this change"
+msgstr "Could not export this change"
 
 msgid "When"
 msgstr "When"
@@ -522,6 +535,9 @@ msgstr "Changes"
 
 msgid "Note"
 msgstr "Note"
+
+msgid "Export"
+msgstr "Export"
 
 msgid "Load more"
 msgstr "Load more"

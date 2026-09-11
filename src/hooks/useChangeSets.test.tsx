@@ -69,10 +69,46 @@ describe('useChangeSets', () => {
             'c',
         ])
         expect(result.current.hasMore).toBe(false)
+        // M1: the next offset is the window *requested* (PAGE_SIZE), not
+        // the number of rows returned -- see the dedicated regression test
+        // below for why that distinction matters.
         expect(mockListChangeSets).toHaveBeenLastCalledWith(expect.anything(), {
-            offset: 2,
+            offset: 20,
             limit: 20,
         })
+    })
+
+    it("M1: a page short of a document that failed to read does not make the next page's offset overlap it", async () => {
+        // The key window requested is a full page (20), but one key's
+        // document failed to read (listChangeSets silently drops it), so
+        // only 19 rows come back. Advancing by the returned count (19)
+        // instead of the window requested (20) would re-request key index
+        // 19 on the next page -- the very key already read (and dropped) --
+        // producing a duplicate row with a duplicate React key.
+        const shortPage = Array.from({ length: 19 }, (_, i) => cs(`a${i}`))
+        mockListChangeSets.mockResolvedValueOnce({
+            changeSets: shortPage,
+            hasMore: true,
+        })
+        const { result } = renderHook(() => useChangeSets())
+        await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+        mockListChangeSets.mockResolvedValueOnce({
+            changeSets: [cs('next')],
+            hasMore: false,
+        })
+        act(() => {
+            result.current.loadMore()
+        })
+        await waitFor(() => expect(result.current.isLoadingMore).toBe(false))
+
+        expect(mockListChangeSets).toHaveBeenLastCalledWith(expect.anything(), {
+            offset: 20,
+            limit: 20,
+        })
+        expect(
+            result.current.changeSets.filter((c) => c.id === 'next')
+        ).toHaveLength(1)
     })
 
     it('reload discards what was loaded and starts over from offset 0', async () => {

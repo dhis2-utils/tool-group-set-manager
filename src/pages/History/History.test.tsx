@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { History } from './History'
 import { ChangeSet } from '@/engine/changeSet'
@@ -44,9 +44,14 @@ const ownershipSet: GroupSetMeta = {
 
 let mockGroupSets: GroupSetMeta[] = [ownershipSet]
 const mockClientCall = jest.fn()
+// Stable reference across renders -- like the real EngineProvider's
+// memoised context value, and unlike a fresh object literal, which would
+// make any effect keyed on `client` (RevertDialog's plan-loading effect)
+// refire on every render this component tree does, however unrelated.
+const mockClient = { call: mockClientCall }
 jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => ({
-        client: { call: mockClientCall },
+        client: mockClient,
         groupSets: mockGroupSets,
     }),
 }))
@@ -96,6 +101,24 @@ const plan = (
     ...overrides,
 })
 
+function writeResult(
+    overrides: Partial<{
+        outcomes: unknown[]
+        applied: unknown[]
+        unaccounted: unknown[]
+        engineError: string
+        historyError: string
+    }> = {}
+) {
+    return {
+        changeSet: changeSet({ id: 'revert1', action: 'revert' }),
+        outcomes: [{ groupId: 'pub', requested: 1, accepted: 1 }],
+        applied: [],
+        unaccounted: [],
+        ...overrides,
+    }
+}
+
 beforeEach(() => {
     jest.clearAllMocks()
     mockIsWriting = false
@@ -114,9 +137,7 @@ beforeEach(() => {
         }
         return Promise.resolve(undefined)
     })
-    mockWrite.mockResolvedValue({
-        changeSet: changeSet({ id: 'revert1', action: 'revert' }),
-    })
+    mockWrite.mockResolvedValue(writeResult())
 })
 
 describe('History', () => {
@@ -147,18 +168,38 @@ describe('History', () => {
         expect(screen.getByRole('button', { name: 'Revert' })).toBeDisabled()
     })
 
-    it('opens a revert preview that reflects planRevert, and applies exactly that plan', async () => {
+    it('C1: applies exactly the plan it previewed, never a plan recomputed at apply time', async () => {
+        // planRevert is stubbed to return a DIFFERENT plan on every call
+        // after the first. An implementation that (bug) calls planRevert
+        // again at apply time would apply the second plan's changes; the
+        // correct implementation calls it once, during preview, and
+        // applies exactly that.
+        let planCalls = 0
+        const firstPlanChanges = plan().changes
+        const secondPlanChanges = [
+            {
+                groupId: 'pub',
+                additions: ['SHOULD-NOT-BE-APPLIED'],
+                deletions: [],
+            },
+        ]
+        mockClientCall.mockImplementation((method: string) => {
+            if (method === 'planRevert') {
+                planCalls++
+                return Promise.resolve(
+                    planCalls === 1
+                        ? plan()
+                        : plan({ changes: secondPlanChanges })
+                )
+            }
+            if (method === 'objectsFor') {
+                return Promise.resolve({ total: 0, offset: 0, items: [] })
+            }
+            return Promise.resolve(undefined)
+        })
         mockChangeSets.changeSets = [changeSet()]
         render(<History />)
         fireEvent.click(screen.getByRole('button', { name: 'Revert' }))
-
-        await waitFor(() =>
-            expect(mockClientCall).toHaveBeenCalledWith(
-                'planRevert',
-                'own',
-                changeSet().changes
-            )
-        )
 
         await waitFor(() =>
             expect(
@@ -174,12 +215,11 @@ describe('History', () => {
         const call = mockWrite.mock.calls[0][0]
         expect(call.action).toBe('revert')
         expect(call.revertOf).toBe('cs1')
-        // D5: the plan applied is exactly the plan previewed, not
-        // recomputed at apply time.
-        expect(call.changes).toEqual(plan().changes)
+        expect(call.changes).toEqual(firstPlanChanges)
+        expect(planCalls).toBe(1)
     })
 
-    it('previews the skipped count and reason when the revert would skip an object', async () => {
+    it('previews the skipped count and reason when the revert would skip every object', async () => {
         mockChangeSets.changeSets = [changeSet()]
         mockClientCall.mockImplementation((method: string) => {
             if (method === 'planRevert') {
@@ -223,5 +263,206 @@ describe('History', () => {
             name: 'Revert',
         })[1]
         expect(dialogRevertButton).toBeDisabled()
+    })
+
+    it('M2: previews a mixed result -- some objects revert, some are skipped and named', async () => {
+        mockChangeSets.changeSets = [changeSet()]
+        mockClientCall.mockImplementation(
+            (method: string, ...args: unknown[]) => {
+                if (method === 'planRevert') {
+                    return Promise.resolve(
+                        plan({
+                            changes: [
+                                {
+                                    groupId: 'pub',
+                                    additions: ['a1'],
+                                    deletions: [],
+                                },
+                            ],
+                            affected: 1,
+                            skippedCount: 1,
+                            skippedSample: ['a2'],
+                        })
+                    )
+                }
+                if (method === 'objectsFor') {
+                    const filter = args[2] as { ids?: string[] } | undefined
+                    return Promise.resolve({
+                        total: 1,
+                        offset: 0,
+                        items: filter?.ids?.includes('a2')
+                            ? [
+                                  {
+                                      index: 0,
+                                      id: 'a2',
+                                      displayName: 'Facility A2',
+                                      level: 3,
+                                      parentId: null,
+                                      status: 1,
+                                      groups: [],
+                                  },
+                              ]
+                            : [
+                                  {
+                                      index: 0,
+                                      id: 'a1',
+                                      displayName: 'Facility A1',
+                                      level: 3,
+                                      parentId: null,
+                                      status: 1,
+                                      groups: [],
+                                  },
+                              ],
+                    })
+                }
+                return Promise.resolve(undefined)
+            }
+        )
+        render(<History />)
+        fireEvent.click(screen.getByRole('button', { name: 'Revert' }))
+        await waitFor(() =>
+            expect(
+                screen.getByText(
+                    '1 object was skipped because a group involved is read-only for you'
+                )
+            ).toBeInTheDocument()
+        )
+        expect(screen.getByText('Facility A2')).toBeInTheDocument()
+        // The revert is still usable -- there is something real to apply.
+        const dialogRevertButton = screen.getAllByRole('button', {
+            name: 'Revert',
+        })[1]
+        expect(dialogRevertButton).not.toBeDisabled()
+    })
+
+    it('I1: a partly-failed revert stays open, shows the outcome, and offers retry -- never reads as a silent success', async () => {
+        mockChangeSets.changeSets = [changeSet()]
+        mockWrite.mockResolvedValue(
+            writeResult({
+                outcomes: [{ groupId: 'pub', requested: 2, accepted: 1 }],
+                unaccounted: [
+                    { groupId: 'pub', additions: [], deletions: ['x'] },
+                ],
+            })
+        )
+        render(<History />)
+        fireEvent.click(screen.getByRole('button', { name: 'Revert' }))
+        await waitFor(() =>
+            expect(
+                screen.getAllByRole('button', { name: 'Revert' }).length
+            ).toBeGreaterThan(1)
+        )
+        fireEvent.click(screen.getAllByRole('button', { name: 'Revert' })[1])
+
+        await waitFor(() =>
+            expect(
+                screen.getByRole('button', { name: 'Retry failed changes' })
+            ).toBeInTheDocument()
+        )
+        // The dialog must still be open (Close, not silently dismissed) --
+        // its title is still on screen.
+        expect(screen.getByText('Revert change')).toBeInTheDocument()
+        // The list behind the dialog is still told to refresh, since the
+        // server change (partial or not) already happened.
+        expect(mockChangeSets.reload).toHaveBeenCalled()
+    })
+
+    it('I1: a historyError is surfaced rather than swallowed, since an unrecorded revert cannot itself be reverted', async () => {
+        mockChangeSets.changeSets = [changeSet()]
+        mockWrite.mockResolvedValue(
+            writeResult({ historyError: 'dataStore write failed' })
+        )
+        render(<History />)
+        fireEvent.click(screen.getByRole('button', { name: 'Revert' }))
+        await waitFor(() =>
+            expect(
+                screen.getAllByRole('button', { name: 'Revert' }).length
+            ).toBeGreaterThan(1)
+        )
+        fireEvent.click(screen.getAllByRole('button', { name: 'Revert' })[1])
+        await waitFor(() =>
+            expect(
+                screen.getByText('Not recorded in History')
+            ).toBeInTheDocument()
+        )
+    })
+
+    it('I4: Export downloads a per-membership-change CSV of the recorded change set', async () => {
+        mockChangeSets.changeSets = [changeSet()]
+        mockClientCall.mockImplementation((method: string) => {
+            if (method === 'indexOf') {
+                return Promise.resolve(0)
+            }
+            if (method === 'resolve') {
+                return Promise.resolve([
+                    {
+                        index: 0,
+                        id: 'a1',
+                        displayName: 'Facility A1',
+                        level: 3,
+                        parentId: null,
+                    },
+                ])
+            }
+            return Promise.resolve(undefined)
+        })
+
+        const createObjectURL = jest.fn(() => 'blob:mock')
+        const revokeObjectURL = jest.fn()
+        Object.defineProperty(URL, 'createObjectURL', {
+            value: createObjectURL,
+            writable: true,
+        })
+        Object.defineProperty(URL, 'revokeObjectURL', {
+            value: revokeObjectURL,
+            writable: true,
+        })
+        const clickSpy = jest
+            .spyOn(HTMLAnchorElement.prototype, 'click')
+            .mockImplementation(() => undefined)
+        let downloadName = ''
+        jest.spyOn(
+            HTMLAnchorElement.prototype,
+            'download',
+            'set'
+        ).mockImplementation(function (this: HTMLAnchorElement, value: string) {
+            downloadName = value
+        })
+        // jsdom's Blob has no usable `.text()` in this test environment, so
+        // the CSV content is captured directly from the Blob constructor's
+        // arguments rather than read back off the Blob instance.
+        let csvText = ''
+        const RealBlob = globalThis.Blob
+        const blobSpy = jest
+            .spyOn(globalThis, 'Blob')
+            .mockImplementation(
+                (parts?: BlobPart[], options?: BlobPropertyBag) => {
+                    csvText = (parts ?? []).join('')
+                    return new RealBlob(parts, options)
+                }
+            )
+
+        render(<History />)
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+        })
+        await waitFor(() => expect(clickSpy).toHaveBeenCalled())
+
+        expect(mockClientCall).toHaveBeenCalledWith(
+            'indexOf',
+            'organisationUnit',
+            'a1'
+        )
+        expect(downloadName).toBe('Ownership-cs1.csv')
+        expect(csvText).toContain('changeSetId')
+        expect(csvText).toContain('objectId')
+        expect(csvText).toContain('operation')
+        expect(csvText).toContain('cs1')
+        expect(csvText).toContain('a1')
+        expect(csvText).toContain('Facility A1')
+        expect(csvText).toContain('added')
+        expect(csvText).toContain('removed')
+        blobSpy.mockRestore()
+        clickSpy.mockRestore()
     })
 })

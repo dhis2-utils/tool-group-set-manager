@@ -557,6 +557,22 @@ export class EngineStore {
      * bulk move from dragging an object back out of a group a user
      * assigned it to by hand afterwards: that manual assignment already
      * broke at least one of the checks, so the whole object is skipped.
+     *
+     * Fix round 1, I2/I3: two more ways a touch can fail to "still hold",
+     * checked before the addition/deletion test above even runs, since
+     * neither has a sensible in/out answer at all:
+     *
+     * - I2: a touched group the caller cannot write to (spec 5.6, same
+     *   whole-object skip `planAssignment` uses for the same reason --
+     *   applying the writable half only would leave the object in more
+     *   than one group, or in none).
+     * - I3: a group that has since been removed from the set entirely.
+     *   `positionOfGroup` has no entry for it, and treating "not found" as
+     *   "not currently in it" is wrong for an original *deletion* from
+     *   that group: it would pass the "currently not in it" test (there is
+     *   nowhere for the object to currently be) and revert by emitting an
+     *   addition to a group that is no longer part of the set at all.
+     *   Both must be rejected regardless of which way the touch runs.
      */
     planRevert(setId: string, changes: GroupChange[]): AssignmentPlan {
         const { state, t } = this.setState(setId)
@@ -598,8 +614,17 @@ export class EngineStore {
                 idx !== undefined ? groupsOf(state.membership, idx) : []
             const stillHolds = entries.every(({ groupId, wasAddition }) => {
                 const position = positionOfGroup.get(groupId)
-                const currentlyIn =
-                    position !== undefined && positions.includes(position)
+                if (position === undefined) {
+                    // I3: the group is no longer part of the set at all --
+                    // neither an "in it" nor a "not in it" reading is safe.
+                    return false
+                }
+                if (!state.set.groups[position].canWrite) {
+                    // I2: spec 5.6 -- a touch this caller cannot write
+                    // fails the whole object, the same as planAssignment.
+                    return false
+                }
+                const currentlyIn = positions.includes(position)
                 // An original addition is only reverted if the object is
                 // currently in that group; an original deletion only if it
                 // is currently not in it.

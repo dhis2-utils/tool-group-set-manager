@@ -890,4 +890,90 @@ describe('EngineStore.planRevert', () => {
         expect(plan.skippedSample).toEqual(['gone'])
         expect(plan.changes).toEqual([])
     })
+
+    it('I2: skips an object when a touched group is read-only, the same as planAssignment', () => {
+        const set: GroupSetMeta = {
+            ...ownership,
+            groups: [
+                { id: 'pub', displayName: 'Public', canWrite: true },
+                { id: 'priv', displayName: 'Private', canWrite: false },
+                { id: 'other', displayName: 'Other', canWrite: true },
+            ],
+        }
+        const s = new EngineStore()
+        s.loadObjects({
+            objectType: 'organisationUnit',
+            ids: ['root', 'A', 'a1'],
+            names: ['Root', 'A', 'a1'],
+            level: Uint8Array.from([1, 2, 3]),
+            parentIds: [null, 'root', 'A'],
+            domainType: null,
+            categoryIdsOfOption: null,
+        })
+        s.setGroupSets([set])
+        s.loadMemberships({
+            objectType: 'organisationUnit',
+            groups: [
+                // a1 currently sits where the original move (priv -> pub)
+                // left it, untouched -- but priv is read-only, so this
+                // caller must not be offered a revert into it.
+                { groupId: 'pub', memberIds: ['a1'] },
+                { groupId: 'priv', memberIds: [] },
+                { groupId: 'other', memberIds: [] },
+            ],
+        })
+        s.evaluate()
+        const changes: GroupChange[] = [
+            { groupId: 'priv', additions: [], deletions: ['a1'] },
+            { groupId: 'pub', additions: ['a1'], deletions: [] },
+        ]
+        const plan = s.planRevert('own', changes)
+        expect(plan.skippedCount).toBe(1)
+        expect(plan.skippedSample).toEqual(['a1'])
+        expect(plan.changes).toEqual([])
+        expect(plan.affected).toBe(0)
+    })
+
+    it('I3: skips an object whose original deletion was from a group since removed from the set, rather than emitting an addition to it', () => {
+        // The set now holds only pub+other -- priv (the group the original
+        // change deleted 'a1' from) has been removed from it since.
+        const set: GroupSetMeta = {
+            ...ownership,
+            groups: [
+                { id: 'pub', displayName: 'Public', canWrite: true },
+                { id: 'other', displayName: 'Other', canWrite: true },
+            ],
+        }
+        const s = new EngineStore()
+        s.loadObjects({
+            objectType: 'organisationUnit',
+            ids: ['root', 'A', 'a1'],
+            names: ['Root', 'A', 'a1'],
+            level: Uint8Array.from([1, 2, 3]),
+            parentIds: [null, 'root', 'A'],
+            domainType: null,
+            categoryIdsOfOption: null,
+        })
+        s.setGroupSets([set])
+        s.loadMemberships({
+            objectType: 'organisationUnit',
+            groups: [
+                { groupId: 'pub', memberIds: [] },
+                { groupId: 'other', memberIds: [] },
+            ],
+        })
+        s.evaluate()
+        // The recorded change set still names the now-gone 'priv' group
+        // (a deletion-only 'assign' change set is the live exposure -- see
+        // I3).
+        const changes: GroupChange[] = [
+            { groupId: 'priv', additions: [], deletions: ['a1'] },
+        ]
+        const plan = s.planRevert('own', changes)
+        expect(plan.skippedCount).toBe(1)
+        expect(plan.skippedSample).toEqual(['a1'])
+        // Must not emit an addition to a group no longer in the set.
+        expect(plan.changes).toEqual([])
+        expect(plan.affected).toBe(0)
+    })
 })
