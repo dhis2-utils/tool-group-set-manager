@@ -1,0 +1,50 @@
+.tab {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacers-dp12);
+}
+.actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacers-dp8);
+}
+.check {
+    border: 1px solid var(--colors-grey400);
+    border-radius: 4px;
+    padding: var(--spacers-dp12);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacers-dp4);
+}
+.checkTitle {
+    font-size: 14px;
+    font-weight: 500;
+    margin: 0;
+}
+.reconciliation {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacers-dp4);
+}
+.line {
+    font-size: 12px;
+    color: var(--colors-grey700);
+    margin: 0;
+}
+.issues {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacers-dp4);
+}
+.issue {
+    font-size: 12px;
+    border-top: 1px solid var(--colors-grey300);
+    padding-top: var(--spacers-dp4);
+}
+.issueDetail {
+    display: block;
+    color: var(--colors-grey700);
+}

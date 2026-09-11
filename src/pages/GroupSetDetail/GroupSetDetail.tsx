@@ -3,6 +3,7 @@ import { Button, Tab, TabBar, Tag } from '@dhis2/ui'
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import styles from './GroupSetDetail.module.css'
+import { IntegrityTab } from './IntegrityTab'
 import { ObjectsTab } from './ObjectsTab'
 import { OverviewTab } from './OverviewTab'
 import { BulkFixDialog } from '@/components/BulkFixDialog/BulkFixDialog'
@@ -13,6 +14,7 @@ import { ObjectRef, ScopeRef } from '@/engine/store'
 import { Status } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
+import { useIntegrity } from '@/hooks/useIntegrity'
 import { useScope } from '@/hooks/useScope'
 import { useUserScope } from '@/hooks/useUserScope'
 import { interpolate } from '@/utils/interpolate'
@@ -22,7 +24,7 @@ interface LevelsResponse {
     organisationUnitLevels: { level: number; displayName: string }[]
 }
 
-type DetailTab = 'overview' | 'objects'
+type DetailTab = 'overview' | 'objects' | 'integrity'
 
 /** Used only while nothing at all is known about the scope's level yet. */
 const DEFAULT_LEVEL = 1
@@ -43,6 +45,7 @@ export const GroupSetDetail = () => {
     const { setId = '' } = useParams()
     const { groupSets, reload } = useEngine()
     const { rootId, rootName, rootLevel } = useScope()
+    const integrity = useIntegrity()
     const { roots } = useUserScope()
     const set = groupSets.find((s) => s.id === setId)
     const [tab, setTab] = useState<DetailTab>('overview')
@@ -226,6 +229,14 @@ export const GroupSetDetail = () => {
                 >
                     {i18n.t('Objects')}
                 </Tab>
+                {integrity.available && (
+                    <Tab
+                        selected={tab === 'integrity'}
+                        onClick={() => setTab('integrity')}
+                    >
+                        {i18n.t('DHIS2 integrity')}
+                    </Tab>
+                )}
             </TabBar>
             {tab === 'overview' ? (
                 <OverviewTab
@@ -236,6 +247,8 @@ export const GroupSetDetail = () => {
                     onRowLevel={setRowLevel}
                     onCell={onCell}
                 />
+            ) : tab === 'integrity' && integrity.available ? (
+                <IntegrityTab set={set} scope={scope} />
             ) : (
                 <ObjectsTab
                     set={set}

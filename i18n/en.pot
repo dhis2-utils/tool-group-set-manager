@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-11T20:10:24.706Z\n"
-"PO-Revision-Date: 2026-09-11T20:10:24.706Z\n"
+"POT-Creation-Date: 2026-09-11T20:36:19.451Z\n"
+"PO-Revision-Date: 2026-09-11T20:36:19.451Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -546,6 +546,73 @@ msgstr "Overview"
 
 msgid "Objects"
 msgstr "Objects"
+
+msgid "DHIS2 integrity"
+msgstr "DHIS2 integrity"
+
+msgid ""
+"DHIS2 counts this nationally, across every group set of this type -- not "
+"only within {scope}"
+msgstr ""
+"DHIS2 counts this nationally, across every group set of this type -- not "
+"only within {scope}"
+
+msgid "Of those, 1 object falls within the current scope ({scope})"
+msgstr "Of those, 1 object falls within the current scope ({scope})"
+
+msgid "Of those, {count} objects fall within the current scope ({scope})"
+msgstr "Of those, {count} objects fall within the current scope ({scope})"
+
+msgid ""
+"1 of those objects could not be matched to anything this app has loaded, "
+"most often a tracker data element under an aggregate-only configuration"
+msgstr ""
+"1 of those objects could not be matched to anything this app has loaded, "
+"most often a tracker data element under an aggregate-only configuration"
+
+msgid ""
+"{count} of those objects could not be matched to anything this app has "
+"loaded, most often tracker data elements under an aggregate-only "
+"configuration"
+msgstr ""
+"{count} of those objects could not be matched to anything this app has "
+"loaded, most often tracker data elements under an aggregate-only "
+"configuration"
+
+msgid "The engine has not evaluated this rule for this scope yet"
+msgstr "The engine has not evaluated this rule for this scope yet"
+
+msgid ""
+"The engine itself -- the source of truth -- counts 1 matching object within "
+"{scope}"
+msgstr ""
+"The engine itself -- the source of truth -- counts 1 matching object within "
+"{scope}"
+
+msgid ""
+"The engine itself -- the source of truth -- counts {count} matching objects "
+"within {scope}"
+msgstr ""
+"The engine itself -- the source of truth -- counts {count} matching objects "
+"within {scope}"
+
+msgid "Run now"
+msgstr "Run now"
+
+msgid "DHIS2 integrity error"
+msgstr "DHIS2 integrity error"
+
+msgid "Something went wrong reading the DHIS2 integrity result; try again."
+msgstr "Something went wrong reading the DHIS2 integrity result; try again."
+
+msgid "Something went wrong reading the DHIS2 issue details; try again."
+msgstr "Something went wrong reading the DHIS2 issue details; try again."
+
+msgid "No DHIS2 integrity checks apply to this object type."
+msgstr "No DHIS2 integrity checks apply to this object type."
+
+msgid "A write since the last run may have changed this; run it again to be sure."
+msgstr "A write since the last run may have changed this; run it again to be sure."
 
 msgid "All"
 msgstr "All"
