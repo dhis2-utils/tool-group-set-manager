@@ -7,6 +7,7 @@ import { IntegrityTab } from './IntegrityTab'
 import { ObjectsTab } from './ObjectsTab'
 import { OverviewTab } from './OverviewTab'
 import { BulkFixDialog } from '@/components/BulkFixDialog/BulkFixDialog'
+import { LoadProgress } from '@/components/LoadProgress/LoadProgress'
 import { SetPropertiesDialog } from '@/components/SetPropertiesDialog/SetPropertiesDialog'
 import { MatrixColumn } from '@/components/SummaryMatrix/SummaryMatrix'
 import { ObjectFilter } from '@/engine/queries'
@@ -43,7 +44,7 @@ const VIOLATION_STATUSES = [
 
 export const GroupSetDetail = () => {
     const { setId = '' } = useParams()
-    const { groupSets, reload } = useEngine()
+    const { groupSets, reload, status } = useEngine()
     const { rootId, rootName, rootLevel } = useScope()
     const integrity = useIntegrity()
     const { roots } = useUserScope()
@@ -227,6 +228,7 @@ export const GroupSetDetail = () => {
                     </Button>
                 </div>
             </div>
+            <LoadProgress status={status} />
             <TabBar>
                 <Tab
                     selected={tab === 'overview'}

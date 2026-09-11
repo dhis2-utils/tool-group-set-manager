@@ -62,7 +62,7 @@ const mockEngine: {
     client: {
         call: (method: string, ...args: unknown[]) => Promise<unknown>
     } | null
-    status: null
+    status: import('@/data/loadAll').LoadStatus | null
     reload: (force: boolean) => Promise<void>
 } = {
     groupSets: mockGroupSets,
@@ -172,6 +172,7 @@ afterEach(() => {
     mockApiDataQueryCalls.length = 0
     mockReload.mockClear()
     mockIntegrity.available = false
+    mockEngine.status = null
 })
 
 const renderDetail = () =>
@@ -374,5 +375,61 @@ describe('DHIS2 integrity tab (m6, review round 1)', () => {
         // Landed on Overview content, not a body left over from the
         // Integrity tab with no selected Tab above it.
         expect(await screen.findByText('Rows')).toBeInTheDocument()
+    })
+})
+
+describe('background reload indicator (Task 7, carried forward from Plan 1)', () => {
+    it('says a reload is running and which type it is loading, from the same status the dashboard reads', async () => {
+        mockEngine.status = {
+            phase: 'objects',
+            type: 'organisationUnit',
+            progress: null,
+            fromCache: {},
+            errors: {},
+        }
+        renderDetail()
+
+        expect(
+            await screen.findByText(/Loading organisation units/)
+        ).toBeInTheDocument()
+    })
+
+    it('says nothing once the load has finished, without the page itself disappearing', async () => {
+        mockEngine.status = {
+            phase: 'done',
+            type: null,
+            progress: null,
+            fromCache: {},
+            errors: {},
+        }
+        renderDetail()
+
+        // Asserting only "the indicator is absent" cannot tell a finished
+        // load apart from the whole page failing to render -- the title
+        // and the Overview tab (unrelated to the reload status) must still
+        // be there.
+        expect(await screen.findByText('Ownership')).toBeInTheDocument()
+        expect(screen.getByText('Overview')).toBeInTheDocument()
+        expect(screen.queryByText(/Loading/)).not.toBeInTheDocument()
+    })
+
+    it('keeps the numbers on screen while a reload runs instead of blanking the page for a loader', async () => {
+        mockEngine.status = {
+            phase: 'memberships',
+            type: 'organisationUnit',
+            progress: null,
+            fromCache: {},
+            errors: {},
+        }
+        renderDetail()
+
+        // The reload indication and the page's own content are both
+        // present at once -- the indicator augments the page, it does not
+        // replace it.
+        expect(
+            await screen.findByText(/Loading group memberships/)
+        ).toBeInTheDocument()
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+        expect(screen.getByText('Overview')).toBeInTheDocument()
     })
 })
