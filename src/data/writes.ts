@@ -108,19 +108,22 @@ function splitChange(change: GroupChange, batchSize: number): GroupChange[] {
  * never a guessed subset -- and the caller must re-read that group from the
  * server rather than trust its own intent.
  *
- * A group the caller cannot write to (or one a network failure hits) is
- * recorded as a failed batch and does not stop the remaining groups: being
+ * A failed batch is recorded and does not stop the remaining groups: being
  * able to fix nine groups out of ten is worth far more than failing all ten.
- * Once a batch for a group fails outright (a non-2xx response, or a thrown
- * error), every remaining batch for that same group is skipped rather than
- * sent -- a write access problem is a property of the group, not of which
- * slice of ids happened to be in this particular batch, so retrying it a
- * hundred times against a hundred-way split serves nobody. Each skipped
- * batch still gets its own `BatchOutcome` (carrying the same error) and is
- * added to `unaccounted`, so the totals the caller sees still add up to
- * every batch that was going to be attempted. This does not apply to a
- * partial (silent-drop) shortfall on an otherwise-successful response, which
- * stays batch-specific and does not mark the group as failed.
+ * Only a 401 or 403 -- a permission rejection -- marks the group itself as a
+ * lost cause and skips every remaining batch for it rather than sending
+ * them: that is a property of the group, not of which slice of ids happened
+ * to be in a given batch, so retrying it a hundred times against a
+ * hundred-way split serves nobody. Each skipped batch still gets its own
+ * `BatchOutcome` (carrying the same error) and is added to `unaccounted`, so
+ * the totals the caller sees still add up to every batch that was going to
+ * be attempted. Anything else that fails a batch -- a different non-2xx
+ * status, or a thrown error such as a dropped connection -- is recorded
+ * against that one batch only; the next batch for the same group still gets
+ * its own attempt, because a transient failure says nothing about the
+ * batches after it. This also does not apply to a partial (silent-drop)
+ * shortfall on an otherwise-successful response, which stays batch-specific
+ * and does not mark the group as failed either.
  *
  * A change list with nothing in it produces no batches at all, so
  * `onProgress` is never called -- a caller driving a progress display from
@@ -141,10 +144,10 @@ export async function writeMemberships(
     const outcomes: BatchOutcome[] = []
     const applied: GroupChange[] = []
     const unaccounted: GroupChange[] = []
-    // A group whose first batch failed outright: every later batch for it is
-    // skipped rather than retried, but still recorded (see the doc comment
-    // above), keyed by groupId so a hundred-way split only ever costs one
-    // real request.
+    // A group whose first batch came back 401/403: every later batch for it
+    // is skipped rather than retried, but still recorded (see the doc
+    // comment above), keyed by groupId so a hundred-way split only ever
+    // costs one real request. Any other failure is not added here.
     const failedGroups = new Map<string, string>()
 
     let done = 0
@@ -184,7 +187,13 @@ export async function writeMemberships(
                     error,
                 })
                 unaccounted.push(batch)
-                failedGroups.set(batch.groupId, error)
+                // Only a permission rejection marks the whole group as a
+                // lost cause; a transient failure (a 500, a rate limit) is
+                // exactly the case where the next batch deserves its own
+                // attempt rather than being written off with this one.
+                if (response.status === 401 || response.status === 403) {
+                    failedGroups.set(batch.groupId, error)
+                }
                 continue
             }
             const body = (await response.json()) as ImportReportBody
@@ -196,6 +205,9 @@ export async function writeMemberships(
                 unaccounted.push(batch)
             }
         } catch (error) {
+            // A thrown error (a dropped connection, a network blip) is a
+            // transient failure, not a permission rejection -- it does not
+            // mark the group, so the next batch still gets its own attempt.
             const message =
                 error instanceof Error ? error.message : String(error)
             outcomes.push({
@@ -205,7 +217,6 @@ export async function writeMemberships(
                 error: message,
             })
             unaccounted.push(batch)
-            failedGroups.set(batch.groupId, message)
         } finally {
             done += 1
             onProgress(done, total)

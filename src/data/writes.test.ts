@@ -260,6 +260,99 @@ describe('writeMemberships', () => {
         ])
     })
 
+    it("a non-permission failure (500) does not skip the rest of that group's batches", async () => {
+        // Unlike a 401/403, a 500 says nothing about the group itself -- the
+        // next batch still deserves its own attempt. A single-batch group
+        // cannot tell "skipped the rest" apart from "there was no rest to
+        // skip", so this uses a group split into three one-id batches.
+        const calls: string[] = []
+        let requestCount = 0
+        const fetcher = async (path: string) => {
+            calls.push(path)
+            requestCount += 1
+            if (requestCount === 1) {
+                return new Response('server error', { status: 500 })
+            }
+            return okStats(1)
+        }
+        const changes: GroupChange[] = [
+            { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
+        ]
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            changes,
+            () => undefined,
+            1
+        )
+
+        expect(calls).toEqual([
+            'organisationUnitGroups/g1/organisationUnits',
+            'organisationUnitGroups/g1/organisationUnits',
+            'organisationUnitGroups/g1/organisationUnits',
+        ])
+        expect(result.outcomes).toEqual([
+            { groupId: 'g1', requested: 1, accepted: 0, error: 'HTTP 500' },
+            { groupId: 'g1', requested: 1, accepted: 1 },
+            { groupId: 'g1', requested: 1, accepted: 1 },
+        ])
+        expect(result.unaccounted).toEqual([
+            { groupId: 'g1', additions: ['a'], deletions: [] },
+        ])
+        expect(result.applied).toEqual([
+            { groupId: 'g1', additions: ['b'], deletions: [] },
+            { groupId: 'g1', additions: ['c'], deletions: [] },
+        ])
+    })
+
+    it("a thrown error does not skip the rest of that group's batches", async () => {
+        // Same distinction as the 500 case above, for a request that never
+        // got an HTTP response at all (a dropped connection, say).
+        const calls: string[] = []
+        let requestCount = 0
+        const fetcher = async (path: string) => {
+            calls.push(path)
+            requestCount += 1
+            if (requestCount === 1) {
+                throw new Error('network down')
+            }
+            return okStats(1)
+        }
+        const changes: GroupChange[] = [
+            { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
+        ]
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            changes,
+            () => undefined,
+            1
+        )
+
+        expect(calls).toEqual([
+            'organisationUnitGroups/g1/organisationUnits',
+            'organisationUnitGroups/g1/organisationUnits',
+            'organisationUnitGroups/g1/organisationUnits',
+        ])
+        expect(result.outcomes).toEqual([
+            {
+                groupId: 'g1',
+                requested: 1,
+                accepted: 0,
+                error: 'network down',
+            },
+            { groupId: 'g1', requested: 1, accepted: 1 },
+            { groupId: 'g1', requested: 1, accepted: 1 },
+        ])
+        expect(result.unaccounted).toEqual([
+            { groupId: 'g1', additions: ['a'], deletions: [] },
+        ])
+        expect(result.applied).toEqual([
+            { groupId: 'g1', additions: ['b'], deletions: [] },
+            { groupId: 'g1', additions: ['c'], deletions: [] },
+        ])
+    })
+
     it("skips a group's remaining batches once one comes back forbidden, but still records an outcome for each", async () => {
         const calls: string[] = []
         const fetcher = async (path: string) => {
