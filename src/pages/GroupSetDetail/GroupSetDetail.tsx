@@ -40,7 +40,7 @@ const VIOLATION_STATUSES = [
 
 export const GroupSetDetail = () => {
     const { setId = '' } = useParams()
-    const { groupSets } = useEngine()
+    const { groupSets, reload } = useEngine()
     const { rootId, rootName, rootLevel } = useScope()
     const { roots } = useUserScope()
     const set = groupSets.find((s) => s.id === setId)
@@ -237,7 +237,16 @@ export const GroupSetDetail = () => {
                     scope={scope}
                     filter={bulkFixFilter}
                     onClose={() => setBulkFixFilter(null)}
-                    onApplied={() => setBulkFixFilter(null)}
+                    // D4: applying (or retrying) must not dismiss the
+                    // dialog -- only the dialog's own Close button, called
+                    // through `onClose`, does that. This handler's job is
+                    // D5's refresh: `set.groups` is a prop that comes from
+                    // this engine snapshot, so a non-forced reload is what
+                    // picks up a group the dialog created or a membership
+                    // change the write already applied locally.
+                    onApplied={() => {
+                        void reload(false)
+                    }}
                 />
             )}
         </div>

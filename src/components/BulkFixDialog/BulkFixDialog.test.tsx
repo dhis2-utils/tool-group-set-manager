@@ -32,6 +32,15 @@ jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => ({ client: { call: mockClientCall } }),
 }))
 
+const mockWrite = jest.fn()
+let mockIsWriting = false
+jest.mock('@/hooks/useMembershipWrite', () => ({
+    useMembershipWrite: () => ({
+        write: (...args: unknown[]) => mockWrite(...args),
+        isWriting: mockIsWriting,
+    }),
+}))
+
 const VIOLATION_STATUSES = [
     Status.MissingError,
     Status.MissingWarning,
@@ -78,6 +87,7 @@ const plan = (
 
 beforeEach(() => {
     jest.clearAllMocks()
+    mockIsWriting = false
     mockLoadConfig.mockResolvedValue({
         requiredLevels: {},
         catchAllGroup: {},
@@ -663,5 +673,285 @@ describe('BulkFixDialog Critical fix: move-to-catch-all never touches a correctl
         expect(lastPlan!.affected).toBe(0)
         expect(lastPlan!.changes).toEqual([])
         expect(lastSampleTotal).toBe(0)
+    })
+
+    it('a selection narrows the plan to just the selected ids, not every violation (guards against dropping the narrowing entirely)', async () => {
+        // Regression guard for the carried-forward review note: if the
+        // dialog stopped folding `selection` into `populationFilter.ids`
+        // altogether, this test's population would be every violation
+        // (missing1 AND conflict1) instead of just the selected missing1,
+        // and the assertion on `alphaChange` below would fail -- unlike the
+        // other selection tests above, this one does not rely on the
+        // selected ids also being the only violations, so a dialog that
+        // silently ignored `selection` cannot pass it by accident.
+        const { store, testSet } = buildRealStore()
+        let lastPlan: ReturnType<EngineStore['planAssignment']> | undefined
+        mockUseEngineQuery.mockImplementation(
+            (method: string, args: unknown[], enabled?: boolean) => {
+                if (!enabled) {
+                    return { data: undefined, isLoading: false, error: null }
+                }
+                if (method === 'planAssignment') {
+                    const result = store.planAssignment(
+                        args[0] as string,
+                        args[1] as Parameters<EngineStore['planAssignment']>[1],
+                        args[2] as Parameters<EngineStore['planAssignment']>[2],
+                        args[3] as string
+                    )
+                    lastPlan = result
+                    return { data: result, isLoading: false, error: null }
+                }
+                if (method === 'objectsFor') {
+                    const result = store.objectsFor(
+                        args[0] as string,
+                        args[1] as Parameters<EngineStore['objectsFor']>[1],
+                        args[2] as Parameters<EngineStore['objectsFor']>[2],
+                        args[3] as number,
+                        args[4] as number
+                    )
+                    return { data: result, isLoading: false, error: null }
+                }
+                return { data: undefined, isLoading: false, error: null }
+            }
+        )
+        render(
+            <BulkFixDialog
+                set={testSet}
+                scope={scope}
+                filter={{}}
+                selection={['missing1']}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        await waitFor(() =>
+            expect(
+                screen.getByText('Other/unknown Ownership')
+            ).toBeInTheDocument()
+        )
+        fireEvent.click(screen.getByRole('button', { name: /next/i }))
+
+        await waitFor(() => expect(lastPlan).toBeDefined())
+        const otherChange = lastPlan!.changes.find((c) => c.groupId === 'other')
+        expect(otherChange?.additions).toEqual(['missing1'])
+        // conflict1 is a real violation too, but it was not in the
+        // selection -- a dialog that ignored `selection` would still move
+        // it out of alpha here.
+        const alphaChange = lastPlan!.changes.find((c) => c.groupId === 'alpha')
+        expect(alphaChange).toBeUndefined()
+    })
+})
+
+describe('BulkFixDialog apply step', () => {
+    const setForApply: GroupSetMeta = {
+        id: 'own',
+        displayName: 'Ownership',
+        objectType: 'organisationUnit',
+        compulsory: true,
+        dataDimension: true,
+        canWrite: true,
+        groups: [
+            { id: 'g1', displayName: 'Alpha', canWrite: true },
+            { id: 'g2', displayName: 'Beta', canWrite: true },
+        ],
+    }
+
+    const changes = [{ groupId: 'g2', additions: ['a1', 'a2'], deletions: [] }]
+
+    async function goToApply(onApplied = jest.fn()) {
+        mockLoadConfig.mockResolvedValue({
+            requiredLevels: {},
+            catchAllGroup: { own: 'g2' },
+            includeTracker: false,
+        })
+        mockUseEngineQuery.mockImplementation((method: string) => {
+            if (method === 'planAssignment') {
+                return {
+                    data: plan({ changes, affected: 2 }),
+                    isLoading: false,
+                    error: null,
+                }
+            }
+            return {
+                data: { total: 2, offset: 0, items: [] },
+                isLoading: false,
+                error: null,
+            }
+        })
+        render(
+            <BulkFixDialog
+                set={setForApply}
+                scope={scope}
+                filter={{}}
+                onClose={jest.fn()}
+                onApplied={onApplied}
+            />
+        )
+        await waitFor(() =>
+            expect(screen.getByText('Beta')).toBeInTheDocument()
+        )
+        fireEvent.click(screen.getByRole('button', { name: /next/i }))
+        await screen.findByText('+2 / -0')
+        return screen.getByRole('button', { name: /^apply/i })
+    }
+
+    it('applying calls the write hook with exactly the change the preview showed', async () => {
+        mockWrite.mockResolvedValue({
+            outcomes: [{ groupId: 'g2', requested: 2, accepted: 2 }],
+            applied: changes,
+            unaccounted: [],
+            changeSet: {} as never,
+        })
+        const applyButton = await goToApply()
+        await act(async () => {
+            fireEvent.click(applyButton)
+        })
+        expect(mockWrite).toHaveBeenCalledWith(
+            expect.objectContaining({
+                set: setForApply,
+                changes,
+                targetGroupId: 'g2',
+            })
+        )
+    })
+
+    it('reports progress per batch while a write is in flight', async () => {
+        let resolveWrite!: (value: unknown) => void
+        mockIsWriting = true
+        mockWrite.mockImplementation(
+            (input: { onProgress?: (d: number, t: number) => void }) => {
+                input.onProgress?.(1, 2)
+                return new Promise((resolve) => {
+                    resolveWrite = resolve
+                })
+            }
+        )
+        const applyButton = await goToApply()
+        fireEvent.click(applyButton)
+        await waitFor(() =>
+            expect(screen.getByText(/1 of 2/)).toBeInTheDocument()
+        )
+        mockIsWriting = false
+        await act(async () => {
+            resolveWrite({
+                outcomes: [{ groupId: 'g2', requested: 2, accepted: 2 }],
+                applied: changes,
+                unaccounted: [],
+                changeSet: {} as never,
+            })
+        })
+    })
+
+    it('lists a fully applied group and a partially accepted group with distinct wording, never calling the partial one a success', async () => {
+        mockWrite.mockResolvedValue({
+            outcomes: [
+                { groupId: 'g1', requested: 5, accepted: 5 },
+                { groupId: 'g2', requested: 3, accepted: 2 },
+            ],
+            applied: [{ groupId: 'g1', additions: [], deletions: [] }],
+            unaccounted: [{ groupId: 'g2', additions: ['a1'], deletions: [] }],
+            changeSet: {} as never,
+        })
+        const applyButton = await goToApply()
+        await act(async () => {
+            fireEvent.click(applyButton)
+        })
+        await waitFor(() =>
+            expect(screen.getByText(/Alpha/)).toBeInTheDocument()
+        )
+        expect(
+            screen.getByText(/All changes applied to Alpha/)
+        ).toBeInTheDocument()
+        const betaText = screen.getByText(/Beta/)
+        expect(betaText.textContent).toMatch(/fewer/i)
+        expect(betaText.textContent).toMatch(/re-read/i)
+        expect(betaText.textContent?.toLowerCase()).not.toMatch(/success/)
+    })
+
+    it('a failed batch offers a retry that sends only what failed', async () => {
+        mockWrite.mockResolvedValueOnce({
+            outcomes: [
+                { groupId: 'g2', requested: 2, accepted: 0, error: 'HTTP 500' },
+            ],
+            applied: [],
+            unaccounted: [
+                { groupId: 'g2', additions: ['a1', 'a2'], deletions: [] },
+            ],
+            changeSet: {} as never,
+        })
+        const applyButton = await goToApply()
+        await act(async () => {
+            fireEvent.click(applyButton)
+        })
+        const retryButton = await screen.findByRole('button', {
+            name: /retry/i,
+        })
+        mockWrite.mockResolvedValueOnce({
+            outcomes: [{ groupId: 'g2', requested: 2, accepted: 2 }],
+            applied: [
+                { groupId: 'g2', additions: ['a1', 'a2'], deletions: [] },
+            ],
+            unaccounted: [],
+            changeSet: {} as never,
+        })
+        await act(async () => {
+            fireEvent.click(retryButton)
+        })
+        expect(mockWrite).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                changes: [
+                    { groupId: 'g2', additions: ['a1', 'a2'], deletions: [] },
+                ],
+            })
+        )
+    })
+
+    it('cannot be dismissed mid-write in a way that loses the result (D4)', async () => {
+        const onClose = jest.fn()
+        mockLoadConfig.mockResolvedValue({
+            requiredLevels: {},
+            catchAllGroup: { own: 'g2' },
+            includeTracker: false,
+        })
+        mockUseEngineQuery.mockImplementation((method: string) => {
+            if (method === 'planAssignment') {
+                return {
+                    data: plan({ changes, affected: 2 }),
+                    isLoading: false,
+                    error: null,
+                }
+            }
+            return {
+                data: { total: 2, offset: 0, items: [] },
+                isLoading: false,
+                error: null,
+            }
+        })
+        mockIsWriting = true
+        render(
+            <BulkFixDialog
+                set={setForApply}
+                scope={scope}
+                filter={{}}
+                onClose={onClose}
+                onApplied={jest.fn()}
+            />
+        )
+        await waitFor(() =>
+            expect(screen.getByText('Beta')).toBeInTheDocument()
+        )
+        fireEvent.click(screen.getByRole('button', { name: /next/i }))
+        await screen.findByText('+2 / -0')
+        mockWrite.mockImplementation(() => new Promise(() => undefined))
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /^apply/i }))
+        })
+
+        const cancelButton = screen.queryByRole('button', { name: /^cancel$/i })
+        if (cancelButton) {
+            expect(cancelButton).toBeDisabled()
+            fireEvent.click(cancelButton)
+        }
+        expect(onClose).not.toHaveBeenCalled()
     })
 })

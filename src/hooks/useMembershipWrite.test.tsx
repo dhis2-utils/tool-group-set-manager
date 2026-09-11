@@ -322,3 +322,30 @@ it('keeps isWriting true while any overlapping write is still in flight', async 
     })
     expect(result.current.isWriting).toBe(false)
 })
+
+// D1: onProgress is an optional field on the input, threaded straight
+// through to writeMemberships's own progress callback (previously
+// discarded as `() => undefined`).
+
+it('threads an optional onProgress through to writeMemberships (D1)', async () => {
+    let capturedOnProgress: ((done: number, total: number) => void) | undefined
+    mockWriteMembershipsImpl = jest.fn(async (...args: unknown[]) => {
+        const onProgress = args[3] as (done: number, total: number) => void
+        capturedOnProgress = onProgress
+        onProgress(1, 1)
+        return {
+            outcomes: [{ groupId: 'g1', requested: 1, accepted: 1 }],
+            applied: [change],
+            unaccounted: [],
+        }
+    })
+    const onProgress = jest.fn()
+    await doWrite([change], { onProgress })
+
+    expect(capturedOnProgress).toBe(onProgress)
+    expect(onProgress).toHaveBeenCalledWith(1, 1)
+})
+
+it('still works when onProgress is omitted', async () => {
+    await expect(doWrite()).resolves.toBeDefined()
+})

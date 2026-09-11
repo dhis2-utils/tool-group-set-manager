@@ -25,6 +25,13 @@ export interface MembershipWriteInput {
     note: string
     targetGroupId?: string
     revertOf?: string
+    /**
+     * D1: threaded straight through to `writeMemberships`'s own
+     * `onProgress(done, total)` callback, which already exists but was
+     * previously discarded (the hook passed `() => undefined`). Optional so
+     * every existing caller keeps working unchanged.
+     */
+    onProgress?: (done: number, total: number) => void
 }
 
 export interface MembershipWriteResult extends WriteResult {
@@ -126,7 +133,7 @@ export function useMembershipWrite(): {
                     fetcher,
                     objectType,
                     input.changes,
-                    () => undefined
+                    input.onProgress ?? (() => undefined)
                 )
 
                 let engineError: string | undefined

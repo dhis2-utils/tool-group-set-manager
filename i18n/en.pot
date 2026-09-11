@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-11T09:13:28.092Z\n"
-"PO-Revision-Date: 2026-09-11T09:13:28.094Z\n"
+"POT-Creation-Date: 2026-09-11T10:23:46.148Z\n"
+"PO-Revision-Date: 2026-09-11T10:23:46.149Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -16,6 +16,19 @@ msgstr "{count} objects"
 
 msgid "No group"
 msgstr "No group"
+
+msgid "{name} failed with error {error}"
+msgstr "{name} failed with error {error}"
+
+msgid ""
+"{name} accepted fewer changes than were sent -- the affected objects need "
+"to be re-read from the server"
+msgstr ""
+"{name} accepted fewer changes than were sent -- the affected objects need "
+"to be re-read from the server"
+
+msgid "All changes applied to {name}"
+msgstr "All changes applied to {name}"
 
 msgid "Object"
 msgstr "Object"
@@ -71,6 +84,31 @@ msgstr "Download full list as CSV"
 msgid "Note for History (optional)"
 msgstr "Note for History (optional)"
 
+msgid "Applied {done} of {total} batches"
+msgstr "Applied {done} of {total} batches"
+
+msgid "Applying changes…"
+msgstr "Applying changes…"
+
+msgid "The view may be out of date"
+msgstr "The view may be out of date"
+
+msgid ""
+"The change was applied but the local view could not be refreshed; reload to "
+"see it"
+msgstr ""
+"The change was applied but the local view could not be refreshed; reload to "
+"see it"
+
+msgid "Not recorded in History"
+msgstr "Not recorded in History"
+
+msgid "The change was applied but could not be recorded in History"
+msgstr "The change was applied but could not be recorded in History"
+
+msgid "Close"
+msgstr "Close"
+
 msgid "Cancel"
 msgstr "Cancel"
 
@@ -80,11 +118,11 @@ msgstr "Back"
 msgid "Next"
 msgstr "Next"
 
-msgid "Not available yet"
-msgstr "Not available yet"
-
 msgid "Apply…"
 msgstr "Apply…"
+
+msgid "Retry failed changes"
+msgstr "Retry failed changes"
 
 msgid "1 object was skipped because a group involved is read-only for you"
 msgstr "1 object was skipped because a group involved is read-only for you"
@@ -337,6 +375,9 @@ msgstr "Dashboard"
 
 msgid "Scope ({name})"
 msgstr "Scope ({name})"
+
+msgid "Not available yet"
+msgstr "Not available yet"
 
 msgid "Set properties…"
 msgstr "Set properties…"

@@ -26,12 +26,17 @@ import { toCsv } from '@/data/csv'
 import { loadConfig } from '@/data/datastore'
 import { createFetcher } from '@/data/fetcher'
 import { createCatchAllGroup } from '@/data/metadataWrites'
+import { BatchOutcome } from '@/data/writes'
+import { ChangeSet } from '@/engine/changeSet'
 import { ObjectFilter } from '@/engine/queries'
 import { AssignmentPlan, ObjectsResult, ScopeRef } from '@/engine/store'
 import { GroupSetMeta, Status } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
-import { MembershipWriteResult } from '@/hooks/useMembershipWrite'
+import {
+    MembershipWriteResult,
+    useMembershipWrite,
+} from '@/hooks/useMembershipWrite'
 import { interpolate } from '@/utils/interpolate'
 
 interface Props {
@@ -46,9 +51,11 @@ interface Props {
     selection?: string[]
     onClose: () => void
     /**
-     * Not called by this task -- Apply (the next task) is the only step
-     * that can produce a `MembershipWriteResult`. The prop exists now so
-     * the dialog's shape does not change again when Apply is added.
+     * Called after every apply and every retry with that write's own
+     * result (D5) -- the caller's own view of the set (`set.groups` is a
+     * prop this dialog cannot refresh on its own) should refresh from it,
+     * since a "move to catch-all" apply can confirm a group this dialog
+     * only knew about locally (`createdGroup` above).
      */
     onApplied: (result: MembershipWriteResult) => void
 }
@@ -115,12 +122,88 @@ function safeFileName(name: string): string {
     return name.replace(/[\\/:*?"<>|]/g, '_')
 }
 
+interface GroupOutcome {
+    groupId: string
+    requested: number
+    accepted: number
+    errors: string[]
+}
+
+/**
+ * A group set's write can split one group across several batches (D2/spec
+ * 6.1's ~1,000 id batches). The result panel reports per group, not per
+ * batch, so batches for the same group are summed here before rendering --
+ * see the module doc on `BatchOutcome` for why a group can legitimately
+ * appear as both applied and unaccounted (one batch of several failed).
+ */
+function aggregateOutcomes(outcomes: BatchOutcome[]): GroupOutcome[] {
+    const byGroup = new Map<string, GroupOutcome>()
+    outcomes.forEach((o) => {
+        const existing = byGroup.get(o.groupId) ?? {
+            groupId: o.groupId,
+            requested: 0,
+            accepted: 0,
+            errors: [],
+        }
+        existing.requested += o.requested
+        existing.accepted += o.accepted
+        if (o.error) {
+            existing.errors.push(o.error)
+        }
+        byGroup.set(o.groupId, existing)
+    })
+    return Array.from(byGroup.values())
+}
+
+type OutcomeTone = 'valid' | 'warning' | 'error'
+
+/**
+ * D3: the three outcomes need distinct wording, and a partial acceptance
+ * must never be called a success -- the writer refuses to guess which ids
+ * landed (see `writeMemberships`'s doc comment), so the panel names the
+ * group, says plainly that fewer changes were accepted than sent, and
+ * tells the user those objects need re-reading rather than implying
+ * anything worked.
+ */
+function outcomeText(
+    o: GroupOutcome,
+    groupName: string
+): { text: string; tone: OutcomeTone } {
+    if (o.errors.length > 0) {
+        return {
+            tone: 'error',
+            text: interpolate(i18n.t('{name} failed with error {error}'), {
+                name: groupName,
+                error: o.errors.join('; '),
+            }),
+        }
+    }
+    if (o.accepted !== o.requested) {
+        return {
+            tone: 'warning',
+            text: interpolate(
+                i18n.t(
+                    '{name} accepted fewer changes than were sent -- the affected objects need to be re-read from the server'
+                ),
+                { name: groupName }
+            ),
+        }
+    }
+    return {
+        tone: 'valid',
+        text: interpolate(i18n.t('All changes applied to {name}'), {
+            name: groupName,
+        }),
+    }
+}
+
 export const BulkFixDialog = ({
     set,
     scope,
     filter,
     selection,
     onClose,
+    onApplied,
 }: Props) => {
     const { baseUrl, apiVersion } = useConfig() as {
         baseUrl: string
@@ -131,6 +214,7 @@ export const BulkFixDialog = ({
         [baseUrl, apiVersion]
     )
     const { client } = useEngine()
+    const { write, isWriting } = useMembershipWrite()
 
     const [step, setStep] = useState<Step>('action')
     const [action, setAction] = useState<Action>('moveToCatchAll')
@@ -167,6 +251,19 @@ export const BulkFixDialog = ({
         id: string
         displayName: string
     } | null>(null)
+
+    // Apply step (D3/D4): `writeResult` is the latest write's outcome,
+    // whether the original apply or a retry -- retrying replaces it rather
+    // than appending, since a retry is itself just another write (D2) and
+    // its outcome supersedes what it was retrying. `progress` is reset to
+    // null at the start of every write so a stale count from a previous
+    // attempt cannot be shown before the first onProgress call lands.
+    const [progress, setProgress] = useState<{
+        done: number
+        total: number
+    } | null>(null)
+    const [writeResult, setWriteResult] =
+        useState<MembershipWriteResult | null>(null)
 
     useEffect(() => {
         let cancelled = false
@@ -383,6 +480,53 @@ export const BulkFixDialog = ({
         }
     }
 
+    const changeSetAction: ChangeSet['action'] =
+        action === 'moveToCatchAll' ? 'move' : 'assign'
+
+    // D5: the plan the preview rendered is the plan applied -- `plan.changes`
+    // is read once here and never recomputed, so a user can never end up
+    // applying something other than what they were shown.
+    const handleApply = () => {
+        if (!plan) {
+            return
+        }
+        setStep('apply')
+        setProgress(null)
+        setWriteResult(null)
+        void write({
+            set,
+            changes: plan.changes,
+            action: changeSetAction,
+            note,
+            targetGroupId,
+            onProgress: (done, total) => setProgress({ done, total }),
+        }).then((result) => {
+            setWriteResult(result)
+            onApplied(result)
+        })
+    }
+
+    // D2: retry is built from the previous result's `unaccounted` batches,
+    // never from the original plan -- it is a second, independent write and
+    // gets its own change set.
+    const handleRetry = () => {
+        if (!writeResult || writeResult.unaccounted.length === 0) {
+            return
+        }
+        setProgress(null)
+        void write({
+            set,
+            changes: writeResult.unaccounted,
+            action: changeSetAction,
+            note,
+            targetGroupId,
+            onProgress: (done, total) => setProgress({ done, total }),
+        }).then((result) => {
+            setWriteResult(result)
+            onApplied(result)
+        })
+    }
+
     const targetOptions = [
         ...set.groups,
         ...(createdGroup && !set.groups.some((g) => g.id === createdGroup.id)
@@ -399,7 +543,11 @@ export const BulkFixDialog = ({
         targetGroupId === ''
 
     return (
-        <Modal position="middle" onClose={onClose} large>
+        <Modal
+            position="middle"
+            onClose={isWriting ? () => undefined : onClose}
+            large
+        >
             <ModalTitle>
                 {interpolate(i18n.t('Bulk fix {name}'), {
                     name: set.displayName,
@@ -524,11 +672,95 @@ export const BulkFixDialog = ({
                         )}
                     </div>
                 )}
+                {step === 'apply' && (
+                    <div className={styles.applyStep}>
+                        {isWriting && (
+                            <div className={styles.progressRow}>
+                                <CircularLoader small />
+                                <span>
+                                    {progress
+                                        ? interpolate(
+                                              i18n.t(
+                                                  'Applied {done} of {total} batches'
+                                              ),
+                                              {
+                                                  done: progress.done,
+                                                  total: progress.total,
+                                              }
+                                          )
+                                        : i18n.t('Applying changes…')}
+                                </span>
+                            </div>
+                        )}
+                        {writeResult && !isWriting && (
+                            <div className={styles.resultPanel}>
+                                {aggregateOutcomes(writeResult.outcomes).map(
+                                    (o) => {
+                                        const groupName =
+                                            set.groups.find(
+                                                (g) => g.id === o.groupId
+                                            )?.displayName ?? o.groupId
+                                        const { text, tone } = outcomeText(
+                                            o,
+                                            groupName
+                                        )
+                                        return (
+                                            <NoticeBox
+                                                key={o.groupId}
+                                                error={tone === 'error'}
+                                                warning={tone === 'warning'}
+                                                valid={tone === 'valid'}
+                                            >
+                                                {text}
+                                            </NoticeBox>
+                                        )
+                                    }
+                                )}
+                                {writeResult.engineError && (
+                                    <NoticeBox
+                                        warning
+                                        title={i18n.t(
+                                            'The view may be out of date'
+                                        )}
+                                    >
+                                        {i18n.t(
+                                            'The change was applied but the local view could not be refreshed; reload to see it'
+                                        )}
+                                    </NoticeBox>
+                                )}
+                                {writeResult.historyError && (
+                                    <NoticeBox
+                                        warning
+                                        title={i18n.t(
+                                            'Not recorded in History'
+                                        )}
+                                    >
+                                        {i18n.t(
+                                            'The change was applied but could not be recorded in History'
+                                        )}
+                                    </NoticeBox>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
             </ModalContent>
             <ModalActions>
                 <ButtonStrip>
-                    <Button onClick={onClose}>{i18n.t('Cancel')}</Button>
-                    {step === 'preview' && (
+                    {/* D4: while a write is in flight, Cancel is disabled
+                        rather than removed -- it stays visible so the user
+                        can see the dialog is still doing something, but
+                        cannot dismiss it and lose the result. Once the
+                        result panel is up, "Cancel" becomes the deliberate
+                        dismissal the user makes to close it. */}
+                    {step === 'apply' && writeResult && !isWriting ? (
+                        <Button onClick={onClose}>{i18n.t('Close')}</Button>
+                    ) : (
+                        <Button onClick={onClose} disabled={isWriting}>
+                            {i18n.t('Cancel')}
+                        </Button>
+                    )}
+                    {step === 'preview' && !isWriting && (
                         <Button onClick={() => setStep('action')}>
                             {i18n.t('Back')}
                         </Button>
@@ -543,14 +775,18 @@ export const BulkFixDialog = ({
                         </Button>
                     )}
                     {step === 'preview' && (
-                        <Button
-                            primary
-                            disabled
-                            title={i18n.t('Not available yet')}
-                        >
+                        <Button primary disabled={!plan} onClick={handleApply}>
                             {i18n.t('Apply…')}
                         </Button>
                     )}
+                    {step === 'apply' &&
+                        writeResult &&
+                        !isWriting &&
+                        writeResult.unaccounted.length > 0 && (
+                            <Button onClick={handleRetry}>
+                                {i18n.t('Retry failed changes')}
+                            </Button>
+                        )}
                 </ButtonStrip>
             </ModalActions>
         </Modal>

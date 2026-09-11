@@ -1,7 +1,26 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { GroupSetDetail } from './GroupSetDetail'
+
+// A lightweight stand-in for the real dialog (which has its own heavy set
+// of dependencies, exercised in BulkFixDialog.test.tsx) -- this file only
+// needs to pin how GroupSetDetail wires the dialog's callbacks (D4/D5),
+// exposed here as two buttons a test can click directly.
+jest.mock('@/components/BulkFixDialog/BulkFixDialog', () => ({
+    BulkFixDialog: ({
+        onClose,
+        onApplied,
+    }: {
+        onClose: () => void
+        onApplied: (result: unknown) => void
+    }) => (
+        <div>
+            <button onClick={onClose}>mock-dialog-close</button>
+            <button onClick={() => onApplied({})}>mock-dialog-applied</button>
+        </div>
+    ),
+}))
 
 // babel-plugin-jest-hoist only allows a jest.mock() factory to reference
 // out-of-scope variables whose names start with "mock" (see the matching
@@ -20,16 +39,19 @@ const mockGroupSets = [
 
 // Mutable so a test can put the engine behind the level lookup, or take it
 // away again. `call` is all `useEngineQuery` needs of a client.
+const mockReload = jest.fn()
 const mockEngine: {
     groupSets: typeof mockGroupSets
     client: {
         call: (method: string, ...args: unknown[]) => Promise<unknown>
     } | null
     status: null
+    reload: (force: boolean) => Promise<void>
 } = {
     groupSets: mockGroupSets,
     client: null,
     status: null,
+    reload: mockReload,
 }
 jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => mockEngine,
@@ -104,6 +126,7 @@ afterEach(() => {
     mockScope.rootName = 'Root'
     mockScope.rootLevel = null
     mockApiDataQueryCalls.length = 0
+    mockReload.mockClear()
 })
 
 const renderDetail = () =>
@@ -201,4 +224,35 @@ it('queries organisation unit levels without the deprecated paging=false', async
     expect(params?.paging).not.toBe(false)
     expect(typeof params?.pageSize).toBe('number')
     expect(params?.pageSize as number).toBeGreaterThanOrEqual(20)
+})
+
+describe('bulk fix dialog wiring (D4/D5)', () => {
+    it('does not close the dialog when a write applies -- only reloads the engine snapshot', async () => {
+        renderDetail()
+        fireEvent.click(await screen.findByText('Objects'))
+        fireEvent.click(await screen.findByText('Bulk fix…'))
+
+        fireEvent.click(await screen.findByText('mock-dialog-applied'))
+
+        // D4: the dialog must still be up after an apply -- only its own
+        // Close/Cancel, wired through onClose, may dismiss it.
+        expect(screen.getByText('mock-dialog-applied')).toBeInTheDocument()
+        // D5: `set.groups` cannot refresh itself, so applying must trigger
+        // a (non-forced) reload of the engine snapshot instead.
+        expect(mockReload).toHaveBeenCalledWith(false)
+    })
+
+    it('closes the dialog when the dialog itself calls onClose', async () => {
+        renderDetail()
+        fireEvent.click(await screen.findByText('Objects'))
+        fireEvent.click(await screen.findByText('Bulk fix…'))
+
+        fireEvent.click(await screen.findByText('mock-dialog-close'))
+
+        await waitFor(() =>
+            expect(
+                screen.queryByText('mock-dialog-close')
+            ).not.toBeInTheDocument()
+        )
+    })
 })
