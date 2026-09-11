@@ -4,6 +4,7 @@ import {
     createSqlViewSource,
     SQL_VIEW_CODES,
     SqlViewIds,
+    sqlViewLookupPath,
     USABLE_SQL_VIEW_TYPES,
 } from './sqlViewSource'
 
@@ -34,7 +35,7 @@ export async function findSqlViews(
     const codes = Object.values(SQL_VIEW_CODES)
     const body = await fetchJson<{ sqlViews: SqlViewRow[] }>(
         fetcher,
-        `sqlViews?fields=id,code,type,access[data[read]]&filter=code:in:[${codes.join(',')}]&paging=false`
+        sqlViewLookupPath(codes)
     )
     const byCode = new Map(body.sqlViews.map((v) => [v.code, v]))
     const pick = (code: string) => {

@@ -17,8 +17,8 @@ import {
 import React, { useEffect, useMemo, useState } from 'react'
 import styles from './BulkFixDialog.module.css'
 import {
-    afterIds,
     afterIdsPrepared,
+    PreparedChange,
     prepareChanges,
     ChangeSetPreview,
     ChangeSetPreviewObjects,
@@ -109,18 +109,23 @@ function namesOf(ids: string[], groups: GroupSetMeta['groups']): string {
     return names.length > 0 ? names.join(', ') : i18n.t('No group')
 }
 
-/** A row whose After differs from its Now -- the plan actually changes it. */
+/**
+ * A row whose After differs from its Now -- the plan actually changes it.
+ * Takes already-prepared changes because its only caller runs it over a
+ * whole page of rows: preparing inside would rebuild a Set per group for
+ * every row, which is the quadratic shape I2 removed from the export.
+ */
 function rowIsChanged(
     row: PreviewRow,
     groups: GroupSetMeta['groups'],
-    changes: AssignmentPlan['changes']
+    prepared: PreparedChange[]
 ): boolean {
     const now = row.groups
         .map((p) => groups[p]?.id)
         .filter((id): id is string => Boolean(id))
         .slice()
         .sort()
-    const after = afterIds(row, groups, changes).slice().sort()
+    const after = afterIdsPrepared(row, groups, prepared).slice().sort()
     return now.length !== after.length || now.some((id, i) => id !== after[i])
 }
 
@@ -339,8 +344,9 @@ export const BulkFixDialog = ({
         }
         const changed: PreviewRow[] = []
         const unchanged: PreviewRow[] = []
+        const prepared = prepareChanges(plan.changes)
         sampleResult.items.forEach((row) => {
-            ;(rowIsChanged(row, set.groups, plan.changes)
+            ;(rowIsChanged(row, set.groups, prepared)
                 ? changed
                 : unchanged
             ).push(row)

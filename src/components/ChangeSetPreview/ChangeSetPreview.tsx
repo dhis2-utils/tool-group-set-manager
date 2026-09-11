@@ -1,5 +1,5 @@
 import i18n from '@dhis2/d2-i18n'
-import React from 'react'
+import React, { useMemo } from 'react'
 import styles from './ChangeSetPreview.module.css'
 import { GroupChange } from '@/engine/changeSet'
 import { GroupMeta } from '@/engine/types'
@@ -137,9 +137,9 @@ export function afterIds(
 function afterLabel(
     row: PreviewRow,
     groups: GroupMeta[],
-    changes: GroupChange[]
+    prepared: PreparedChange[]
 ): string {
-    const ids = afterIds(row, groups, changes)
+    const ids = afterIdsPrepared(row, groups, prepared)
     if (ids.length === 0) {
         return noGroupLabel()
     }
@@ -178,6 +178,13 @@ const skippedMessage = (
 }
 
 export const ChangeSetPreview = ({ changes, groups, objects }: Props) => {
+    // Prepared once per render rather than once per row. `prepareChanges`
+    // builds a Set per group over the whole change, so calling `afterIds`
+    // inside the row loop rebuilds every one of them for each of the
+    // twenty sampled rows -- which is the same quadratic shape I2 removed
+    // from the CSV export, just at sample scale instead of population
+    // scale. At 200,000 ids that was measured in seconds per re-render.
+    const prepared = useMemo(() => prepareChanges(changes), [changes])
     return (
         <div>
             <ul className={styles.lines}>
@@ -207,7 +214,7 @@ export const ChangeSetPreview = ({ changes, groups, objects }: Props) => {
                             <tr key={row.id}>
                                 <td>{row.displayName ?? row.id}</td>
                                 <td>{namesOf(row.groups, groups)}</td>
-                                <td>{afterLabel(row, groups, changes)}</td>
+                                <td>{afterLabel(row, groups, prepared)}</td>
                             </tr>
                         ))}
                     </tbody>

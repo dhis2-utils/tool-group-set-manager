@@ -1,5 +1,9 @@
 import { fetchJson, Fetcher } from './DataSource'
-import { SQL_VIEW_DEFINITIONS, USABLE_SQL_VIEW_TYPES } from './sqlViewSource'
+import {
+    SQL_VIEW_DEFINITIONS,
+    sqlViewLookupPath,
+    USABLE_SQL_VIEW_TYPES,
+} from './sqlViewSource'
 
 interface SqlViewRow {
     id: string
@@ -56,7 +60,7 @@ export async function checkSqlViews(fetcher: Fetcher): Promise<SqlViewCheck[]> {
     const codes = SQL_VIEW_DEFINITIONS.map((d) => d.code)
     const body = await fetchJson<{ sqlViews: SqlViewRow[] }>(
         fetcher,
-        `sqlViews?fields=id,code,type,access[data[read]]&filter=code:in:[${codes.join(',')}]&paging=false`
+        sqlViewLookupPath(codes)
     )
     const byCode = new Map(body.sqlViews.map((v) => [v.code, v]))
     return Promise.all(

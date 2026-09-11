@@ -25,6 +25,19 @@ export interface SqlViewIds {
  */
 export const USABLE_SQL_VIEW_TYPES = ['VIEW', 'QUERY']
 
+/**
+ * The one lookup both readers of SQL view status use: `findSqlViews`, which
+ * decides whether the app reads through the views at all, and
+ * `checkSqlViews`, which tells the Settings page what exists. The two had
+ * byte-identical copies of this string kept in step by a comment, which is
+ * a poor way to keep two answers to the same question agreeing -- a field
+ * dropped from one would have shown the user a view the loader refuses, or
+ * the reverse.
+ */
+export function sqlViewLookupPath(codes: readonly string[]): string {
+    return `sqlViews?fields=id,code,type,access[data[read]]&filter=code:in:[${codes.join(',')}]&paging=false`
+}
+
 export const SQL_VIEW_CODES = {
     orgUnits: 'GSI_ORGUNITS',
     orgUnitNames: 'GSI_ORGUNIT_NAMES',
