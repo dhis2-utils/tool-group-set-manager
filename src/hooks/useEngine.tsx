@@ -14,7 +14,7 @@ import { loadAll, LoadStatus } from '@/data/loadAll'
 import { selectSource } from '@/data/sources/selectSource'
 import { EngineClient } from '@/engine/client'
 import { createEngineWorker } from '@/engine/createWorker'
-import { GroupSetMeta } from '@/engine/types'
+import { GroupSetMeta, ObjectType } from '@/engine/types'
 
 interface EngineContextValue {
     client: EngineClient | null
@@ -23,6 +23,14 @@ interface EngineContextValue {
     sourceKind: 'sqlView' | 'metadata' | null
     error: string | null
     reload: (force: boolean) => Promise<void>
+    /**
+     * Drops the one type's cached payload, kept private in `cacheRef`
+     * rather than putting the `Cache` itself on the context -- a write is
+     * the only thing outside this provider that ever needs to invalidate,
+     * and it only ever needs to invalidate, never to read or replace a
+     * cache entry directly.
+     */
+    invalidateType: (type: ObjectType) => Promise<void>
 }
 
 const EngineContext = createContext<EngineContextValue | null>(null)
@@ -114,6 +122,13 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
         [baseUrl, apiVersion, getCache, client]
     )
 
+    const invalidateType = useCallback(
+        async (type: ObjectType) => {
+            await getCache().remove(type)
+        },
+        [getCache]
+    )
+
     // Create and terminate the worker together, in the same effect: if
     // creation only happened in the render body while termination lived in
     // a separate empty-deps effect, nothing would ever recreate the client
@@ -152,8 +167,9 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
             sourceKind,
             error,
             reload,
+            invalidateType,
         }),
-        [client, status, groupSets, sourceKind, error, reload]
+        [client, status, groupSets, sourceKind, error, reload, invalidateType]
     )
     return (
         <EngineContext.Provider value={value}>

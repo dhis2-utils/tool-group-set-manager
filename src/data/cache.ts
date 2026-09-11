@@ -23,6 +23,16 @@ export interface CachedType {
 export interface Cache {
     get(type: ObjectType): Promise<CachedType | undefined>
     put(type: ObjectType, value: CachedType): Promise<void>
+    /**
+     * Removes only the one type's cached payload. A membership write does
+     * not bump a group's `lastUpdated` (see
+     * docs/superpowers/notes/2026-09-plan2-write-api-findings.md section 3),
+     * so the app must invalidate precisely what it changed itself rather
+     * than rely on the next load noticing -- and `clear()` is too broad for
+     * that: on a large instance, discarding all four types' payloads to fix
+     * one costs a reload the other three types never needed.
+     */
+    remove(type: ObjectType): Promise<void>
     clear(): Promise<void>
 }
 
@@ -53,6 +63,13 @@ export function openCache(serverUrl: string): Cache {
                 // Storage failures must never break loading.
             }
         },
+        async remove(type) {
+            try {
+                await (await db).delete(STORE, key(type))
+            } catch {
+                // Storage failures must never break loading.
+            }
+        },
         async clear() {
             try {
                 await (await db).clear(STORE)
@@ -71,6 +88,9 @@ export function createMemoryCache(): Cache {
         },
         async put(type, value) {
             map.set(type, value)
+        },
+        async remove(type) {
+            map.delete(type)
         },
         async clear() {
             map.clear()

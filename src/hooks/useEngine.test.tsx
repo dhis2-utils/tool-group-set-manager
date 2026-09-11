@@ -12,6 +12,8 @@ jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://localhost:8080', apiVersion: 41 }),
 }))
 
+const mockCacheRemove = jest.fn(async () => undefined)
+
 interface MockStatus {
     phase: string
     type: string | null
@@ -52,6 +54,7 @@ jest.mock('@/data/cache', () => ({
     openCache: () => ({
         get: async () => undefined,
         put: async () => undefined,
+        remove: mockCacheRemove,
         clear: async () => undefined,
     }),
 }))
@@ -116,6 +119,15 @@ beforeEach(() => {
     FakeEngineClientClass.instances.length = 0
     mockLoadAll.mockReset()
     mockLoadAll.mockImplementation(defaultLoadAllImpl)
+    mockCacheRemove.mockClear()
+})
+
+it('invalidateType removes only that type from the cache', async () => {
+    const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
+    await act(async () => {
+        await result.current.invalidateType('organisationUnit')
+    })
+    expect(mockCacheRemove).toHaveBeenCalledWith('organisationUnit')
 })
 
 it('exposes a null client before the creation effect has run, then a live one after', async () => {
