@@ -13,6 +13,11 @@ jest.mock('@/hooks/useEngineQuery', () => ({
     useEngineQuery: (...args: unknown[]) => mockUseEngineQuery(...args),
 }))
 
+const mockWrite = jest.fn()
+jest.mock('@/hooks/useMembershipWrite', () => ({
+    useMembershipWrite: () => ({ write: mockWrite, isWriting: false }),
+}))
+
 const set = {
     id: 'own',
     displayName: 'Ownership',
@@ -167,6 +172,13 @@ const getScrollEl = () => screen.getByTestId('objects-table-scroll')
 
 beforeEach(() => {
     mockUseEngineQuery.mockReset()
+    mockWrite.mockReset()
+    mockWrite.mockResolvedValue({
+        outcomes: [],
+        applied: [],
+        unaccounted: [],
+        changeSet: {} as never,
+    })
 })
 
 it('renders rows with status and membership', async () => {
@@ -415,4 +427,153 @@ it('ignores a repeat of the page it already holds, however often the request is 
     expect(screen.getByText(/200 rows loaded so far/)).toBeInTheDocument()
     expect(screen.getAllByText('Item 5')).toHaveLength(1)
     expect(pageRequests()).toEqual(['0/200'])
+})
+
+describe('interactive membership control', () => {
+    const conflictRow = {
+        index: 0,
+        id: 'o1',
+        displayName: 'Facility 1',
+        level: 4,
+        parentId: 'p',
+        status: 4,
+        groups: [0, 1],
+    }
+
+    const renderWithRows = (items: (typeof conflictRow)[]) => {
+        mockUseEngineQuery.mockReturnValue({
+            data: { total: items.length, offset: 0, items },
+            isLoading: false,
+            error: null,
+        })
+        return render(
+            <ObjectsTable set={set} scope={scope} filter={{}} search="" />
+        )
+    }
+
+    it('assigning a conflict row to one group confirms, then writes a deletion from the other group and no addition to the already-held one', async () => {
+        renderWithRows([conflictRow])
+        // Group 1 ("Private") is already held; choosing it should resolve
+        // the conflict by removing the object from Group 0 only.
+        fireEvent.click(screen.getAllByRole('button')[1])
+        expect(
+            screen.getByText(/will be assigned to Private/)
+        ).toBeInTheDocument()
+        expect(mockWrite).not.toHaveBeenCalled()
+
+        fireEvent.click(screen.getByText('Assign'))
+        await waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1))
+        expect(mockWrite.mock.calls[0][0]).toMatchObject({
+            set,
+            action: 'assign',
+            targetGroupId: 'b',
+            changes: [{ groupId: 'a', additions: [], deletions: ['o1'] }],
+        })
+    })
+
+    it('assigning a well-formed row to a different group produces one addition and one deletion, not one deletion per group', async () => {
+        const okRow = { ...conflictRow, id: 'o2', status: 1, groups: [0] }
+        renderWithRows([okRow])
+        fireEvent.click(screen.getAllByRole('button')[1])
+        fireEvent.click(screen.getByText('Assign'))
+        await waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1))
+        expect(mockWrite.mock.calls[0][0].changes).toEqual([
+            { groupId: 'a', additions: [], deletions: ['o2'] },
+            { groupId: 'b', additions: ['o2'], deletions: [] },
+        ])
+    })
+
+    it('produces no change and no write when clicking the group already the sole membership', () => {
+        const okRow = { ...conflictRow, id: 'o3', status: 1, groups: [0] }
+        renderWithRows([okRow])
+        fireEvent.click(screen.getAllByRole('button')[0])
+        expect(
+            screen.queryByText('Confirm group change')
+        ).not.toBeInTheDocument()
+        expect(mockWrite).not.toHaveBeenCalled()
+    })
+
+    it('disables the control and names the read-only group when the object cannot be moved', () => {
+        const restrictedSet = {
+            ...set,
+            groups: [
+                { id: 'a', displayName: 'Public', canWrite: false },
+                { id: 'b', displayName: 'Private', canWrite: true },
+            ],
+        }
+        mockUseEngineQuery.mockReturnValue({
+            data: { total: 1, offset: 0, items: [conflictRow] },
+            isLoading: false,
+            error: null,
+        })
+        render(
+            <ObjectsTable
+                set={restrictedSet}
+                scope={scope}
+                filter={{}}
+                search=""
+            />
+        )
+        const buttons = screen.getAllByRole('button')
+        expect(buttons[0]).toBeDisabled()
+        expect(buttons[0]).toHaveAttribute(
+            'title',
+            'Public is read-only for you'
+        )
+        expect(buttons[1]).toBeDisabled()
+    })
+
+    it('disables the row being written to and ignores a second click on it, while a failed write leaves its original groups shown', async () => {
+        let resolveWrite!: (value: unknown) => void
+        mockWrite.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveWrite = resolve
+                })
+        )
+        renderWithRows([conflictRow])
+
+        fireEvent.click(screen.getAllByRole('button')[1])
+        fireEvent.click(screen.getByText('Assign'))
+        await waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1))
+
+        // The row's controls are disabled while its write is outstanding.
+        const buttons = screen.getAllByRole('button')
+        expect(buttons[0]).toBeDisabled()
+        expect(buttons[1]).toBeDisabled()
+
+        // A click while writing must not open a second confirmation.
+        fireEvent.click(buttons[0])
+        expect(
+            screen.queryByText('Confirm group change')
+        ).not.toBeInTheDocument()
+
+        // The write fails outright (nothing confirmed).
+        await act(async () => {
+            resolveWrite({
+                outcomes: [
+                    {
+                        groupId: 'a',
+                        requested: 1,
+                        accepted: 0,
+                        error: 'HTTP 500',
+                    },
+                ],
+                applied: [],
+                unaccounted: [
+                    { groupId: 'a', additions: [], deletions: ['o1'] },
+                ],
+                changeSet: {} as never,
+            })
+        })
+
+        // No optimistic update was ever applied (D4): the row's control
+        // still reflects its original, still-conflicting groups.
+        await waitFor(() => expect(buttons[0]).not.toBeDisabled())
+        expect(buttons[0]).toHaveAttribute('data-state', 'conflict')
+        expect(buttons[1]).toHaveAttribute('data-state', 'conflict')
+        expect(
+            screen.getByText(/could not be fully applied/)
+        ).toBeInTheDocument()
+    })
 })

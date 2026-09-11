@@ -10,6 +10,14 @@ interface Props {
     /** group positions the object currently belongs to */
     current: number[]
     disabled: boolean
+    /**
+     * Why the control is disabled, named for the user (D2) -- typically
+     * that a group involved is read-only for them. Reuses the control's
+     * existing `title` mechanism (the segmented buttons' own tooltip, or a
+     * wrapper title around the dropdown) rather than adding a new visual
+     * element to a virtualised row. Ignored while `disabled` is false.
+     */
+    disabledReason?: string
     onChange: (groupIndex: number) => void
 }
 
@@ -27,6 +35,7 @@ export const MembershipControl = ({
     groups,
     current,
     disabled,
+    disabledReason,
     onChange,
 }: Props) => {
     const isConflict = current.length > 1
@@ -47,9 +56,11 @@ export const MembershipControl = ({
                             data-state={state}
                             disabled={disabled}
                             title={
-                                isConflict
-                                    ? keepLabel(g.displayName)
-                                    : g.displayName
+                                disabled && disabledReason
+                                    ? disabledReason
+                                    : isConflict
+                                      ? keepLabel(g.displayName)
+                                      : g.displayName
                             }
                             onClick={() => onChange(i)}
                         >
@@ -74,7 +85,10 @@ export const MembershipControl = ({
               .filter((name): name is string => Boolean(name))
         : []
     return (
-        <span className={styles.dropdownWrap}>
+        <span
+            className={styles.dropdownWrap}
+            title={disabled && disabledReason ? disabledReason : undefined}
+        >
             <SingleSelect
                 dense
                 disabled={disabled}

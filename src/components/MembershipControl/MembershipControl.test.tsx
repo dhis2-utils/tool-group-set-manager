@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
 import { MembershipControl } from './MembershipControl'
 
@@ -68,4 +68,49 @@ it('names the conflicting groups next to a disabled dropdown for more than five 
     // which groups collide -- the names must be readable outside it.
     expect(screen.getByText(/Group 1/)).toBeInTheDocument()
     expect(screen.getByText(/Group 4/)).toBeInTheDocument()
+})
+
+it('calls onChange with the clicked group position when enabled', () => {
+    const onChange = jest.fn()
+    render(
+        <MembershipControl
+            groups={groups(3)}
+            current={[0, 2]}
+            disabled={false}
+            onChange={onChange}
+        />
+    )
+    fireEvent.click(screen.getAllByRole('button')[1])
+    expect(onChange).toHaveBeenCalledWith(1)
+})
+
+it('names the reason a disabled segmented control cannot be used', () => {
+    render(
+        <MembershipControl
+            groups={groups(3)}
+            current={[0, 2]}
+            disabled
+            disabledReason="Group 0 is read-only for you"
+            onChange={() => undefined}
+        />
+    )
+    expect(screen.getAllByRole('button')[0]).toHaveAttribute(
+        'title',
+        'Group 0 is read-only for you'
+    )
+})
+
+it('names the reason a disabled dropdown control cannot be used', () => {
+    render(
+        <MembershipControl
+            groups={groups(6)}
+            current={[1, 4]}
+            disabled
+            disabledReason="Group 1 is read-only for you"
+            onChange={() => undefined}
+        />
+    )
+    expect(
+        screen.getByTitle('Group 1 is read-only for you')
+    ).toBeInTheDocument()
 })

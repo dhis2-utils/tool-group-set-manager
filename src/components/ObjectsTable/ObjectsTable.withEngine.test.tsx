@@ -39,6 +39,19 @@ jest.mock('@/hooks/useEngine', () => ({
     }),
 }))
 
+// The membership write path is exercised end to end in ObjectsTable.test.tsx
+// (which mocks useEngineQuery instead of useEngine, so it can control page
+// loading independently of the write). This file's own concern is that the
+// interactive control keeps working once the *real* useEngineQuery/paging
+// machinery is in play alongside it -- so useMembershipWrite is mocked here,
+// same as an engine-level dependency the write flow would otherwise need
+// (useConfig, react-query's QueryClientProvider, writeMemberships,
+// saveChangeSet) purely to satisfy import chains unrelated to paging.
+const mockWrite = jest.fn()
+jest.mock('@/hooks/useMembershipWrite', () => ({
+    useMembershipWrite: () => ({ write: mockWrite, isWriting: false }),
+}))
+
 const set = {
     id: 'own',
     displayName: 'Ownership',
@@ -91,6 +104,13 @@ const settle = async (label: string, total: number, count = 200) => {
 beforeEach(() => {
     mockPending.length = 0
     mockPhase = 'done'
+    mockWrite.mockReset()
+    mockWrite.mockResolvedValue({
+        outcomes: [],
+        applied: [],
+        unaccounted: [],
+        changeSet: {} as never,
+    })
 })
 
 it('replaces the rows when the filter changes without scrolling, and still accepts the new filter pages', async () => {
@@ -161,4 +181,30 @@ it('keeps the rows and does not duplicate the held page when the engine load pha
     expect(screen.getByText(/200 rows loaded so far/)).toBeInTheDocument()
     expect(screen.getAllByText('Row 5')).toHaveLength(1)
     expect(screen.getByText(/1,000 objects/)).toBeInTheDocument()
+})
+
+it('assigns a row loaded through the real paging pipeline, confirming before it calls the write hook', async () => {
+    render(<ObjectsTable set={set} scope={scope} filter={{}} search="" />)
+    await settle('Row', 1000)
+    expect(screen.getByText('Row 0')).toBeInTheDocument()
+
+    // Every loaded row starts in group 0 ("Public") only -- see `settle`.
+    // Choosing group 1 ("Private") for the first row is a real move: one
+    // deletion from Public, one addition to Private.
+    const firstRowButtons = screen.getAllByRole('button', { name: 'Private' })
+    fireEvent.click(firstRowButtons[0])
+    expect(screen.getByText('Confirm group change')).toBeInTheDocument()
+    expect(mockWrite).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('Assign'))
+    await waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1))
+    expect(mockWrite.mock.calls[0][0]).toMatchObject({
+        set,
+        action: 'assign',
+        targetGroupId: 'b',
+        changes: [
+            { groupId: 'a', additions: [], deletions: ['Row-0'] },
+            { groupId: 'b', additions: ['Row-0'], deletions: [] },
+        ],
+    })
 })

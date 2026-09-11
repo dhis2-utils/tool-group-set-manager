@@ -1,14 +1,25 @@
 import i18n from '@dhis2/d2-i18n'
-import { CircularLoader, NoticeBox } from '@dhis2/ui'
+import {
+    AlertBar,
+    Button,
+    CircularLoader,
+    Modal,
+    ModalActions,
+    ModalContent,
+    ModalTitle,
+    NoticeBox,
+} from '@dhis2/ui'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import styles from './ObjectsTable.module.css'
 import { MembershipControl } from '@/components/MembershipControl/MembershipControl'
 import { StatusPill } from '@/components/StatusPill/StatusPill'
+import { GroupChange } from '@/engine/changeSet'
 import { ObjectFilter } from '@/engine/queries'
 import { ObjectsResult, ScopeRef } from '@/engine/store'
-import { GroupSetMeta } from '@/engine/types'
+import { GroupMeta, GroupSetMeta } from '@/engine/types'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
+import { useMembershipWrite } from '@/hooks/useMembershipWrite'
 import { interpolate } from '@/utils/interpolate'
 
 interface Props {
@@ -74,7 +85,130 @@ const emptyLoad = (key: string): Loaded => ({
     offset: 0,
 })
 
+/**
+ * D1: the change is computed from the row's own current groups, not from
+ * the whole set -- a deletion from each position the object currently
+ * holds other than the chosen one, and an addition to the chosen one only
+ * when it is not already held. A well-formed object moving between two
+ * groups therefore produces exactly one addition and one deletion, never a
+ * deletion per group in the set; clicking the group an object is already
+ * the sole member of produces no changes at all, which the caller reads as
+ * "nothing to write".
+ */
+function computeMembershipChanges(
+    row: Row,
+    groups: GroupMeta[],
+    chosenIndex: number
+): GroupChange[] {
+    const changes: GroupChange[] = []
+    row.groups.forEach((pos) => {
+        if (pos !== chosenIndex) {
+            const group = groups[pos]
+            if (group) {
+                changes.push({
+                    groupId: group.id,
+                    additions: [],
+                    deletions: [row.id],
+                })
+            }
+        }
+    })
+    if (!row.groups.includes(chosenIndex)) {
+        const target = groups[chosenIndex]
+        if (target) {
+            changes.push({
+                groupId: target.id,
+                additions: [row.id],
+                deletions: [],
+            })
+        }
+    }
+    return changes
+}
+
+/**
+ * D2: the reason a control is disabled, named for the user rather than
+ * merely implied by a greyed-out control. Only the groups the object
+ * currently holds are checked -- those are the ones any move must be able
+ * to write to, since every move removes the object from at least one of
+ * them.
+ */
+function disabledReasonFor(row: Row, groups: GroupMeta[]): string | undefined {
+    const unwritable = row.groups
+        .map((pos) => groups[pos])
+        .find((g) => g && !g.canWrite)
+    return unwritable
+        ? interpolate(i18n.t('{group} is read-only for you'), {
+              group: unwritable.displayName,
+          })
+        : undefined
+}
+
 export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
+    const { write } = useMembershipWrite()
+    // D5: one write in flight per table, tracked by which row asked for it
+    // so only that row's controls are disabled -- not the whole table --
+    // and a second click on the *same* row while its write is still
+    // outstanding is ignored rather than queued.
+    const [writingRowId, setWritingRowId] = useState<string | null>(null)
+    const [confirm, setConfirm] = useState<{ row: Row; index: number } | null>(
+        null
+    )
+    const [alert, setAlert] = useState<string | null>(null)
+
+    const handleGroupChoice = (row: Row, index: number) => {
+        if (writingRowId !== null) {
+            return
+        }
+        const changes = computeMembershipChanges(row, set.groups, index)
+        if (changes.length === 0) {
+            // Already the sole member of the chosen group: a no-op, per D1.
+            return
+        }
+        setConfirm({ row, index })
+    }
+
+    const handleConfirm = async () => {
+        if (!confirm) {
+            return
+        }
+        const { row, index } = confirm
+        const changes = computeMembershipChanges(row, set.groups, index)
+        setConfirm(null)
+        if (changes.length === 0) {
+            return
+        }
+        setWritingRowId(row.id)
+        try {
+            const name = row.displayName ?? row.id
+            const groupName = set.groups[index].displayName
+            const result = await write({
+                set,
+                changes,
+                action: 'assign',
+                note: interpolate(i18n.t('Assigned {name} to {group}'), {
+                    name,
+                    group: groupName,
+                }),
+                targetGroupId: set.groups[index].id,
+            })
+            // `engineError` and `historyError` both mean the server change
+            // already happened -- see useMembershipWrite's own doc comment
+            // -- so neither is reported here as a failed write. Only
+            // `unaccounted` (a batch the server did not confirm at all)
+            // means the assignment itself did not fully land.
+            if (result.unaccounted.length > 0) {
+                setAlert(
+                    i18n.t(
+                        'The group change could not be fully applied. Reload and try again.'
+                    )
+                )
+            }
+        } finally {
+            setWritingRowId(null)
+        }
+    }
+
     // Identifies *which* list this is a page of. A set, scope or filter
     // change starts a new list from offset 0.
     const filterKey = JSON.stringify([set.id, scope, filter])
@@ -229,6 +363,7 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
                 >
                     {virtualItems.map((v) => {
                         const r = rows[v.index]
+                        const disabledReason = disabledReasonFor(r, set.groups)
                         return (
                             <div
                                 key={r.id}
@@ -249,8 +384,14 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
                                     <MembershipControl
                                         groups={set.groups}
                                         current={r.groups}
-                                        disabled
-                                        onChange={() => undefined}
+                                        disabled={
+                                            Boolean(disabledReason) ||
+                                            writingRowId === r.id
+                                        }
+                                        disabledReason={disabledReason}
+                                        onChange={(index) =>
+                                            handleGroupChoice(r, index)
+                                        }
                                     />
                                 </span>
                             </div>
@@ -258,6 +399,40 @@ export const ObjectsTable = ({ set, scope, filter, search }: Props) => {
                     })}
                 </div>
             </div>
+            {confirm && (
+                <Modal small position="middle" onClose={() => setConfirm(null)}>
+                    <ModalTitle>{i18n.t('Confirm group change')}</ModalTitle>
+                    <ModalContent>
+                        <p>
+                            {interpolate(
+                                i18n.t(
+                                    '{name} will be assigned to {group} and removed from any other group in this set'
+                                ),
+                                {
+                                    name:
+                                        confirm.row.displayName ??
+                                        confirm.row.id,
+                                    group: set.groups[confirm.index]
+                                        .displayName,
+                                }
+                            )}
+                        </p>
+                    </ModalContent>
+                    <ModalActions>
+                        <Button onClick={() => setConfirm(null)}>
+                            {i18n.t('Cancel')}
+                        </Button>
+                        <Button primary onClick={handleConfirm}>
+                            {i18n.t('Assign')}
+                        </Button>
+                    </ModalActions>
+                </Modal>
+            )}
+            {alert && (
+                <AlertBar critical onHidden={() => setAlert(null)}>
+                    {alert}
+                </AlertBar>
+            )}
         </div>
     )
 }
