@@ -4,3 +4,6 @@ node_modules
 src/locales
 build
 .pnpm-store
+
+# Playwright CLI session scratch from browser checks
+.playwright-cli/
