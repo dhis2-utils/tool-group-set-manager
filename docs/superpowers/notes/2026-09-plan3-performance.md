@@ -9,16 +9,21 @@ against the same server, with no app in the loop at all, costs 6.0-8.7 s by itse
 biggest open budget risk is the one nobody had measured until this round: applying (not just
 previewing) a bulk fix over a large population. Extrapolated from real per-batch measurements
 (below), the 77,017-object "School Level" plan used elsewhere in this note would cost roughly
-**8-12 minutes** to apply -- 8-12x over the ~60 s budget. The SQL views remain the necessary
+**8-12 minutes** to apply -- 8-12x over the ~60 s budget, and that figure is itself a floor, not
+a midpoint (see "Bulk preview vs. bulk apply" below for why). The SQL views remain the necessary
 prerequisite: without them this instance's dashboard load is the >640 s metadata-API failure
 already recorded in `docs/superpowers/notes/2026-09-plan1-emis-measurements.md`.**
 
-*Revision note: this is fix round 1 of this document, made after
-`.superpowers/sdd/2026-09-11-gsi-plan-3-integrity-search-e2e/task-10-review.md` found the first
-version's warm-dashboard number and its write-latency mechanism both wrong, and its "views did
-not survive the restart" claim false. All three are corrected below, with the method that
-produced the wrong numbers described so the mistake is visible, not just the fix. A fourth gap
--- the unmeasured bulk apply -- is filled in with new measurements.*
+*Revision note: this is fix round 2 of this document. Fix round 1 (after
+`.superpowers/sdd/2026-09-11-gsi-plan-3-integrity-search-e2e/task-10-review.md`) corrected the
+warm-dashboard number, the write-latency mechanism, and the "views did not survive the restart"
+claim, and added the bulk-apply extrapolation. The re-review
+(`.superpowers/sdd/2026-09-11-gsi-plan-3-integrity-search-e2e/task-10-re-review.md`) confirmed
+all of that and found one more defect of the same shape, one level down: the bulk-apply batch
+table mislabelled two single-id measurements as 1000-id ones, and the causal claim built on top
+of it ("cost tracks group size, not batch size") wasn't actually established by the data. Fix
+round 2, below, relabels the table, corrects the claim to a stated hypothesis, and notes that
+8-12 minutes is a floor because Basic Education grows during its own batches.*
 
 ## Instance, version, and hardware
 
@@ -32,6 +37,12 @@ The app was built from commit `0cc012b4c5646d489cca3915afc185b5dbe4541e` on `pla
 note on why: no dev-server/proxy origin mismatch, matching how Task 9's suite runs. All sessions
 were established via `GET /api/me` with Basic auth, cookie shared into the browser context --
 never the login form, per the same convention.
+
+*(That commit predates this document's own fix rounds -- `0cc012b` is the original Task 10 run
+that installed and measured the app; nothing under `src/` changed in either fix round, so the
+app actually answering requests on the instance is still that same build, even though this note
+has since moved on to `14dd5b2` and now this commit. Re-installing on a fresh `pnpm build` from
+either later commit would measure identical app code.)*
 
 Measuring machine: an aarch64 Linux sandbox (Docker container, "Linux ... 6.12.76-linuxkit
 aarch64"), 4 CPUs, ~8 GB RAM, Chromium 151.0.7922.34 (Playwright 1.63.0's own bundled build) run
@@ -234,24 +245,46 @@ works in -- `writeMemberships` in `src/data/writes.ts` splits every group's chan
 concurrency) -- so total apply time is the straightforward sum of each batch's server-side cost.
 
 **Batch cost, measured directly against the live server with `curl` (no app, no browser, so this
-isolates the server-side cost the app's own apply path would pay per request):**
+isolates the server-side cost the app's own apply path would pay per request).** *(Fix round 2
+correction: two of the four rows below were originally labelled "1000 ids" when they were in
+fact single-id writes -- digit-for-digit the review's own single-id measurements, reused here
+without checking what they had actually sent. Every row is now labelled with what it actually
+measured; the 1000-id Private figures are the review's own re-measurement, attributed as such.)*
 
-| Group (current size) | Operation | Time |
-| --- | --- | --- |
-| Basic Education (91,892 members) | add 1000 ids | 6.02 s, 5.99 s |
-| Basic Education (91,892 members) | delete the same 1000 ids back out | 6.78 s, 5.63 s |
-| Private (136,538 members, from the review's own measurement) | add 1000 ids | 8.73 s, 8.70 s |
-| Private (136,538 members) | delete 1000 ids | 8.06 s, 6.30 s, 6.48 s |
+| Group (current size) | Operation | Batch size | Time |
+| --- | --- | --- | --- |
+| Basic Education (91,892 members) | add | 1000 ids | 6.02 s, 5.99 s |
+| Basic Education (91,892 members) | delete the same ids back out | 1000 ids | 6.78 s, 5.63 s |
+| Private (136,538 members) | delete | 1000 ids | 5.99 s, 7.63 s *(review's re-measurement)* |
+| Private (136,538 members) | add the same ids back | 1000 ids | 9.07 s, 6.92 s *(review's re-measurement)* |
+| Private (136,538 members) | delete | 1 id | 7.29 s, 6.98 s *(review's original measurement, mislabelled as 1000 ids in the previous version of this note)* |
+| Private (136,538 members) | add the same id back | 1 id | 7.13 s, 7.27 s *(review's original measurement, mislabelled as 1000 ids in the previous version of this note)* |
 
 Every one of these writes was reverted immediately afterward (the inverse operation on the same
 ids), and the affected groups' member counts were confirmed back at their original values via the
 API before moving on -- `O1hqU8q6iea` (Basic Education) reads 91,892 members both before and after.
 
-The cost tracks the group's current size, not the batch's: the larger `Private` group (136,538
-members) consistently cost more per 1000-id batch (6.3-8.7 s) than the smaller `Basic Education`
-(91,892 members, 6.0-6.8 s) -- consistent with a Hibernate collection-materialisation cost on the
-server side that scales with how big the collection already is, not with how many ids are being
-changed. **Extrapolating the School Level plan from these batch costs:**
+**What the corrected table actually establishes, and what it does not:**
+
+- **Batch-size independence, on one group:** on Private, a 1-id write (6.98-7.29 s) and a
+  1000-id write (5.99-9.07 s) cost about the same. This is the comparison that matters for the
+  extrapolation below -- it is what licenses treating "cost per batch" as roughly constant
+  regardless of how many ids are in it, and it is now an honest same-group comparison, not one
+  confounded with a group-size difference.
+- **Group-size scaling is a hypothesis, not a measured fact here** (fix round 2 correction: the
+  previous version of this note stated "the cost tracks the group's current size, not the
+  batch's" as an established finding and an "operating assumption" for future readers. It isn't
+  established by this data: Private's observed range (5.99-9.07 s) and Basic Education's
+  (5.63-6.78 s) overlap, on small sample counts (6 and 4 measurements respectively), so this note
+  cannot say the larger group is genuinely slower per batch -- only that both land in the same
+  6-9 s neighbourhood. A Hibernate collection-materialisation cost that scales with the target
+  group's existing size is a plausible mechanism and would explain a difference this small a
+  sample could easily miss, but it is a hypothesis for someone to test with a controlled
+  same-batch-size, many-group comparison, not something to build on as established.
+
+**Extrapolating the School Level plan from these batch costs** (79 batches, computed from
+`writeMemberships`'s own sequential, 1000-id-per-group batching in `src/data/writes.ts` -- no
+concurrency, one `POST` per batch, awaited in order):
 
 - Basic Education: 60,968 additions -> `ceil(60968 / 1000)` = **61 batches**
 - JSS: 15,620 deletions -> **16 batches**
@@ -259,22 +292,38 @@ changed. **Extrapolating the School Level plan from these batch costs:**
 - SSS: 37 deletions -> **1 batch**
 - **Total: 79 batches**, sent sequentially with no retry or overlap in the ordinary case.
 
-At 6-9 s per batch (the full range actually measured, across two different groups of different
-size), 79 batches extrapolate to **474-711 s -- roughly 8 to 12 minutes**, against the ~60 s
-budget. Even taking only the Basic Education additions alone (61 batches at the low end of the
-range, ~6 s each) is already **~366 s, over 6x the budget by itself**, before any of the other
-three groups' batches are even counted.
+At 6-9 s per batch (the full range actually measured across every row of the corrected table
+above, 1-id and 1000-id alike), 79 batches extrapolate to **474-711 s -- roughly 8 to 12
+minutes**, against the ~60 s budget.
+
+**8-12 minutes is a floor, not a midpoint.** The 6 s figure that anchors the low end of that
+range was measured against Basic Education at its *starting* size, 91,892 members. Basic
+Education's own 61 batches in this plan are all additions to itself, so by the last of those 61
+batches the group holds roughly 91,892 + 60,968 = **152,860** members -- if the group-size-scaling
+hypothesis above is even partly right, the later batches in this plan cost more than the 6 s
+measured at the smaller, starting size, not the same. Nothing measured here quantifies how much
+more, so this note does not attempt a corrected midpoint -- but a reader should treat 8-12
+minutes as the fastest this plausibly goes, not the middle of the real range.
+
+Even taking only the Basic Education additions alone (61 batches at the low end of the range,
+~6 s each) is already **~366 s, over 6x the budget by itself**, before any of the other three
+groups' batches are even counted, and before any growth-during-the-run effect.
 
 **This is the real, previously unnamed budget risk in the app.** The preview step (0.14 s) gives
 no hint of this cost at all, because it only computes the plan; every second of the actual apply
-time is server round trips the preview never makes. A bulk fix over a small number of objects, or
-one affecting only small groups, would stay well inside budget -- the cost here is specific to
-this instance's unusually large groups (tens to hundreds of thousands of members each), which is
-exactly the scale this task exists to check. Whoever picks this up should treat "cost is roughly
-(batches) x (7-9 s), where batches is driven by the *target* group's existing size, not by how
-many objects are being moved" as the operating assumption, and budget a bulk apply against a large
-group accordingly -- there is nothing to fix quietly here per the brief, only a number to report,
-which this section now does.
+time is server round trips the preview never makes. A bulk fix over a small number of objects
+would stay well inside budget regardless of mechanism -- the cost here is specific to this
+instance's unusually large groups (tens to hundreds of thousands of members each), which is
+exactly the scale this task exists to check. What this note can say with confidence: cost is
+roughly (batch count) x (6-9 s), where batch count comes straight from `writeMemberships`'s own
+1000-ids-per-group splitting: `ceil(additions / 1000) + ceil(deletions / 1000)` per group,
+summed across every group the plan touches. Whether the *target* group's existing size pushes
+that per-batch figure higher still is a real, plausible hypothesis (see above) that this note's
+data does not confirm -- whoever picks this up should budget a bulk apply against a large group
+using the 6-9 s range as a starting point, verify it against the specific group in question
+before relying on it, and treat 8-12 minutes for this plan as a floor rather than a promise, per
+the growth-during-the-run point above. There is nothing to fix quietly here per the brief, only a
+number -- and its uncertainty -- to report, which this section now does.
 
 ## One small write, then revert
 
@@ -334,7 +383,7 @@ large group, not at `useMembershipWrite` or anything else in this app's own writ
 | Text search, many matches (10,339) | 0.44 s | well inside | new in Plan 3, not previously measured |
 | Text search, handful (172) | 0.45 s | well inside | new in Plan 3, not previously measured |
 | Bulk preview (77,017-object plan) | 0.14 s | well inside | consistent with spec 4.3 |
-| **Bulk apply of that same plan (extrapolated from measured batch costs, not run in full)** | **~8-12 minutes (79 batches x 6-9 s)** | **8-12x OVER budget** | not previously measured; this is the finding this round adds |
+| **Bulk apply of that same plan (extrapolated from measured batch costs, not run in full)** | **~8-12 minutes floor (79 batches x 6-9 s; likely more, since the target group grows during its own batches)** | **8-12x+ OVER budget** | not previously measured; this is the finding this round adds |
 | Single write | 8.4-10.1 s | inside, but the dominant cost is server-side, not the app (see above) | not previously measured at this scale |
 | Single write's revert | 13.6 s | inside, same server-side cost applies | not previously measured |
 

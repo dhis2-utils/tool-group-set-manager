@@ -17,16 +17,34 @@
 // Usage: node scripts/perf/emis-run.js
 // Requires: the app already built and installed on the target instance
 // (pnpm build && POST /api/apps), and BASE_URL answering.
+//
+// Overridable via environment variables (fix round 2 -- a previous version
+// hard-coded the instance's own default credentials with no override, and
+// pinned `EXEC` to a specific Chromium build revision path
+// (`chromium-1243/...-arm64`) that is only ever going to be correct for as
+// long as that exact revision happens to still be installed):
+//   GSI_PERF_BASE_URL       target instance (default: agent-gsi-emis)
+//   GSI_PERF_USERNAME       login (default: local_admin)
+//   GSI_PERF_PASSWORD       password (default: district)
+//   PLAYWRIGHT_CHROME_PATH  explicit browser binary, if the bundled one
+//                           found via `chromium.executablePath()` isn't
+//                           right for the machine this runs on
 'use strict'
 const { chromium } = require('@playwright/test')
 
 const BASE_URL =
     process.env.GSI_PERF_BASE_URL || 'http://dhis2-agent-gsi-emis:8080'
 const APP_PATH = '/api/apps/group-set-integrity-tool/index.html'
-const CREDS = { username: 'local_admin', password: 'district' }
-const EXEC =
-    process.env.PLAYWRIGHT_CHROME_PATH ||
-    '/opt/playwright-browsers/chromium-1243/chrome-linux-arm64/chrome'
+const CREDS = {
+    username: process.env.GSI_PERF_USERNAME || 'local_admin',
+    password: process.env.GSI_PERF_PASSWORD || 'district',
+}
+// `chromium.executablePath()` asks the installed Playwright package for
+// whatever browser revision it actually bundles right now, so this stays
+// correct across Playwright upgrades without a hard-coded, eventually-stale
+// revision path. `PLAYWRIGHT_CHROME_PATH` still wins when set, for a machine
+// where that default isn't the right binary.
+const EXEC = process.env.PLAYWRIGHT_CHROME_PATH || chromium.executablePath()
 
 function now() {
     return Date.now()
