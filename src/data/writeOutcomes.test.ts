@@ -54,14 +54,35 @@ describe('outcomeText', () => {
 
     // Minor 2 (fix round 1): the UNPARSEABLE_RESPONSE sentinel writes.ts
     // records for a non-JSON 200 must never reach the user as itself --
-    // this is the one place that translates it into prose.
-    it('translates the UNPARSEABLE_RESPONSE sentinel instead of splicing it in raw', () => {
+    // this is the one place that turns it into prose. Re-reviewed: it gets
+    // its own whole sentence rather than a translated clause interpolated
+    // into the {error} placeholder, because a clause does not reorder with
+    // the rest of the sentence in most languages.
+    it('gives the UNPARSEABLE_RESPONSE sentinel its own sentence instead of splicing it in raw', () => {
         const { tone, text } = textFor([
             batch({ groupId: 'g1', accepted: 0, error: UNPARSEABLE_RESPONSE }),
         ])
         expect(tone).toBe('error')
         expect(text).not.toContain(UNPARSEABLE_RESPONSE)
-        expect(text).toMatch(/could not be read/i)
+        expect(text).toMatch(/could not read/i)
+        // The token sentence is the other branch, and must not appear:
+        // spliced together, the two would read as one run-on failure.
+        expect(text).not.toMatch(/failed with error/i)
+    })
+
+    // A group split across batches can fail both ways at once. Each error
+    // kind keeps its own complete sentence; neither is folded into the
+    // other's placeholder.
+    it('gives a group that failed both ways one sentence for each', () => {
+        const { tone, text } = textFor([
+            batch({ groupId: 'g1', accepted: 0, error: 'HTTP 500' }),
+            batch({ groupId: 'g1', accepted: 0, error: UNPARSEABLE_RESPONSE }),
+        ])
+        expect(tone).toBe('error')
+        expect(text).toMatch(/failed with error/i)
+        expect(text).toContain('HTTP 500')
+        expect(text).toMatch(/could not read/i)
+        expect(text).not.toContain(UNPARSEABLE_RESPONSE)
     })
 
     it('reports a silent short accept as a partial acceptance, not a failure', () => {

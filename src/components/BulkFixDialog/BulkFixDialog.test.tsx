@@ -1037,7 +1037,11 @@ describe('BulkFixDialog apply step', () => {
         mockIsWriting = true
         mockWrite.mockImplementation(
             (input: { onProgress?: (d: number, t: number) => void }) => {
-                input.onProgress?.(1, 2)
+                // Four-figure batch counts on purpose: this is also the
+                // only place the progress line's thousands separators are
+                // exercised, and 1/2 would pass whether or not they are
+                // applied (task 8, minor 8).
+                input.onProgress?.(1200, 2400)
                 return new Promise((resolve) => {
                     resolveWrite = resolve
                 })
@@ -1046,7 +1050,7 @@ describe('BulkFixDialog apply step', () => {
         const applyButton = await goToApply()
         fireEvent.click(applyButton)
         await waitFor(() =>
-            expect(screen.getByText(/1 of 2/)).toBeInTheDocument()
+            expect(screen.getByText(/1,200 of 2,400/)).toBeInTheDocument()
         )
         mockIsWriting = false
         await act(async () => {

@@ -12,10 +12,14 @@ import { interpolate } from '@/utils/interpolate'
  * sentence in its place, rather than ever letting the raw fragment reach
  * `outcomeText`'s `{error}` placeholder untranslated.
  */
-function describeError(error: string): string {
-    return error === UNPARSEABLE_RESPONSE
-        ? i18n.t('the response could not be read')
-        : error
+function splitErrors(errors: string[]): {
+    tokens: string[]
+    anyUnreadable: boolean
+} {
+    return {
+        tokens: errors.filter((e) => e !== UNPARSEABLE_RESPONSE),
+        anyUnreadable: errors.some((e) => e === UNPARSEABLE_RESPONSE),
+    }
 }
 
 /**
@@ -92,7 +96,6 @@ export function outcomeText(
     const errors = notConfirmed
         .map((b) => b.error)
         .filter((e): e is string => Boolean(e))
-        .map(describeError)
 
     if (notConfirmed.length === 0) {
         return {
@@ -120,15 +123,37 @@ export function outcomeText(
     }
 
     if (errors.length > 0) {
-        return {
-            tone: 'error',
-            text: interpolate(
-                i18n.t(
-                    '{name} failed with error {error} -- the affected objects need to be re-read from the server'
-                ),
-                { name: groupName, error: errors.join('; ') }
-            ),
+        // Two whole sentences, chosen on the sentinel, rather than one
+        // sentence with a translated clause interpolated into it: a clause
+        // does not reorder with the rest of the sentence in most languages,
+        // which is the same rule CLAUDE.md states for never joining
+        // translated fragments. An `HTTP 403` or a caught exception's
+        // message is a locale-neutral token and stays a {placeholder}; the
+        // sentinel is not, so it gets its own sentence. A group whose
+        // batches failed both ways gets both sentences.
+        const { tokens, anyUnreadable } = splitErrors(errors)
+        const sentences: string[] = []
+        if (tokens.length > 0) {
+            sentences.push(
+                interpolate(
+                    i18n.t(
+                        '{name} failed with error {error} -- the affected objects need to be re-read from the server'
+                    ),
+                    { name: groupName, error: tokens.join('; ') }
+                )
+            )
         }
+        if (anyUnreadable) {
+            sentences.push(
+                interpolate(
+                    i18n.t(
+                        '{name} failed because the server returned a response the app could not read -- the affected objects need to be re-read from the server'
+                    ),
+                    { name: groupName }
+                )
+            )
+        }
+        return { tone: 'error', text: sentences.join(' ') }
     }
 
     return {

@@ -276,7 +276,7 @@ export const Dashboard = () => {
                             <>
                                 <p className={styles.note}>
                                     {i18n.t(
-                                        'Still loading -- these summaries are not ready yet'
+                                        'Still loading, so these summaries are not ready yet'
                                     )}
                                 </p>
                                 <div className={styles.cards}>
