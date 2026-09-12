@@ -109,6 +109,13 @@ export const IntegrityProvider = ({
     const [isRunning, setIsRunning] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const checksRef = useRef<ResolvedCheck[]>([])
+    // m4 (final review): `run` used to close over `summaries` state
+    // directly (to snapshot `before`), so its own identity -- and with it
+    // the whole `IntegrityState` memo -- changed on every poll iteration,
+    // since each one calls `applySummaries`. Harmless while no consumer
+    // puts `run` in an effect's dependency list, but reading through a ref
+    // instead removes the hazard rather than relying on that.
+    const summariesRef = useRef<Record<string, CheckSummary>>(EMPTY_SUMMARIES)
 
     // Once flipped, no further integrity request is ever made again this
     // session -- checked before every fetch, not just in the initial gate.
@@ -231,6 +238,10 @@ export const IntegrityProvider = ({
         checksRef.current = checks
     }, [checks])
 
+    useEffect(() => {
+        summariesRef.current = summaries
+    }, [summaries])
+
     const refresh = useCallback(async () => {
         if (disabledRef.current) {
             return
@@ -255,9 +266,23 @@ export const IntegrityProvider = ({
             setError(null)
             try {
                 const before = new Map(
-                    names.map((n) => [n, summaries[n]?.finishedTime ?? null])
+                    names.map((n) => [
+                        n,
+                        summariesRef.current[n]?.finishedTime ?? null,
+                    ])
                 )
-                await startRun(fetcher, names, 'summary')
+                // C1 (final review): a SUMMARY run alone never populates the
+                // *details* cache -- `readDetails` (the integrity tab's
+                // in-scope count, unknown-id count and issue list) reads a
+                // separately cached result that only a DETAILS run fills,
+                // measured live to stay `{}` forever otherwise. Both are
+                // started from the same click so one "Run now" produces
+                // both the count DHIS2 already showed and the population
+                // the tab needs to reconcile it against.
+                await Promise.all([
+                    startRun(fetcher, names, 'summary'),
+                    startRun(fetcher, names, 'details'),
+                ])
                 if (disabledRef.current || unmountedRef.current) {
                     return
                 }
@@ -329,7 +354,7 @@ export const IntegrityProvider = ({
                 }
             }
         },
-        [fetcher, summaries, disable, applySummaries]
+        [fetcher, disable, applySummaries]
     )
 
     const markStale = useCallback((objectType: ObjectType) => {

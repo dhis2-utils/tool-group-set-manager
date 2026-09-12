@@ -35,6 +35,21 @@ it('renders the check name, the count, the run time and that it spans every grou
     expect(line.textContent).toEqual(expect.stringContaining('all group sets'))
 })
 
+// m1 (final review): every other count-rendering site on the branch
+// (GroupSetCard, SummaryMatrix, ObjectsTable, BulkFixDialog, Dashboard,
+// History, ChangeSetPreview) formats with `.toLocaleString()` -- this is
+// the exact inconsistency Task 8 item 4 existed to remove, and it missed
+// this file.
+it('thousands-formats the count', () => {
+    const summary: CheckSummary = {
+        name: check.name,
+        count: 12345,
+        finishedTime: '2026-09-01T10:00:00.000Z',
+    }
+    render(<IntegrityLine check={check} summary={summary} stale={false} />)
+    expect(screen.getByText(/12,345/)).toBeInTheDocument()
+})
+
 it('uses the singular wording for a count of exactly one', () => {
     const summary: CheckSummary = {
         name: check.name,

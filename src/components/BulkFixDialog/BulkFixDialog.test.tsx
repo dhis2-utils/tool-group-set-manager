@@ -407,6 +407,76 @@ describe('BulkFixDialog preview step', () => {
         expect(await screen.findByText('+4 / -0')).toBeInTheDocument()
     })
 
+    // m3 (final review): Task 6 moved `text` into the `ObjectFilter` that
+    // `ObjectsTab` owns and `BulkFixDialog` reads its population from, but
+    // the move-to-catch-all notice still said only "whatever filter this
+    // was opened with" -- true of status/level/group/ancestor, which are
+    // visible as dropdown selections on the Objects tab the user just came
+    // from, but the search box's value is not shown anywhere in this
+    // dialog. Nothing wrong is written (the preview enumerates every
+    // affected object either way), but the label was silently wrong about
+    // what "this view" means.
+    it('names the active search term in the move-to-catch-all notice when a text filter is in play', async () => {
+        mockLoadConfig.mockResolvedValue({
+            requiredLevels: {},
+            catchAllGroup: { own: 'g2' },
+            includeTracker: false,
+        })
+        mockUseEngineQuery.mockImplementation((method: string) => {
+            if (method === 'planAssignment') {
+                return {
+                    data: plan({ affected: 0 }),
+                    isLoading: false,
+                    error: null,
+                }
+            }
+            return {
+                data: { total: 0, offset: 0, items: [] },
+                isLoading: false,
+                error: null,
+            }
+        })
+        render(
+            <BulkFixDialog
+                set={set}
+                scope={scope}
+                filter={{ text: 'Bo' }}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        await waitFor(() =>
+            expect(screen.getByText('Beta')).toBeInTheDocument()
+        )
+        fireEvent.click(screen.getByRole('button', { name: /next/i }))
+
+        expect(
+            await screen.findByText(/matching the search term Bo/)
+        ).toBeInTheDocument()
+    })
+
+    it('says the notice applies to whatever filter this was opened with when there is no text filter', async () => {
+        mockUseEngineQuery.mockImplementation((method: string) => {
+            if (method === 'planAssignment') {
+                return {
+                    data: plan({ affected: 0 }),
+                    isLoading: false,
+                    error: null,
+                }
+            }
+            return {
+                data: { total: 0, offset: 0, items: [] },
+                isLoading: false,
+                error: null,
+            }
+        })
+        await goToPreview('Beta')
+        expect(
+            screen.getByText(/whatever filter this was opened with/)
+        ).toBeInTheDocument()
+        expect(screen.queryByText(/search term/)).not.toBeInTheDocument()
+    })
+
     it('downloads the full list as CSV, sanitising the group set name for the filename (M8)', async () => {
         mockUseEngineQuery.mockImplementation((method: string) => {
             if (method === 'planAssignment') {

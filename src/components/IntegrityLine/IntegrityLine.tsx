@@ -38,7 +38,10 @@ const resultLabel = (check: string, count: number, time: string) =>
               i18n.t(
                   'DHIS2 check {check} found {count} objects across all group sets on this instance as of {time}'
               ),
-              { check, count, time }
+              // m1 (final review): every other count-rendering site on the
+              // branch thousands-formats -- Task 8 item 4's sweep missed
+              // this file (and IntegrityTab.tsx, fixed alongside it).
+              { check, count: count.toLocaleString(), time }
           )
 
 const neverRunLabel = (check: string) =>

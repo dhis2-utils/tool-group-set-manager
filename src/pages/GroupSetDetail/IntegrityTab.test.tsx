@@ -116,7 +116,7 @@ const mockClientCall = jest.fn(async (method: string, ...args: unknown[]) => {
                     population: 10,
                     ok: 2,
                     unassigned: 0,
-                    missingError: 5,
+                    missingError: mockMissingErrorOverride ?? 5,
                     missingWarning: 0,
                     conflict: 3,
                 },
@@ -126,6 +126,10 @@ const mockClientCall = jest.fn(async (method: string, ...args: unknown[]) => {
     }
     return null
 })
+
+// m1 (final review): lets one test push the engine (missingError) count up
+// to a thousands-scale value without disturbing every other test's fixture.
+let mockMissingErrorOverride: number | null = null
 
 jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => ({
@@ -211,6 +215,7 @@ afterEach(() => {
             finishedTime: '2026-09-01T10:00:00.000Z',
         },
     }
+    mockMissingErrorOverride = null
 })
 
 it('renders the national, in-scope and engine counts for each relevant check', async () => {
@@ -304,6 +309,31 @@ it('reads details once for the whole tab, in one call naming every relevant chec
     )
 })
 
+// m1 (final review): every other count-rendering site on the branch
+// thousands-formats -- Task 8 item 4's sweep missed this file (and
+// IntegrityLine.tsx, fixed alongside it).
+it('thousands-formats the unknown and engine counts', async () => {
+    const originalIssues = detailsByCheck[compulsoryCheck.name]
+    // None of these ids are in KNOWN_INDEX, so all 1234 count as unknown.
+    detailsByCheck[compulsoryCheck.name] = Array.from(
+        { length: 1234 },
+        (_, i) => ({
+            id: `unknown${i}`,
+            displayName: `Unknown ${i}`,
+            detail: null,
+        })
+    )
+    mockMissingErrorOverride = 12340 // + missingWarning 0 = 12,340
+
+    try {
+        render(<IntegrityTab set={set} scope={scope} />)
+        expect(await screen.findByText(/1,234\b/)).toBeInTheDocument()
+        expect(await screen.findByText(/12,340\b/)).toBeInTheDocument()
+    } finally {
+        detailsByCheck[compulsoryCheck.name] = originalIssues
+    }
+})
+
 it('shows the server prose verbatim when present, and excludes an out-of-scope issue from the list', async () => {
     render(<IntegrityTab set={set} scope={scope} />)
     expect(await screen.findByText('refs: A')).toBeInTheDocument()
@@ -327,6 +357,25 @@ it("calls run with exactly this tab's relevant check names, and only on click", 
         compulsoryCheck.name,
         conflictCheck.name,
     ])
+})
+
+// C1 (final review): a summary-only run never populates the details cache
+// the tab's in-scope count, unknown count and issue list are read from
+// (fixed in useIntegrity.tsx). The other half of the fix belongs here: even
+// once the server's details cache is filled, the tab must actually re-read
+// it after "Run now" resolves -- its details effect is keyed on
+// `checkNamesKey`/`scope`/`set` only, none of which change just because a
+// run finished, so without this the freshly-populated cache is never
+// picked up without a remount.
+it('re-reads details after "Run now" resolves, not only on mount', async () => {
+    render(<IntegrityTab set={set} scope={scope} />)
+    await screen.findByText(/272/)
+    await waitFor(() => expect(mockReadDetails).toHaveBeenCalledTimes(1))
+
+    const user = userEvent.setup()
+    await user.click(screen.getByText('Run now'))
+
+    await waitFor(() => expect(mockReadDetails).toHaveBeenCalledTimes(2))
 })
 
 it('never calls run on mount, and never re-runs from a retry path', async () => {

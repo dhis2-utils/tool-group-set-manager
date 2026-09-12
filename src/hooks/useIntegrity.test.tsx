@@ -225,6 +225,79 @@ it('run() posts then polls the summary until finishedTime advances, and clears t
     ).toBe(false)
 })
 
+// C1 (final review): `run()` used to start a SUMMARY run only. The
+// integrity tab's in-scope count, unknown-id count and issue list are all
+// read from the *details* endpoint (`readDetails`, a GET against a
+// separately-cached result), which a summary-only run never populates --
+// measured live against a 2.43.1 instance to return `{}` forever, no
+// matter how many times "Run now" refreshed the summary. `run()` must also
+// start a details run for the same checks.
+it('run() also starts a DETAILS run for the same checks, not summary only', async () => {
+    const { result } = renderHook(() => useIntegrity(), { wrapper })
+    await waitFor(() => expect(result.current.available).toBe(true))
+    await waitFor(() => expect(result.current.checks.length).toBe(3))
+
+    let pollCount = 0
+    mockFetcher.mockImplementation((path: string, init?: RequestInit) => {
+        if (
+            (path.startsWith('dataIntegrity/summary') ||
+                path.startsWith('dataIntegrity/details')) &&
+            init?.method === 'POST'
+        ) {
+            return Promise.resolve(jsonResponse({ httpStatus: 'OK' }))
+        }
+        if (path.startsWith('dataIntegrity/summary')) {
+            pollCount += 1
+            const finishedTime =
+                pollCount === 1
+                    ? '2026-09-01T00:00:00.000Z'
+                    : '2026-09-11T00:00:00.000Z'
+            return Promise.resolve(
+                jsonResponse({
+                    org_units_not_in_compulsory_group_sets: {
+                        count: 5,
+                        finishedTime,
+                    },
+                })
+            )
+        }
+        return defaultFetcherImpl(path)
+    })
+
+    await act(async () => {
+        await result.current.run(['org_units_not_in_compulsory_group_sets'])
+    })
+
+    const detailsPostCalls = mockFetcher.mock.calls.filter(
+        ([path, init]) =>
+            typeof path === 'string' &&
+            path.startsWith('dataIntegrity/details') &&
+            (init as RequestInit | undefined)?.method === 'POST'
+    )
+    expect(detailsPostCalls).toHaveLength(1)
+    expect(detailsPostCalls[0][0]).toBe(
+        'dataIntegrity/details?checks=org_units_not_in_compulsory_group_sets'
+    )
+})
+
+// m4 (final review): `run` used to close over `summaries` directly, so its
+// identity (and, with it, the whole `IntegrityState` memo) changed on every
+// poll iteration inside `run` itself. Harmless while nothing puts `run` in
+// an effect dependency list, but a `summariesRef` removes the hazard rather
+// than relying on no consumer ever doing that.
+it("run's identity does not change when summaries update", async () => {
+    const { result, rerender } = renderHook(() => useIntegrity(), { wrapper })
+    await waitFor(() => expect(result.current.available).toBe(true))
+    await waitFor(() => expect(result.current.checks.length).toBe(3))
+
+    const runBefore = result.current.run
+    await act(async () => {
+        await result.current.refresh()
+    })
+    rerender()
+    expect(result.current.run).toBe(runBefore)
+})
+
 it('markStale marks only checks of the given object type, and makes no request at all', async () => {
     const { result } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.checks.length).toBe(3))

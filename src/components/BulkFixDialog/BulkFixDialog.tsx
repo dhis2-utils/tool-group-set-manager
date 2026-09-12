@@ -605,9 +605,33 @@ export const BulkFixDialog = ({
                             <>
                                 {action === 'moveToCatchAll' && (
                                     <NoticeBox>
-                                        {i18n.t(
-                                            'Only objects missing from this set or in conflict are moved here -- correctly assigned objects are left alone, whatever filter this was opened with'
-                                        )}
+                                        {/* m3 (final review): status, level,
+                                            group and ancestor filters are
+                                            visible as dropdown selections on
+                                            the Objects tab this dialog was
+                                            opened from, so "whatever filter
+                                            this was opened with" is a fair
+                                            summary of those. A text search
+                                            is not visible anywhere in this
+                                            dialog, so a search term in play
+                                            is named explicitly rather than
+                                            folded into that same phrase --
+                                            nothing is written wrong either
+                                            way (the preview below enumerates
+                                            every affected object), but the
+                                            generic wording read as though no
+                                            search was narrowing the
+                                            population. */}
+                                        {filter.text
+                                            ? interpolate(
+                                                  i18n.t(
+                                                      'Only objects missing from this set or in conflict are moved here -- correctly assigned objects are left alone, among objects matching the search term {term}'
+                                                  ),
+                                                  { term: filter.text }
+                                              )
+                                            : i18n.t(
+                                                  'Only objects missing from this set or in conflict are moved here -- correctly assigned objects are left alone, whatever filter this was opened with'
+                                              )}
                                     </NoticeBox>
                                 )}
                                 {/* I1: the headline is what the plan will

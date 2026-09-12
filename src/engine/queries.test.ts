@@ -264,22 +264,27 @@ describe('listObjects', () => {
     // A flat type (no hierarchy: dataElement, indicator, categoryOption)
     // has no levels and no ancestors at all -- `level`/`ancestor` are
     // hierarchy-only concepts a caller for a flat type should never pass.
-    // But if one ever did (a stale filter carried over from switching
-    // types, say), the pre-fix code excluded every object outright: `h ===
-    // null` made the level/ancestor guard clauses unconditionally true,
-    // which for a *hierarchical* type correctly means "unknown level,
-    // exclude it" but for a *flat* type means "this predicate cannot
-    // apply, so ignore it" -- the opposite reading of `h === null`.
-    // Silently returning nothing (rather than throwing, or ignoring the
-    // meaningless predicate) is the worst of the three: it reads as a
-    // real population that happens to be empty.
-    it('ignores a level or ancestor filter for a flat type rather than excluding everything', () => {
-        expect(
-            Array.from(listObjects(status, m, null, -1, { level: 3 }))
-        ).toEqual(Array.from(listObjects(status, m, null, -1, {})))
-        expect(
-            Array.from(listObjects(status, m, null, -1, { ancestor: 1 }))
-        ).toEqual(Array.from(listObjects(status, m, null, -1, {})))
+    // Final review (M2): an intermediate version of this code silently
+    // *ignored* the predicate for a flat type (treating it as "this
+    // predicate cannot apply here"), which is safe for a read-only list but
+    // is exactly wrong for `listObjects`' other caller, `planAssignment` --
+    // the population a bulk fix *writes*. There, a stale `level`/`ancestor`
+    // filter carried over from switching types would silently widen the
+    // write population from empty to everything, which is the worse of the
+    // two failures on a write path (the same reasoning this file already
+    // applies to `ids`/`text` two rules below: "matches nothing" beats
+    // "silently returns everything"). The honest third option -- neither
+    // silently excluding everything nor silently ignoring the predicate --
+    // is to throw: this is a caller error (no UI path passes either
+    // predicate for a flat type today), and a caller error on a write path
+    // should fail loudly, not resolve to a population by accident.
+    it('throws when a level or ancestor filter is given for a flat type, rather than silently excluding everything or ignoring the predicate', () => {
+        expect(() => listObjects(status, m, null, -1, { level: 3 })).toThrow(
+            /flat type/i
+        )
+        expect(() => listObjects(status, m, null, -1, { ancestor: 1 })).toThrow(
+            /flat type/i
+        )
     })
 
     it('filters by an id predicate, combined with other filters', () => {

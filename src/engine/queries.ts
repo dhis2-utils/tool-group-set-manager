@@ -264,6 +264,31 @@ export function listObjects(
         statusMask.fill(1)
         statusMask[Status.NotApplicable] = 0
     }
+    // Final review (M2): `level`/`ancestor` are hierarchy-only concepts --
+    // a flat type (h === null: dataElement, indicator, categoryOption) has
+    // neither. No caller passes either for a flat type today, and none
+    // should; but `listObjects` feeds both a read-only list (`objectsFor`)
+    // and a write population (`planAssignment`), and those two callers
+    // cannot honestly share one *silent* answer to "what does this
+    // meaningless predicate mean here". Silently excluding everything is
+    // tolerable for a list but would be wrong to state as a general rule;
+    // silently ignoring the predicate (this file's previous choice) is
+    // fine for a list but is the worse failure on a write path -- it
+    // silently widens the population a bulk fix writes from empty to
+    // everything, the same "worse of the two failures" reasoning this file
+    // already applies to `ids` and `text` below. So this is the honest
+    // third option: a caller error, thrown loudly, rather than resolved to
+    // either population by accident.
+    if (filter.level !== undefined && h === null) {
+        throw new Error(
+            'listObjects: filter.level was given for a flat type, which has no levels'
+        )
+    }
+    if (filter.ancestor !== undefined && h === null) {
+        throw new Error(
+            'listObjects: filter.ancestor was given for a flat type, which has no ancestors'
+        )
+    }
     const idFilter = filter.ids ? new Set(filter.ids) : null
     const textQuery = filter.text?.trim().toLowerCase() || null
     const out: number[] = []
@@ -271,18 +296,7 @@ export function listObjects(
         if (statusMask[status[i]] === 0) {
             return
         }
-        // A flat type (h === null) has no levels or ancestors at all, so
-        // these two predicates cannot apply to it -- a caller should never
-        // pass either for a flat type, but one that does (e.g. a stale
-        // filter carried over from switching types) must not silently get
-        // an empty result back, which reads as a real, if surprising,
-        // population rather than as "this predicate is meaningless here".
-        // Only a hierarchical type actually filters by level/ancestor.
-        if (
-            filter.level !== undefined &&
-            h !== null &&
-            h.level[i] !== filter.level
-        ) {
+        if (filter.level !== undefined && h!.level[i] !== filter.level) {
             return
         }
         if (filter.group !== undefined && m.groupOf[i] !== filter.group) {
@@ -290,8 +304,7 @@ export function listObjects(
         }
         if (
             filter.ancestor !== undefined &&
-            h !== null &&
-            !isInSubtree(h, filter.ancestor, i)
+            !isInSubtree(h!, filter.ancestor, i)
         ) {
             return
         }

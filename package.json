@@ -11,7 +11,7 @@
         "test": "d2-app-scripts test",
         "test:e2e": "playwright test --config e2e/playwright.config.ts",
         "deploy": "d2-app-scripts deploy",
-        "lint": "eslint && prettier -c .",
+        "lint": "eslint && prettier -c . && tsc -p e2e --noEmit",
         "format": "prettier . -w"
     },
     "dependencies": {

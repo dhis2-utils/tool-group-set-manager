@@ -1,7 +1,7 @@
 import { useConfig } from '@dhis2/app-runtime'
 import i18n from '@dhis2/d2-i18n'
 import { Button, NoticeBox } from '@dhis2/ui'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './IntegrityTab.module.css'
 import { IntegrityLine } from '@/components/IntegrityLine/IntegrityLine'
 import { createFetcher } from '@/data/fetcher'
@@ -57,7 +57,9 @@ const inScopeCountLabel = (count: number, scopeName: string) =>
               i18n.t(
                   'Of those, {count} objects fall within the current scope ({scope})'
               ),
-              { count, scope: scopeName }
+              // m1 (final review): thousands-format, matching every other
+              // count-rendering site on the branch.
+              { count: count.toLocaleString(), scope: scopeName }
           )
 
 const unknownCountLabel = (count: number) =>
@@ -69,7 +71,7 @@ const unknownCountLabel = (count: number) =>
               i18n.t(
                   '{count} of those objects could not be matched to anything this app has loaded, most often tracker data elements under an aggregate-only configuration'
               ),
-              { count }
+              { count: count.toLocaleString() }
           )
 
 // M1 (review round 1): the previous wording -- "The engine itself -- the
@@ -109,7 +111,11 @@ const engineCountLabel = (
                 i18n.t(
                     'Within {scope}, this app finds {count} objects failing the {set} rule alone'
                 ),
-                { count, scope: scopeName, set: setName }
+                {
+                    count: count.toLocaleString(),
+                    scope: scopeName,
+                    set: setName,
+                }
             )
 
 // M2 (review round 1), narrowed after round 2's n1: the brief's
@@ -229,6 +235,7 @@ export const IntegrityTab = ({ set, scope }: Props) => {
 
     const [scoped, setScoped] = useState<Record<string, ScopedResult>>({})
     const [detailsError, setDetailsError] = useState<string | null>(null)
+    const loadGenerationRef = useRef(0)
 
     // Guarding on presence rather than the `client` object's own identity
     // (the same reasoning as `useEngineQuery`'s `hasClient`): a consumer
@@ -237,84 +244,88 @@ export const IntegrityTab = ({ set, scope }: Props) => {
     // calls setState unconditionally, forever.
     const hasClient = client !== null
 
-    useEffect(() => {
+    // C1 (final review): extracted out of the effect below so the "Run
+    // now" handler can call it directly once a run completes, not only on
+    // mount or a scope/check change. `useIntegrity`'s `run()` now starts
+    // both a SUMMARY and a DETAILS run, but this tab is the only thing that
+    // ever reads the details cache back -- without an explicit re-read here,
+    // a freshly-populated cache is never picked up short of remounting the
+    // tab. `generationRef` replaces the old effect-local `cancelled`
+    // boolean: it has to guard a manual call racing a later automatic one
+    // (or vice versa) as well as an unmount, which a boolean captured once
+    // per effect run cannot do.
+    const loadDetails = useCallback(async () => {
         if (relevantChecks.length === 0) {
             setScoped({})
             return
         }
-        let cancelled = false
-        void (async () => {
-            try {
-                // One request for the whole tab: the server groups issues by
-                // check name and already accepts a comma-joined list, so
-                // every relevant check's details are read in a single call
-                // rather than one per check (M3).
-                const detailsByCheck = await readDetails(fetcher, checkNames)
-                if (cancelled) {
-                    return
-                }
-                const perCheck = relevantChecks.map((c) => ({
-                    name: c.name,
-                    issues: detailsByCheck[c.name] ?? [],
-                }))
-                const allIds = Array.from(
-                    new Set(perCheck.flatMap((p) => p.issues.map((i) => i.id)))
-                )
-                if (allIds.length === 0) {
-                    const empty: Record<string, ScopedResult> = {}
-                    perCheck.forEach((p) => {
-                        empty[p.name] = { inScope: [], unknownCount: 0 }
-                    })
-                    setScoped(empty)
-                    setDetailsError(null)
-                    return
-                }
-                if (!client) {
-                    return
-                }
-                // One batched call across every relevant check's ids --
-                // never one call per id, and never one call per check.
-                const indexes = await client.call<number[]>(
-                    'indexesOf',
-                    set.objectType,
-                    allIds
-                )
-                const knownIds = allIds.filter((_, i) => indexes[i] !== -1)
-                const knownSet = new Set(knownIds)
-                let inScopeSet = new Set<string>()
-                if (knownIds.length > 0) {
-                    const result = await client.call<ObjectsResult>(
-                        'objectsFor',
-                        set.id,
-                        scope,
-                        { ids: knownIds, statuses: ALL_STATUSES },
-                        0,
-                        knownIds.length
-                    )
-                    inScopeSet = new Set(result.items.map((i) => i.id))
-                }
-                if (cancelled) {
-                    return
-                }
-                const next: Record<string, ScopedResult> = {}
-                perCheck.forEach((p) => {
-                    next[p.name] = {
-                        inScope: p.issues.filter((i) => inScopeSet.has(i.id)),
-                        unknownCount: p.issues.filter(
-                            (i) => !knownSet.has(i.id)
-                        ).length,
-                    }
-                })
-                setScoped(next)
-                setDetailsError(null)
-            } catch (e) {
-                if (!cancelled) {
-                    setDetailsError(e instanceof Error ? e.message : String(e))
-                }
+        const generation = ++loadGenerationRef.current
+        try {
+            // One request for the whole tab: the server groups issues by
+            // check name and already accepts a comma-joined list, so every
+            // relevant check's details are read in a single call rather
+            // than one per check (M3).
+            const detailsByCheck = await readDetails(fetcher, checkNames)
+            if (loadGenerationRef.current !== generation) {
+                return
             }
-        })()
-        return () => {
-            cancelled = true
+            const perCheck = relevantChecks.map((c) => ({
+                name: c.name,
+                issues: detailsByCheck[c.name] ?? [],
+            }))
+            const allIds = Array.from(
+                new Set(perCheck.flatMap((p) => p.issues.map((i) => i.id)))
+            )
+            if (allIds.length === 0) {
+                const empty: Record<string, ScopedResult> = {}
+                perCheck.forEach((p) => {
+                    empty[p.name] = { inScope: [], unknownCount: 0 }
+                })
+                setScoped(empty)
+                setDetailsError(null)
+                return
+            }
+            if (!client) {
+                return
+            }
+            // One batched call across every relevant check's ids -- never
+            // one call per id, and never one call per check.
+            const indexes = await client.call<number[]>(
+                'indexesOf',
+                set.objectType,
+                allIds
+            )
+            const knownIds = allIds.filter((_, i) => indexes[i] !== -1)
+            const knownSet = new Set(knownIds)
+            let inScopeSet = new Set<string>()
+            if (knownIds.length > 0) {
+                const result = await client.call<ObjectsResult>(
+                    'objectsFor',
+                    set.id,
+                    scope,
+                    { ids: knownIds, statuses: ALL_STATUSES },
+                    0,
+                    knownIds.length
+                )
+                inScopeSet = new Set(result.items.map((i) => i.id))
+            }
+            if (loadGenerationRef.current !== generation) {
+                return
+            }
+            const next: Record<string, ScopedResult> = {}
+            perCheck.forEach((p) => {
+                next[p.name] = {
+                    inScope: p.issues.filter((i) => inScopeSet.has(i.id)),
+                    unknownCount: p.issues.filter((i) => !knownSet.has(i.id))
+                        .length,
+                }
+            })
+            setScoped(next)
+            setDetailsError(null)
+        } catch (e) {
+            if (loadGenerationRef.current === generation) {
+                setDetailsError(e instanceof Error ? e.message : String(e))
+            }
         }
         // Deliberately keyed on the check *names* (a stable string), not the
         // `relevantChecks`/`checkNames` array identities, which are fresh on
@@ -328,6 +339,13 @@ export const IntegrityTab = ({ set, scope }: Props) => {
         set.id,
         set.objectType,
     ])
+
+    useEffect(() => {
+        void loadDetails()
+        // No cleanup beyond what `loadGenerationRef` already provides: a
+        // later call (automatic or manual) bumping the generation is what
+        // makes an in-flight earlier one's result a no-op.
+    }, [loadDetails])
 
     if (!integrity.available) {
         return null
@@ -343,7 +361,17 @@ export const IntegrityTab = ({ set, scope }: Props) => {
                         // Spec 4.5: run is suggested, never triggered on its
                         // own -- this is the only place `run` is called from
                         // this tab, and it only fires from a click.
-                        void integrity.run(checkNames)
+                        //
+                        // C1 (final review): `integrity.run` now starts both
+                        // a SUMMARY and a DETAILS run, but nothing re-reads
+                        // the details cache once it finishes short of this
+                        // -- the effect that reads it is keyed on the check
+                        // names/scope/set, none of which change just because
+                        // a run completed.
+                        void (async () => {
+                            await integrity.run(checkNames)
+                            await loadDetails()
+                        })()
                     }}
                 >
                     {i18n.t('Run now')}

@@ -68,7 +68,9 @@ async function newAuthedContext(browser) {
     const meResp = await context.request.get(`${BASE_URL}/api/me`, {
         headers: { Authorization: `Basic ${auth}` },
     })
-    if (!meResp.ok()) throw new Error(`api/me failed: ${meResp.status()}`)
+    if (!meResp.ok()) {
+        throw new Error(`api/me failed: ${meResp.status()}`)
+    }
     const page = await context.newPage()
     return { context, page }
 }
@@ -113,14 +115,14 @@ async function newAuthedContext(browser) {
  * the completion time.
  */
 async function loadAndWatchNetwork(
-    page,
-    t0,
-    navigate,
+    { page, t0, navigate },
     { graceMs = 3000, pollMs = 100, timeoutMs = 60000 } = {}
 ) {
     let csvFetches = 0
     const onRequest = (req) => {
-        if (/sqlViews\/[^/]+\/data\.csv/.test(req.url())) csvFetches += 1
+        if (/sqlViews\/[^/]+\/data\.csv/.test(req.url())) {
+            csvFetches += 1
+        }
     }
     // Attached before the navigation itself is triggered -- a listener
     // added only after `goto`/`reload` resolves would already have missed
@@ -157,7 +159,9 @@ async function loadAndWatchNetwork(
         }
         await new Promise((r) => setTimeout(r, pollMs))
     }
-    if (settledAt === null) settledAt = now() - t0 // timed out; report what we have
+    if (settledAt === null) {
+        settledAt = now() - t0 // timed out; report what we have
+    }
 
     page.off('request', onRequest)
 
@@ -176,9 +180,7 @@ async function main() {
         const { context, page } = await newAuthedContext(browser)
         const t0 = now()
         const { firstPaint, settledAt, csvFetches } = await loadAndWatchNetwork(
-            page,
-            t0,
-            () => page.goto(`${BASE_URL}${APP_PATH}`)
+            { page, t0, navigate: () => page.goto(`${BASE_URL}${APP_PATH}`) }
         )
         console.log(
             `[cold] firstPaint=${firstPaint}ms settled=${settledAt}ms csvFetches=${csvFetches}`
@@ -195,9 +197,11 @@ async function main() {
     {
         const { context, page } = await newAuthedContext(browser)
         const tPrime = now()
-        const prime = await loadAndWatchNetwork(page, tPrime, () =>
-            page.goto(`${BASE_URL}${APP_PATH}`)
-        )
+        const prime = await loadAndWatchNetwork({
+            page,
+            t0: tPrime,
+            navigate: () => page.goto(`${BASE_URL}${APP_PATH}`),
+        })
         console.log(
             `[warm-prime] firstPaint=${prime.firstPaint}ms settled=${prime.settledAt}ms csvFetches=${prime.csvFetches}`
         )
@@ -205,7 +209,11 @@ async function main() {
         out.warmReloads = []
         for (let i = 0; i < 4; i++) {
             const t0 = now()
-            const r = await loadAndWatchNetwork(page, t0, () => page.reload())
+            const r = await loadAndWatchNetwork({
+                page,
+                t0,
+                navigate: () => page.reload(),
+            })
             console.log(
                 `[warm-reload-${i + 1}] firstPaint=${r.firstPaint}ms settled=${r.settledAt}ms csvFetches=${r.csvFetches}`
             )

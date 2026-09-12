@@ -5,8 +5,17 @@ import type { FrameLocator, Locator, Page } from '@playwright/test'
  * The two live instances this suite runs against (task-9-brief.md). Neither
  * may be deleted or reset; every write this suite makes must be reverted
  * through the app's own History before the test ends.
+ *
+ * m5 (final review): env-overridable, the same rule Task 10's round-2 fix
+ * applied to `scripts/perf/emis-run.js` (`GSI_PERF_USERNAME`/
+ * `GSI_PERF_PASSWORD`) -- these disposable-instance credentials carry no
+ * real risk committed as defaults, but the branch should not hold two
+ * committed scripts that disagree about whether to allow an override.
  */
-export const CREDENTIALS = { username: 'local_admin', password: 'district' }
+export const CREDENTIALS = {
+    username: process.env.GSI_E2E_USERNAME || 'local_admin',
+    password: process.env.GSI_E2E_PASSWORD || 'district',
+}
 
 /**
  * The app is installed on each instance as a built zip (`pnpm build`, then
