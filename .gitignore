@@ -7,3 +7,8 @@ build
 
 # Playwright CLI session scratch from browser checks
 .playwright-cli/
+
+# Playwright test run output (traces, screenshots, HTML report)
+/test-results/
+/playwright-report/
+/blob-report/

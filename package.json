@@ -9,6 +9,7 @@
         "build": "d2-app-scripts build",
         "start": "d2-app-scripts start",
         "test": "d2-app-scripts test",
+        "test:e2e": "playwright test --config e2e/playwright.config.ts",
         "deploy": "d2-app-scripts deploy",
         "lint": "eslint && prettier -c .",
         "format": "prettier . -w"
@@ -30,6 +31,7 @@
         "@dhis2/config-eslint": "^0.2.2",
         "@dhis2/config-prettier": "^0.2.2",
         "@eslint/compat": "^2.0.0",
+        "@playwright/test": "^1.63.0",
         "@testing-library/jest-dom": "^7.0.1",
         "@testing-library/react": "^16.3.3",
         "@testing-library/user-event": "^14.6.7",
