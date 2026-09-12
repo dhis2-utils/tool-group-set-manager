@@ -399,12 +399,33 @@ while keeping the hierarchy and membership views.
 ## 9. Open items to verify during implementation
 
 - Whether adding members to a group updates the group's `lastUpdated` on
-  2.40 to 2.43 (needed for the delta refresh).
+  2.40 to 2.43 (needed for the delta refresh). **Answered:** 2.40 bumps it,
+  2.43 does not. Harmless — the app never relies on `lastUpdated` to detect
+  its own writes, only to detect an *external* edit when deciding whether
+  its cache is stale. See `docs/superpowers/notes/2026-09-plan2-write-compatibility.md`.
 - Whether SQL view CSV export honours `paging=false` on 2.40 and 2.43 the
-  way it does on 2.41.
+  way it does on 2.41. **Still open.** No note on the branch measures this
+  specifically: Plan 1's compatibility campaign
+  (`docs/superpowers/notes/2026-09-plan1-compatibility.md`) ran the app
+  end to end on 2.40, 2.42 and 2.43 and reconciled its on-screen numbers
+  against the API, but that note does not say which of those runs had the
+  `GSI_*` SQL views installed, and it never mentions CSV export or
+  `paging=false` at all — the per-run reports it points to
+  ("the procedure section of the 2.40 report is the one to start from")
+  were not committed to the repo. A future plan should confirm directly
+  (install the SQL views on a 2.40 and a 2.43 instance, request
+  `sqlViews/<id>/data.csv?paging=false` on each, and check the full row
+  count returned) before relying on this.
 - Exact field names of the integrity details payload (`refs`, `comment`)
-  across versions.
+  across versions. **Answered:** 2.43 returns `refs` (an array of strings),
+  2.40 returns `comment` (a single string); both hold the same unparseable
+  prose describing the same violation, and the app keys on `id`, never on
+  either field's content. See
+  `docs/superpowers/notes/2026-09-plan3-integrity-api-findings.md`.
 - Whether `access.write` is returned on group collections for non-admin
-  users on 2.40.
+  users on 2.40. **Still open** — out of scope for Plans 1-3; a future plan
+  should measure it before relying on it.
 - Whether resolving org unit name translations inside the names SQL view is
   practical on 2.40 to 2.43, which would remove the divergence in 8a.
+  **Still open** — out of scope for Plans 1-3; a future plan should
+  investigate whether locale-aware resolution is possible inside the view.

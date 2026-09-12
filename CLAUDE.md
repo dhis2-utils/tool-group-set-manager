@@ -19,10 +19,12 @@ DHIS2 App Platform app (TypeScript, Vite, pnpm). Spec: docs/superpowers/specs/20
 - SQL views are used only when the server reports a type other than `MATERIALIZED_VIEW`; a materialised view serves arbitrarily old rows with no signal, so the app falls back to the metadata API. `SQL_VIEW_DEFINITIONS` pins `type: 'VIEW'`.
 - The scope carries its org unit level (`useScope().rootLevel`), taken from the tree's `path`. Only a scope stored before that existed lacks one, and then `levelOf` on the engine resolves it.
 - Hash router; every route under `SyncUrlWithGlobalShell`.
-- Object lists are paged from the worker (`objectsFor` with offset/limit) and virtualised with @tanstack/react-virtual; text search is a predicate on the engine's own filter (`ObjectFilter.text`), so it sees the whole population, not just loaded rows. The search input is debounced 300ms before it reaches the filter.
+- Object lists are paged from the worker (`objectsFor` with offset/limit) and virtualised with @tanstack/react-virtual; text search is a predicate on the engine's own filter (`ObjectFilter.text`) over a store-owned lowercase index, not a component concern, so it sees the whole population, not just loaded rows. The search input is debounced 300ms before it reaches the filter.
 - MembershipControl is a segmented single-select for <= 5 groups, a SingleSelect above. Editing is wired in Plan 2.
 - Matrix and summary buckets come from `Status`, never from membership alone: `perGroup` + `unassigned` + `missing` + `conflict` = `total`. `unassigned` is "in no group, and spec 3.2 allows that here", shown (as "No group (not required)") only for a set that is neither compulsory nor a data dimension, and drilled into with `{ group: -1, statuses: [Status.Ok] }`.
 - The objects table pages by **offset** with a fixed limit and appends; it never re-requests loaded rows with a bigger limit. A filter change (including a new search term) resets to offset 0 and discards the previous filter's rows, rather than appending onto them.
+- The integrity overlay (asking the server to run its own data integrity checks) is read-only and gated on the maintenance authority; the app never writes anything as a result of it.
+- Integrity checks resolve by name at runtime, never by code: neither a check's name nor its code is stable across 2.40 to 2.43, and the same code (`OUVEGS`) names a different check on the two versions.
 
 ## Translatable strings
 
