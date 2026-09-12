@@ -153,7 +153,7 @@ id, display names, and per group the list of member ids.
 
 - **Fast path: SQL views.** The app looks up three SQL views by code:
   `GSI_ORGUNITS` (uid, level, parent uid), `GSI_ORGUNIT_NAMES` (uid, name),
-  `GSI_MEMBERSHIPS` (group uid, member uid, for groups that belong to a
+  `GSI_ORGUNIT_MEMBERSHIPS` (group uid, member uid, for groups that belong to a
   set, one view per object type or a type column). If they exist and the
   user can read them, the app fetches CSV with paging disabled. If they are
   missing and the user has the SQL view authority, the Settings page and
