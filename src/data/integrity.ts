@@ -170,6 +170,27 @@ interface DetailIssueRow {
 
 interface DetailCheckRow {
     issues?: DetailIssueRow[]
+    finishedTime?: string
+}
+
+/**
+ * A details computation's result for one check. `finishedTime`/`issues` are
+ * both `null` together, and only together: `null` means DHIS2 has never run
+ * a details computation for this check at all (the check's name is absent
+ * from the payload entirely -- measured live to be exactly `{}` before any
+ * details run). A check DHIS2 *has* computed and found nothing for still
+ * gets `issues: []`, a real, honest zero, with its own `finishedTime`.
+ *
+ * Final review C1 residual: flattening "never computed" to `[]` (this
+ * type's previous shape) made the two indistinguishable to every caller,
+ * which is exactly how the integrity tab kept rendering a false "0 objects
+ * in scope" -- against a real national count -- for a check nobody had
+ * ever details-run. A number the app does not have must not be drawn as a
+ * number it does.
+ */
+export interface CheckDetails {
+    finishedTime: string | null
+    issues: CheckIssue[] | null
 }
 
 /**
@@ -181,29 +202,36 @@ interface DetailCheckRow {
  * `displayName` -- this is the one place the project's displayName rule
  * bends, and `name` is read into it instead.
  *
- * Every requested name is present in the result, even one the server omits
- * entirely from the payload (an empty array, not a missing key), so a
- * caller can index the result by every name it asked for without an extra
- * presence check.
+ * Every requested name is present in the result -- even one the server
+ * omits entirely from the payload, as `{ finishedTime: null, issues: null }`
+ * -- so a caller can index the result by every name it asked for without an
+ * extra presence check, while still being able to tell "never computed"
+ * apart from "computed, found nothing" (see `CheckDetails`).
  */
 export async function readDetails(
     fetcher: Fetcher,
     names: string[]
-): Promise<Record<string, CheckIssue[]>> {
+): Promise<Record<string, CheckDetails>> {
     const body = await fetchJson<Record<string, DetailCheckRow>>(
         fetcher,
         `dataIntegrity/details?checks=${names.join(',')}&timeout=0`
     )
-    const result: Record<string, CheckIssue[]> = {}
+    const result: Record<string, CheckDetails> = {}
     names.forEach((name) => {
-        const rows = body[name]?.issues ?? []
-        result[name] = rows.map((row) => ({
-            id: row.id,
-            displayName: row.name,
-            detail: row.refs?.length
-                ? row.refs.join(' ')
-                : (row.comment ?? null),
-        }))
+        const row = body[name]
+        if (!row) {
+            result[name] = { finishedTime: null, issues: null }
+            return
+        }
+        const rows = row.issues ?? []
+        result[name] = {
+            finishedTime: row.finishedTime ?? null,
+            issues: rows.map((r) => ({
+                id: r.id,
+                displayName: r.name,
+                detail: r.refs?.length ? r.refs.join(' ') : (r.comment ?? null),
+            })),
+        }
     })
     return result
 }

@@ -281,7 +281,12 @@ describe('readDetails', () => {
         let capturedPath = ''
         const fetcher = async (path: string) => {
             capturedPath = path
-            return jsonResponse({ orgUnitsConflicting: { issues: [] } })
+            return jsonResponse({
+                orgUnitsConflicting: {
+                    issues: [],
+                    finishedTime: '2026-09-12T07:00:00.000',
+                },
+            })
         }
         await readDetails(fetcher, ['orgUnitsConflicting'])
         expect(capturedPath).toBe(
@@ -302,9 +307,11 @@ describe('readDetails', () => {
             return jsonResponse({
                 orgUnitsConflicting: {
                     issues: [{ id: 'a', name: 'A' }],
+                    finishedTime: '2026-09-12T07:00:00.000',
                 },
                 orgUnitsMissingCompulsory: {
                     issues: [{ id: 'b', name: 'B' }],
+                    finishedTime: '2026-09-12T07:00:01.000',
                 },
             })
         }
@@ -316,17 +323,52 @@ describe('readDetails', () => {
             'dataIntegrity/details?checks=orgUnitsConflicting,orgUnitsMissingCompulsory&timeout=0'
         )
         expect(result).toEqual({
-            orgUnitsConflicting: [{ id: 'a', displayName: 'A', detail: null }],
-            orgUnitsMissingCompulsory: [
-                { id: 'b', displayName: 'B', detail: null },
-            ],
+            orgUnitsConflicting: {
+                finishedTime: '2026-09-12T07:00:00.000',
+                issues: [{ id: 'a', displayName: 'A', detail: null }],
+            },
+            orgUnitsMissingCompulsory: {
+                finishedTime: '2026-09-12T07:00:01.000',
+                issues: [{ id: 'b', displayName: 'B', detail: null }],
+            },
         })
     })
 
-    it('maps a requested check the server omits entirely to an empty array, not a missing key', async () => {
+    // C1 residual (final re-review): a check the server omits entirely from
+    // the payload -- DHIS2 has never run a details computation for it -- is
+    // not the same thing as a check it computed and found zero issues for.
+    // Flattening the first into `[]` made the two indistinguishable to a
+    // caller, which is exactly how the integrity tab kept rendering a false
+    // "0 objects in scope" for a check nobody had ever details-run. This is
+    // the "empty" side of that distinction: the key is present, so DHIS2 has
+    // computed it, and an empty issues array is a real, honest zero.
+    it('yields an empty issues array (not null) for a check the server computed and found nothing for', async () => {
+        const fetcher = async () =>
+            jsonResponse({
+                orgUnitsConflicting: {
+                    issues: [],
+                    finishedTime: '2026-09-12T07:00:00.000',
+                },
+            })
+        const result = await readDetails(fetcher, ['orgUnitsConflicting'])
+        expect(result.orgUnitsConflicting).toEqual({
+            finishedTime: '2026-09-12T07:00:00.000',
+            issues: [],
+        })
+    })
+
+    // This is the "absent" side: the key is missing from the payload
+    // entirely, which is what a details-never-run check looks like on the
+    // wire (measured live against agent-gsi-p2: `GET .../details` returns
+    // `{}` before any details run). `issues` and `finishedTime` are both
+    // `null` -- never `[]` -- so a caller can tell "not computed" apart from
+    // "computed, found nothing" without a second signal.
+    it('yields finishedTime: null and issues: null for a check the server never computed (absent from the payload), never an empty array', async () => {
         const fetcher = async () => jsonResponse({})
         const result = await readDetails(fetcher, ['orgUnitsConflicting'])
-        expect(result).toEqual({ orgUnitsConflicting: [] })
+        expect(result).toEqual({
+            orgUnitsConflicting: { finishedTime: null, issues: null },
+        })
     })
 
     it('reads refs into detail, joined with a space (2.43)', async () => {
@@ -342,10 +384,11 @@ describe('readDetails', () => {
                             ],
                         },
                     ],
+                    finishedTime: '2026-09-12T07:00:00.000',
                 },
             })
         const result = await readDetails(fetcher, ['orgUnitsConflicting'])
-        expect(result.orgUnitsConflicting).toEqual([
+        expect(result.orgUnitsConflicting?.issues).toEqual([
             {
                 id: 'roQ2l7TX0eZ',
                 displayName: 'SLRCS (Bo) Clinic',
@@ -366,10 +409,11 @@ describe('readDetails', () => {
                                 'Facility Ownership :(Public facilities; Private Clinic)',
                         },
                     ],
+                    finishedTime: '2026-09-12T07:00:00.000',
                 },
             })
         const result = await readDetails(fetcher, ['orgUnitsConflicting'])
-        expect(result.orgUnitsConflicting).toEqual([
+        expect(result.orgUnitsConflicting?.issues).toEqual([
             {
                 id: 'sK498nBOLfQ',
                 displayName: 'Elshadai MCHP',
@@ -383,10 +427,11 @@ describe('readDetails', () => {
             jsonResponse({
                 orgUnitsMissingCompulsory: {
                     issues: [{ id: 'Rp268JB6Ne4', name: 'Adonkia CHP' }],
+                    finishedTime: '2026-09-12T07:00:00.000',
                 },
             })
         const result = await readDetails(fetcher, ['orgUnitsMissingCompulsory'])
-        expect(result.orgUnitsMissingCompulsory).toEqual([
+        expect(result.orgUnitsMissingCompulsory?.issues).toEqual([
             { id: 'Rp268JB6Ne4', displayName: 'Adonkia CHP', detail: null },
         ])
     })
@@ -402,10 +447,11 @@ describe('readDetails', () => {
                             refs: [],
                         },
                     ],
+                    finishedTime: '2026-09-12T07:00:00.000',
                 },
             })
         const result = await readDetails(fetcher, ['orgUnitsConflicting'])
-        expect(result.orgUnitsConflicting).toEqual([
+        expect(result.orgUnitsConflicting?.issues).toEqual([
             {
                 id: 'roQ2l7TX0eZ',
                 displayName: 'SLRCS (Bo) Clinic',
@@ -426,15 +472,15 @@ describe('readDetails', () => {
                             comment: 'should not be used',
                         },
                     ],
+                    finishedTime: '2026-09-12T07:00:00.000',
                 },
             })
         const result = await readDetails(fetcher, ['orgUnitsConflicting'])
-        expect(result.orgUnitsConflicting[0].detail).toBe(
+        expect(result.orgUnitsConflicting?.issues?.[0].detail).toBe(
             'ougs_name: Facility Ownership'
         )
     })
 })
-
 describe('startRun', () => {
     it('POSTs to dataIntegrity/summary with the checks in the query string and resolves without reading the job id', async () => {
         let capturedPath = ''

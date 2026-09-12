@@ -62,14 +62,36 @@ const IN_SCOPE_IDS = new Set(['idA', 'idD', 'idE'])
 // M3 (review round 1): `readDetails` now takes an array of check names and
 // returns a map keyed by name, in one call -- this mock mirrors that
 // widened shape so the batching itself is exercised, not bypassed.
+//
+// C1 residual (final re-review): `readDetails` was widened again to
+// distinguish a check the server has never computed details for
+// (`{ finishedTime: null, issues: null }`) from one it computed and found
+// nothing for (`{ finishedTime: <time>, issues: [] }`). `detailsByCheck`
+// holding no entry for a name is this mock's stand-in for "never computed"
+// -- a name deliberately deleted from it for one test, then restored.
+const DETAILS_FINISHED_TIME = '2026-09-01T09:00:00.000Z'
 const mockReadDetails = jest.fn(
     async (
         _fetcher: unknown,
         names: string[]
-    ): Promise<Record<string, CheckIssue[]>> => {
-        const result: Record<string, CheckIssue[]> = {}
+    ): Promise<
+        Record<
+            string,
+            { finishedTime: string | null; issues: CheckIssue[] | null }
+        >
+    > => {
+        const result: Record<
+            string,
+            { finishedTime: string | null; issues: CheckIssue[] | null }
+        > = {}
         names.forEach((name) => {
-            result[name] = detailsByCheck[name] ?? []
+            result[name] =
+                name in detailsByCheck
+                    ? {
+                          finishedTime: DETAILS_FINISHED_TIME,
+                          issues: detailsByCheck[name],
+                      }
+                    : { finishedTime: null, issues: null }
         })
         return result
     }
@@ -468,4 +490,32 @@ it("does not render a check's issue list before its summary has been read", asyn
     await screen.findByText('refs: E') // the conflict check's panel is fine
     expect(screen.queryByText('Facility A')).not.toBeInTheDocument()
     expect(screen.queryByText('Facility D')).not.toBeInTheDocument()
+})
+
+// C1 residual (final re-review): a check whose details DHIS2 has never
+// computed must say so, not render "Of those, 0 objects fall within the
+// current scope" as though 0 were a real measurement against the national
+// count -- that was the original bug, reached again through a server this
+// app has never told to compute details for (which was this very
+// instance's own state before the fix, per the live-verified finding).
+it('says DHIS2 has not computed the issue list yet, rather than rendering an in-scope count of 0, for a check the details endpoint omits entirely', async () => {
+    const originalIssues = detailsByCheck[compulsoryCheck.name]
+    delete detailsByCheck[compulsoryCheck.name]
+
+    try {
+        render(<IntegrityTab set={set} scope={scope} />)
+
+        await screen.findByText(/272/) // the national summary still renders
+        expect(
+            await screen.findByText(
+                /has not computed the issue list for this check yet/
+            )
+        ).toBeInTheDocument()
+        // The false zero must not appear anywhere in this check's panel.
+        expect(
+            screen.queryByText(/Of those, 0 objects/)
+        ).not.toBeInTheDocument()
+    } finally {
+        detailsByCheck[compulsoryCheck.name] = originalIssues
+    }
 })

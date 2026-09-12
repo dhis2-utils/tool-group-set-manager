@@ -32,10 +32,20 @@ const ALL_STATUSES = Object.values(Status).filter(
     (v): v is number => typeof v === 'number'
 )
 
-interface ScopedResult {
-    inScope: CheckIssue[]
-    unknownCount: number
-}
+// C1 residual (final re-review): `computed: false` is a distinct state from
+// an in-scope count of 0 -- DHIS2 has never run a details computation for
+// this check at all, and the tab must say so rather than draw a number it
+// does not have. Collapsing "never computed" into `{ inScope: [], ... }`
+// was exactly the bug: a check nobody had ever details-run rendered
+// identically to one DHIS2 computed and found nothing wrong with.
+type ScopedResult =
+    | { computed: false }
+    | { computed: true; inScope: CheckIssue[]; unknownCount: number }
+
+const notComputedLabel = () =>
+    i18n.t(
+        'DHIS2 has not computed the issue list for this check yet; press Run now to compute it'
+    )
 
 const nationalCountLabel = (scopeName: string) =>
     interpolate(
@@ -269,17 +279,26 @@ export const IntegrityTab = ({ set, scope }: Props) => {
             if (loadGenerationRef.current !== generation) {
                 return
             }
+            // `issues: null` -- distinct from `[]` -- means DHIS2 has never
+            // run a details computation for this check at all (see
+            // `readDetails`'s doc comment). Those checks contribute no ids
+            // and are never asked to render a number they do not have.
             const perCheck = relevantChecks.map((c) => ({
                 name: c.name,
-                issues: detailsByCheck[c.name] ?? [],
+                issues: detailsByCheck[c.name]?.issues ?? null,
             }))
             const allIds = Array.from(
-                new Set(perCheck.flatMap((p) => p.issues.map((i) => i.id)))
+                new Set(
+                    perCheck.flatMap((p) => p.issues ?? []).map((i) => i.id)
+                )
             )
             if (allIds.length === 0) {
                 const empty: Record<string, ScopedResult> = {}
                 perCheck.forEach((p) => {
-                    empty[p.name] = { inScope: [], unknownCount: 0 }
+                    empty[p.name] =
+                        p.issues === null
+                            ? { computed: false }
+                            : { computed: true, inScope: [], unknownCount: 0 }
                 })
                 setScoped(empty)
                 setDetailsError(null)
@@ -314,7 +333,12 @@ export const IntegrityTab = ({ set, scope }: Props) => {
             }
             const next: Record<string, ScopedResult> = {}
             perCheck.forEach((p) => {
+                if (p.issues === null) {
+                    next[p.name] = { computed: false }
+                    return
+                }
                 next[p.name] = {
+                    computed: true,
                     inScope: p.issues.filter((i) => inScopeSet.has(i.id)),
                     unknownCount: p.issues.filter((i) => !knownSet.has(i.id))
                         .length,
@@ -405,6 +429,7 @@ export const IntegrityTab = ({ set, scope }: Props) => {
                 const engineCount = engineCountFor(check.logical)
                 const disagrees =
                     !!bucket &&
+                    bucket.computed &&
                     engineCount !== null &&
                     engineCount !== bucket.inScope.length
                 return (
@@ -436,7 +461,19 @@ export const IntegrityTab = ({ set, scope }: Props) => {
                                 <p className={styles.line}>
                                     {nationalCountLabel(rootName)}
                                 </p>
-                                {bucket && (
+                                {/* C1 residual (final re-review): a check
+                                    DHIS2 has never details-run must say so,
+                                    not render an in-scope count of 0 as if
+                                    it were a real measurement -- that was
+                                    the original bug, reached again through
+                                    a server this app had never told to
+                                    compute details for. */}
+                                {bucket && !bucket.computed && (
+                                    <p className={styles.line}>
+                                        {notComputedLabel()}
+                                    </p>
+                                )}
+                                {bucket && bucket.computed && (
                                     <>
                                         <p className={styles.line}>
                                             {inScopeCountLabel(
@@ -474,27 +511,29 @@ export const IntegrityTab = ({ set, scope }: Props) => {
                                         )}
                                     </p>
                                 )}
-                                {bucket && bucket.inScope.length > 0 && (
-                                    <ul className={styles.issues}>
-                                        {bucket.inScope.map((issue) => (
-                                            <li
-                                                key={issue.id}
-                                                className={styles.issue}
-                                            >
-                                                {issue.displayName}
-                                                {issue.detail && (
-                                                    <span
-                                                        className={
-                                                            styles.issueDetail
-                                                        }
-                                                    >
-                                                        {issue.detail}
-                                                    </span>
-                                                )}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
+                                {bucket &&
+                                    bucket.computed &&
+                                    bucket.inScope.length > 0 && (
+                                        <ul className={styles.issues}>
+                                            {bucket.inScope.map((issue) => (
+                                                <li
+                                                    key={issue.id}
+                                                    className={styles.issue}
+                                                >
+                                                    {issue.displayName}
+                                                    {issue.detail && (
+                                                        <span
+                                                            className={
+                                                                styles.issueDetail
+                                                            }
+                                                        >
+                                                            {issue.detail}
+                                                        </span>
+                                                    )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
                             </div>
                         )}
                     </div>

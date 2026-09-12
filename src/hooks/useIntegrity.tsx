@@ -11,6 +11,7 @@ import React, {
 import { createFetcher } from '@/data/fetcher'
 import {
     CheckSummary,
+    readDetails,
     readSummaries,
     resolveChecks,
     ResolvedCheck,
@@ -271,6 +272,24 @@ export const IntegrityProvider = ({
                         summariesRef.current[n]?.finishedTime ?? null,
                     ])
                 )
+                // C1 residual (final re-review): the DETAILS job is a
+                // separate job with its own `finishedTime`, not derivable
+                // from the summary job's. Unlike summary (whose prior value
+                // is already held in `summariesRef`), this provider caches
+                // no details state at all, so the only way to know details'
+                // *previous* finishedTime is to read it -- one extra
+                // request, spent once per run(), to avoid the alternative:
+                // declaring the run complete while the details job is still
+                // in flight (measured live to land 137-168ms after summary
+                // on every run against agent-gsi-p2).
+                const detailsBefore = new Map(
+                    Object.entries(await readDetails(fetcher, names)).map(
+                        ([n, d]) => [n, d.finishedTime]
+                    )
+                )
+                if (disabledRef.current || unmountedRef.current) {
+                    return
+                }
                 // C1 (final review): a SUMMARY run alone never populates the
                 // *details* cache -- `readDetails` (the integrity tab's
                 // in-scope count, unknown-id count and issue list) reads a
@@ -291,20 +310,35 @@ export const IntegrityProvider = ({
                 // triggers a new one. C1: bounded by both an attempt cap
                 // and a growing backoff, so a check whose finishedTime
                 // never advances (a dropped/failed job) ends the loop
-                // instead of polling forever.
+                // instead of polling forever. C1 residual: the loop's own
+                // completion signal now requires *both* jobs' finishedTime
+                // to advance -- summary alone would declare victory while
+                // the details cache the tab actually reads is still stale.
                 let interval = POLL_INITIAL_INTERVAL_MS
                 let advanced = false
                 for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
-                    const rows = await readSummaries(fetcher, names)
+                    const [rows, detailsRows] = await Promise.all([
+                        readSummaries(fetcher, names),
+                        readDetails(fetcher, names),
+                    ])
                     if (disabledRef.current || unmountedRef.current) {
                         return
                     }
                     applySummaries(rows)
-                    const allAdvanced = rows.every(
+                    const summaryAdvanced = rows.every(
                         (r) =>
                             r.finishedTime !== null &&
                             r.finishedTime !== before.get(r.name)
                     )
+                    const detailsAdvanced = names.every((n) => {
+                        const finishedTime =
+                            detailsRows[n]?.finishedTime ?? null
+                        return (
+                            finishedTime !== null &&
+                            finishedTime !== detailsBefore.get(n)
+                        )
+                    })
+                    const allAdvanced = summaryAdvanced && detailsAdvanced
                     if (allAdvanced) {
                         setStale((prev) => {
                             const next = new Set(prev)

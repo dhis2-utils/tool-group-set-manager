@@ -178,9 +178,15 @@ it('run() posts then polls the summary until finishedTime advances, and clears t
     ).toBe(true)
 
     let pollCount = 0
+    // Counts only GETs made *after* `run()`'s own pre-POST baseline read
+    // (which also hits this path, and must not itself count as a poll) --
+    // an independent counter from summary's, so this fixture's two GET
+    // handlers cannot cross-contaminate each other's advancement timing.
+    let detailsPollCount = 0
     mockFetcher.mockImplementation((path: string, init?: RequestInit) => {
         if (
-            path.startsWith('dataIntegrity/summary') &&
+            (path.startsWith('dataIntegrity/summary') ||
+                path.startsWith('dataIntegrity/details')) &&
             init?.method === 'POST'
         ) {
             return Promise.resolve(jsonResponse({ httpStatus: 'OK' }))
@@ -195,6 +201,26 @@ it('run() posts then polls the summary until finishedTime advances, and clears t
                 jsonResponse({
                     org_units_not_in_compulsory_group_sets: {
                         count: 5,
+                        finishedTime,
+                    },
+                })
+            )
+        }
+        // The details job advances on the same poll tick as summary here --
+        // the "details lands a tick later" case has its own dedicated test
+        // below. The pre-POST baseline read (detailsPollCount === 0) always
+        // reports the old value, exactly like a real "before this run"
+        // snapshot would.
+        if (path.startsWith('dataIntegrity/details')) {
+            detailsPollCount += 1
+            const finishedTime =
+                detailsPollCount <= 2
+                    ? '2026-09-01T00:00:00.000Z'
+                    : '2026-09-11T00:00:00.000Z'
+            return Promise.resolve(
+                jsonResponse({
+                    org_units_not_in_compulsory_group_sets: {
+                        issues: [],
                         finishedTime,
                     },
                 })
@@ -238,6 +264,7 @@ it('run() also starts a DETAILS run for the same checks, not summary only', asyn
     await waitFor(() => expect(result.current.checks.length).toBe(3))
 
     let pollCount = 0
+    let detailsPollCount = 0
     mockFetcher.mockImplementation((path: string, init?: RequestInit) => {
         if (
             (path.startsWith('dataIntegrity/summary') ||
@@ -256,6 +283,21 @@ it('run() also starts a DETAILS run for the same checks, not summary only', asyn
                 jsonResponse({
                     org_units_not_in_compulsory_group_sets: {
                         count: 5,
+                        finishedTime,
+                    },
+                })
+            )
+        }
+        if (path.startsWith('dataIntegrity/details')) {
+            detailsPollCount += 1
+            const finishedTime =
+                detailsPollCount <= 2
+                    ? '2026-09-01T00:00:00.000Z'
+                    : '2026-09-11T00:00:00.000Z'
+            return Promise.resolve(
+                jsonResponse({
+                    org_units_not_in_compulsory_group_sets: {
+                        issues: [],
                         finishedTime,
                     },
                 })
@@ -296,6 +338,76 @@ it("run's identity does not change when summaries update", async () => {
     })
     rerender()
     expect(result.current.run).toBe(runBefore)
+})
+
+// C1 residual (final re-review): `run()`'s completion signal used to be the
+// SUMMARY job's `finishedTime` only. The DETAILS job is a separate job with
+// its own `finishedTime`, and measured live it lands 137-168ms *after*
+// summary's on every one of four runs against agent-gsi-p2 -- a database
+// small enough that the app's own poll happened to land after both. On a
+// larger instance the details job can still be running when `run()`
+// resolves and `loadDetails()` fires, silently replacing a correct in-scope
+// count with a stale (or absent) one that nothing ever re-reads. This test
+// simulates exactly that: summary's finishedTime advances on the very first
+// poll, but details' does not advance until the third.
+it("run() also requires the DETAILS job's own finishedTime to advance, not only the summary's", async () => {
+    const { result } = renderHook(() => useIntegrity(), { wrapper })
+    await waitFor(() => expect(result.current.available).toBe(true))
+    await waitFor(() => expect(result.current.checks.length).toBe(3))
+
+    let summaryGetCount = 0
+    let detailsGetCount = 0
+    mockFetcher.mockImplementation((path: string, init?: RequestInit) => {
+        if (
+            (path.startsWith('dataIntegrity/summary') ||
+                path.startsWith('dataIntegrity/details')) &&
+            init?.method === 'POST'
+        ) {
+            return Promise.resolve(jsonResponse({ httpStatus: 'OK' }))
+        }
+        if (path.startsWith('dataIntegrity/summary')) {
+            summaryGetCount += 1
+            // Advances on the very first read.
+            return Promise.resolve(
+                jsonResponse({
+                    org_units_not_in_compulsory_group_sets: {
+                        count: 5,
+                        finishedTime: '2026-09-11T00:00:00.000Z',
+                    },
+                })
+            )
+        }
+        if (path.startsWith('dataIntegrity/details')) {
+            detailsGetCount += 1
+            // Does not advance until the third read -- summary alone would
+            // have declared victory after the first.
+            const finishedTime =
+                detailsGetCount >= 3
+                    ? '2026-09-11T00:00:05.000Z'
+                    : '2026-09-01T00:00:00.000Z'
+            return Promise.resolve(
+                jsonResponse({
+                    org_units_not_in_compulsory_group_sets: {
+                        issues: [],
+                        finishedTime,
+                    },
+                })
+            )
+        }
+        return defaultFetcherImpl(path)
+    })
+
+    await act(async () => {
+        await result.current.run(['org_units_not_in_compulsory_group_sets'])
+    })
+
+    // If `run()` only waited on summary, it would have stopped after one
+    // poll -- the point of this test is that it kept going until details
+    // caught up too, even though summary itself was already satisfied.
+    expect(summaryGetCount).toBeGreaterThanOrEqual(1)
+    expect(detailsGetCount).toBeGreaterThanOrEqual(3)
+    expect(result.current.isRunning).toBe(false)
+    expect(result.current.error).toBeNull()
 })
 
 it('markStale marks only checks of the given object type, and makes no request at all', async () => {
