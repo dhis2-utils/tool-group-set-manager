@@ -1,6 +1,22 @@
 import i18n from '@dhis2/d2-i18n'
-import { BatchOutcome } from './writes'
+import { BatchOutcome, UNPARSEABLE_RESPONSE } from './writes'
 import { interpolate } from '@/utils/interpolate'
+
+/**
+ * Every other value `BatchOutcome.error` takes (`HTTP 403`, a caught
+ * exception's `message`) is a locale-neutral token safe to splice into a
+ * translated sentence as-is. `UNPARSEABLE_RESPONSE` is the one sentinel
+ * value, standing in for a JSON parser's own English message -- writes.ts
+ * has no `i18n.t` and could not translate it even if it tried, so this is
+ * the one place that recognises the sentinel and produces the translated
+ * sentence in its place, rather than ever letting the raw fragment reach
+ * `outcomeText`'s `{error}` placeholder untranslated.
+ */
+function describeError(error: string): string {
+    return error === UNPARSEABLE_RESPONSE
+        ? i18n.t('the response could not be read')
+        : error
+}
 
 /**
  * Shared between `BulkFixDialog` and `History`'s revert dialog: both apply
@@ -76,6 +92,7 @@ export function outcomeText(
     const errors = notConfirmed
         .map((b) => b.error)
         .filter((e): e is string => Boolean(e))
+        .map(describeError)
 
     if (notConfirmed.length === 0) {
         return {

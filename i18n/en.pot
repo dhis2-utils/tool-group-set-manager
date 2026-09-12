@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-11T22:32:56.171Z\n"
-"PO-Revision-Date: 2026-09-11T22:32:56.171Z\n"
+"POT-Creation-Date: 2026-09-12T00:18:35.037Z\n"
+"PO-Revision-Date: 2026-09-12T00:18:35.037Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -248,6 +248,12 @@ msgstr "Some data could not be loaded"
 msgid "{type} could not be loaded"
 msgstr "{type} could not be loaded"
 
+msgid "Some names could not be loaded"
+msgstr "Some names could not be loaded"
+
+msgid "Names for {type} could not be loaded; the counts shown are still correct"
+msgstr "Names for {type} could not be loaded; the counts shown are still correct"
+
 msgid "{done} of {total}"
 msgstr "{done} of {total}"
 
@@ -443,6 +449,9 @@ msgstr "All objects"
 msgid "Above the row level"
 msgstr "Above the row level"
 
+msgid "the response could not be read"
+msgstr "the response could not be read"
+
 msgid "All changes applied to {name}"
 msgstr "All changes applied to {name}"
 
@@ -519,6 +528,9 @@ msgstr "There are no group sets of this type on this instance."
 
 msgid "This type's summary could not be computed"
 msgstr "This type's summary could not be computed"
+
+msgid "Still loading -- these summaries are not ready yet"
+msgstr "Still loading -- these summaries are not ready yet"
 
 msgid "Group set not found or not loaded yet."
 msgstr "Group set not found or not loaded yet."

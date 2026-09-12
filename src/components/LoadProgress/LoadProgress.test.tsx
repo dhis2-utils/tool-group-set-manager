@@ -53,6 +53,28 @@ it('names the type in a complete sentence when a type fails to load', () => {
     expect(screen.getByText('HTTP 500')).toBeInTheDocument()
 })
 
+// Minor 1 (fix round 1): `namesErrors` was recorded on `LoadStatus` but
+// nothing ever read it -- a names failure left the user looking at raw
+// uids with no explanation anywhere on screen.
+it('says which type could not load its names, distinct from a type-level error', () => {
+    render(
+        <LoadProgress
+            status={status({
+                phase: 'done',
+                namesErrors: { organisationUnit: 'names boom' },
+            })}
+        />
+    )
+    expect(
+        screen.getByText(/organisation units.*could not be loaded/i)
+    ).toBeInTheDocument()
+    // Distinct from the type-level failure notice: no claim the summary
+    // itself could not be computed.
+    expect(
+        screen.queryByText('Some data could not be loaded')
+    ).not.toBeInTheDocument()
+})
+
 it('renders nothing once loading is done without errors', () => {
     const { container } = render(
         <LoadProgress status={status({ phase: 'done' })} />

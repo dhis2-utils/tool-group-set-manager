@@ -85,16 +85,19 @@ export const SQL_VIEW_DEFINITIONS = [
  * is `NaN`, and a typed array truncates `NaN` to 0 on assignment -- either
  * way the malformed row would land as a real, if wrong, level rather than
  * as the parse failure it is. Parsed and validated as plain numbers first,
- * naming the offending row (1-based, matching what a spreadsheet or the
- * SQL view's own CSV export would call it) before anything is written into
- * the typed array.
+ * naming the offending row before anything is written into the typed
+ * array. `rows` here has already had the header row and any wholly blank
+ * lines dropped by `fetchCsv`, so a data row at array index `i` is CSV line
+ * `i + 2`: one for the header line, one because the message should count
+ * the way a spreadsheet or the SQL view's own CSV export would (from 1,
+ * not 0).
  */
 function parseLevels(rows: string[][]): Uint8Array {
     const levels = rows.map((r, i) => {
         const n = Number(r[1])
         if (!Number.isInteger(n) || n < 1 || n > 255) {
             throw new Error(
-                `Org unit hierarchy view: row ${i + 1} has an invalid level (${JSON.stringify(r[1])})`
+                `Org unit hierarchy view: row ${i + 2} has an invalid level (${JSON.stringify(r[1])})`
             )
         }
         return n
@@ -110,7 +113,15 @@ async function fetchCsv(fetcher: Fetcher, viewId: string): Promise<string[][]> {
         )
     }
     const rows = parseCsv(await response.text())
-    return rows.slice(1) // drop header
+    return (
+        rows
+            .slice(1) // drop header
+            // A body ending in a blank line parses to a trailing row of one
+            // empty field -- a real data row never has an empty first
+            // column (every view's first column is an id) -- so this is a
+            // phantom, not data to validate or load.
+            .filter((r) => !(r.length === 1 && r[0] === ''))
+    )
 }
 
 export function createSqlViewSource(

@@ -20,16 +20,40 @@ export interface BatchOutcome {
     groupId: string
     requested: number
     accepted: number
+    /**
+     * Either a locale-neutral token (`HTTP 403`, a caught exception's own
+     * `message`) that `outcomeText` (writeOutcomes.ts) is allowed to
+     * splice into a translated sentence as-is, or the sentinel
+     * `UNPARSEABLE_RESPONSE` below, which `outcomeText` must translate
+     * itself before display -- see `UNPARSEABLE_RESPONSE`'s own doc
+     * comment for why English prose can never live in this field
+     * directly.
+     */
     error?: string
     /**
-     * The raw text behind a diagnosable `error`, kept for debugging only --
-     * never shown to a user (see `error`'s own doc comment on the
-     * non-JSON-200 case, the one situation this is currently set for).
-     * `outcomeText` in writeOutcomes.ts builds every user-facing message
-     * from `error`, never from this.
+     * The raw parse error behind an `UNPARSEABLE_RESPONSE` `error`, kept
+     * for developer diagnostics only -- never shown to a user. Logged via
+     * `console.warn` at the point of capture (below); if a future caller
+     * wants to attach it to a bug report or a persisted write log, it is
+     * also carried here rather than only in that one console line.
      */
     rawError?: string
 }
+
+/**
+ * Sentinel `error` value for a 200 response whose body could not be parsed
+ * as JSON. Not English prose: `outcomeText` (writeOutcomes.ts) splices
+ * `error` directly into a translated sentence for every other value this
+ * field takes (`HTTP 403`, a caught exception's `message`), because those
+ * are locale-neutral tokens. A JSON parser's own message is not, and
+ * neither would a hand-written English sentence be if put here directly --
+ * this module has no access to `i18n.t`, and is not the place that should
+ * translate a user-facing string anyway (see the module doc comment on
+ * `setGroupSetProperties` in metadataWrites.ts for the same convention).
+ * `outcomeText` recognises this exact value and produces the translated
+ * sentence in its place.
+ */
+export const UNPARSEABLE_RESPONSE = 'unparseable-response'
 
 /**
  * What `writeMemberships` actually achieved, as distinct from what it was
@@ -211,21 +235,27 @@ export async function writeMemberships(
                 // The conclusion (this batch did not land) is the same as
                 // any other failed request, but a JSON parser's own
                 // message ("Unexpected token < in JSON at position 0") is
-                // not something a user should ever see -- it names neither
-                // what went wrong from their point of view nor what to do
-                // about it. The raw text is kept on `rawError` for
-                // diagnostics; nothing downstream builds a user-facing
-                // message from it (see `BatchOutcome.rawError`'s doc
-                // comment).
+                // not something a user should ever see, and (this module
+                // has no `i18n.t`) not something this module could
+                // translate into user-facing prose even if it wanted to --
+                // see `UNPARSEABLE_RESPONSE`'s doc comment. The raw text is
+                // logged here for whoever is watching the console, and
+                // also kept on `rawError` for a future caller (a bug
+                // report, a persisted write log) that wants it.
+                const rawMessage =
+                    parseError instanceof Error
+                        ? parseError.message
+                        : String(parseError)
+                console.warn(
+                    `writeMemberships: batch for group ${batch.groupId} returned a response that could not be parsed as JSON`,
+                    rawMessage
+                )
                 outcomes.push({
                     groupId: batch.groupId,
                     requested,
                     accepted: 0,
-                    error: "The server's response could not be parsed",
-                    rawError:
-                        parseError instanceof Error
-                            ? parseError.message
-                            : String(parseError),
+                    error: UNPARSEABLE_RESPONSE,
+                    rawError: rawMessage,
                 })
                 unaccounted.push(batch)
                 continue

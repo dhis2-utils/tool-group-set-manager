@@ -16,6 +16,7 @@ const mockCallOverrides: {
     dataElementSets: boolean
     fellBack: boolean
     notLoadedOrgUnitSet: boolean
+    manyCleanOrgUnitSets: boolean
 } = {
     dataElementError: null,
     extraCleanOrgUnitSet: false,
@@ -23,6 +24,7 @@ const mockCallOverrides: {
     dataElementSets: false,
     fellBack: false,
     notLoadedOrgUnitSet: false,
+    manyCleanOrgUnitSets: false,
 }
 
 const cleanSet = (id: string, name: string) => ({
@@ -104,6 +106,11 @@ const entries = {
         }
         if (mockCallOverrides.notLoadedOrgUnitSet) {
             sets.push(notLoadedSet('notloaded', 'Not loaded set'))
+        }
+        if (mockCallOverrides.manyCleanOrgUnitSets) {
+            for (let i = 0; i < 1200; i++) {
+                sets.push(cleanSet(`bulk${i}`, `Bulk clean ${i}`))
+            }
         }
         return sets
     },
@@ -189,6 +196,7 @@ afterEach(() => {
     mockCallOverrides.dataElementSets = false
     mockCallOverrides.fellBack = false
     mockCallOverrides.notLoadedOrgUnitSet = false
+    mockCallOverrides.manyCleanOrgUnitSets = false
 })
 
 it('shows the SQL view repair notice after a real fallback', async () => {
@@ -243,6 +251,26 @@ it('pluralises the hidden-sets count for more than one clean set', async () => {
     await waitFor(() =>
         expect(
             screen.getByText('2 sets without issues hidden')
+        ).toBeInTheDocument()
+    )
+})
+
+// Minor 8 (fix round 1): the hidden-sets count is another count the
+// dashboard renders, so it must format with the same thousands separator
+// as the stat tiles rather than being a straggler.
+it('formats the hidden-sets count with a thousands separator', async () => {
+    mockCallOverrides.manyCleanOrgUnitSets = true
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    // 1200 bulk clean sets plus the fixture's own always-present clean set.
+    await waitFor(() =>
+        expect(
+            screen.getByText(
+                `${(1201).toLocaleString()} sets without issues hidden`
+            )
         ).toBeInTheDocument()
     )
 })
@@ -316,6 +344,23 @@ it('sorts a set with no data yet into its own group, not mixed in among the clea
     // filtered-out) clean sets by sort order -- it belongs ahead of every
     // loaded set, worst-first-sorted or not.
     expect(names[0]).toContain('Not loaded set')
+})
+
+// Minor 9 (fix round 1): the "own group" from the test above must reach
+// the user as a visible label, not only as a code comment -- the card's
+// "Loading…" text alone does not say why the set is sorted where it is.
+it('says why the not-yet-loaded group is separate, as visible text', async () => {
+    mockCallOverrides.worseOrgUnitSets = true
+    mockCallOverrides.notLoadedOrgUnitSet = true
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Not loaded set')).toBeInTheDocument()
+    )
+    expect(screen.getByText(/still loading/i)).toBeInTheDocument()
 })
 
 it('filters the sections by object type (spec 5.1)', async () => {

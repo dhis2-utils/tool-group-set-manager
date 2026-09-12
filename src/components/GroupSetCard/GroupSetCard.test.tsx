@@ -133,6 +133,30 @@ it('pluralises the group count tag for more than one group', () => {
     expect(screen.getByText('2 groups')).toBeInTheDocument()
 })
 
+// Minor 8 (fix round 1): item 4 was about count formatting being
+// consistent everywhere, not just the stat tiles -- these two labels are
+// small in practice, but the fix should not leave stragglers.
+it('formats the group count and read-only count with the same thousands separator as the stat tiles', () => {
+    const manyGroups = Array.from({ length: 1200 }, (_, i) => ({
+        id: `g${i}`,
+        displayName: `G${i}`,
+        canWrite: i === 0,
+    }))
+    const entryWithManyGroups = {
+        ...entry,
+        set: { ...entry.set, groups: manyGroups },
+    }
+    render(
+        <GroupSetCard entry={entryWithManyGroups} onOpen={() => undefined} />
+    )
+    expect(
+        screen.getByText((1200).toLocaleString() + ' groups')
+    ).toBeInTheDocument()
+    expect(
+        screen.getByText((1199).toLocaleString() + ' groups read-only for you')
+    ).toBeInTheDocument()
+})
+
 it('shows a configuration-gap message instead of all-clean stats when a set has no groups', () => {
     const entryWithNoGroups = {
         ...entry,

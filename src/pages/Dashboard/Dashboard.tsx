@@ -56,7 +56,9 @@ const byWorstFirst = (a: DashboardEntry, b: DashboardEntry) => {
 const hiddenSetsLabel = (count: number) =>
     count === 1
         ? i18n.t('1 set without issues hidden')
-        : interpolate(i18n.t('{count} sets without issues hidden'), { count })
+        : interpolate(i18n.t('{count} sets without issues hidden'), {
+              count: count.toLocaleString(),
+          })
 
 // Spec 8a accepts that the SQL view path shows untranslated organisation
 // unit names specifically because the app says which source served it, so
@@ -228,6 +230,16 @@ export const Dashboard = () => {
                     // error count keep the order the API returned them in.
                     .sort(byWorstFirst)
                 const hidden = all.length - shown.length
+                // Minor 9 (fix round 1): `byWorstFirst` sorts a set with
+                // no data yet ahead of every loaded one, but until now
+                // nothing on screen said why -- only the card's own
+                // "Loading…" text (unchanged from before this batch)
+                // distinguished it, with no label for the group as a
+                // whole. Split the already-sorted `shown` list at the
+                // boundary (not-yet-loaded entries are always first) so a
+                // one-line explanation can sit above just that group.
+                const notYetLoaded = shown.filter((e) => !e.hasData)
+                const loaded = shown.filter((e) => e.hasData)
                 if (!hasLoaded) {
                     return null
                 }
@@ -260,9 +272,31 @@ export const Dashboard = () => {
                                 {typeError}
                             </NoticeBox>
                         )}
-                        {shown.length > 0 && (
+                        {notYetLoaded.length > 0 && (
+                            <>
+                                <p className={styles.note}>
+                                    {i18n.t(
+                                        'Still loading -- these summaries are not ready yet'
+                                    )}
+                                </p>
+                                <div className={styles.cards}>
+                                    {notYetLoaded.map((entry) => (
+                                        <GroupSetCard
+                                            key={entry.set.id}
+                                            entry={entry}
+                                            onOpen={() =>
+                                                navigate(
+                                                    `/sets/${entry.set.id}`
+                                                )
+                                            }
+                                        />
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                        {loaded.length > 0 && (
                             <div className={styles.cards}>
-                                {shown.map((entry) => (
+                                {loaded.map((entry) => (
                                     <GroupSetCard
                                         key={entry.set.id}
                                         entry={entry}

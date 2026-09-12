@@ -305,6 +305,7 @@ export async function loadAll(deps: Deps): Promise<{
             await deps.engine.call('evaluate')
 
             let names = objects.names
+            let namesFailed = false
             if (!names) {
                 emit({ phase: 'names', type, progress: null })
                 try {
@@ -322,6 +323,7 @@ export async function loadAll(deps: Deps): Promise<{
                     status.namesErrors[type] =
                         error instanceof Error ? error.message : String(error)
                     names = objects.ids
+                    namesFailed = true
                     emit({ type })
                 }
             }
@@ -332,16 +334,28 @@ export async function loadAll(deps: Deps): Promise<{
             const stamps = await groupStamps(deps.fetcher, type).catch(
                 () => undefined
             )
-            const entry: CachedType = {
-                objects,
-                memberships,
-                names,
-                groupIds,
-                groupLastUpdated: stamps,
-                objectTotal: total,
-                savedAt: Date.now(),
+            // M1 (fix round 1): `names` above is `objects.ids` standing in
+            // for real names when the names load just failed -- caching
+            // that would let `tryCache` reuse it on every later load
+            // (group ids, object total and every group's `lastUpdated` are
+            // all untouched by a names endpoint hiccup), permanently
+            // serving uids as display names with no later run's
+            // `namesErrors` ever recording why. Skipping the cache write
+            // here means the next load has nothing to reuse for this type
+            // and goes back to the source for names, same as this load
+            // did.
+            if (!namesFailed) {
+                const entry: CachedType = {
+                    objects,
+                    memberships,
+                    names,
+                    groupIds,
+                    groupLastUpdated: stamps,
+                    objectTotal: total,
+                    savedAt: Date.now(),
+                }
+                await deps.cache.put(type, entry)
             }
-            await deps.cache.put(type, entry)
         } catch (error) {
             status.errors[type] =
                 error instanceof Error ? error.message : String(error)

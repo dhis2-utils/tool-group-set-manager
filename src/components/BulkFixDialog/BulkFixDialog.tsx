@@ -673,8 +673,8 @@ export const BulkFixDialog = ({
                                                   'Applied {done} of {total} batches'
                                               ),
                                               {
-                                                  done: progress.done,
-                                                  total: progress.total,
+                                                  done: progress.done.toLocaleString(),
+                                                  total: progress.total.toLocaleString(),
                                               }
                                           )
                                         : i18n.t('Applying changes…')}

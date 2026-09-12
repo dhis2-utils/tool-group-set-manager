@@ -53,20 +53,60 @@ export const LoadProgress = ({ status }: { status: LoadStatus | null }) => {
         return <LinearLoader amount={0} />
     }
     const errors = Object.entries(status.errors) as [ObjectType, string][]
+    const namesErrors = Object.entries(status.namesErrors) as [
+        ObjectType,
+        string,
+    ][]
     if (status.phase === 'done') {
-        return errors.length === 0 ? null : (
-            <NoticeBox error title={i18n.t('Some data could not be loaded')}>
-                {errors.map(([type, message]) => (
-                    <div key={type}>
-                        <div>
-                            {interpolate(i18n.t('{type} could not be loaded'), {
-                                type: typeLabel(type),
-                            })}
-                        </div>
-                        <div>{message}</div>
-                    </div>
-                ))}
-            </NoticeBox>
+        if (errors.length === 0 && namesErrors.length === 0) {
+            return null
+        }
+        return (
+            <>
+                {errors.length > 0 && (
+                    <NoticeBox
+                        error
+                        title={i18n.t('Some data could not be loaded')}
+                    >
+                        {errors.map(([type, message]) => (
+                            <div key={type}>
+                                <div>
+                                    {interpolate(
+                                        i18n.t('{type} could not be loaded'),
+                                        { type: typeLabel(type) }
+                                    )}
+                                </div>
+                                <div>{message}</div>
+                            </div>
+                        ))}
+                    </NoticeBox>
+                )}
+                {namesErrors.length > 0 && (
+                    // Distinct from `errors` above on purpose: the counts
+                    // for this type are correct (objects, memberships and
+                    // evaluate all succeeded) -- only the display names
+                    // failed to load, so this must never read as "this
+                    // type's summary could not be computed".
+                    <NoticeBox
+                        warning
+                        title={i18n.t('Some names could not be loaded')}
+                    >
+                        {namesErrors.map(([type, message]) => (
+                            <div key={type}>
+                                <div>
+                                    {interpolate(
+                                        i18n.t(
+                                            'Names for {type} could not be loaded; the counts shown are still correct'
+                                        ),
+                                        { type: typeObjectsLabel(type) }
+                                    )}
+                                </div>
+                                <div>{message}</div>
+                            </div>
+                        ))}
+                    </NoticeBox>
+                )}
+            </>
         )
     }
     const p = status.progress

@@ -1,5 +1,5 @@
 import { ENDPOINTS } from './endpoints'
-import { writeMemberships } from './writes'
+import { UNPARSEABLE_RESPONSE, writeMemberships } from './writes'
 import { GroupChange } from '@/engine/changeSet'
 import { ObjectType } from '@/engine/types'
 
@@ -239,7 +239,18 @@ describe('writeMemberships', () => {
     // land) with the wrong wording (a JSON parser's own error message is
     // not something a user should ever see). The raw text must still be
     // somewhere on the outcome for diagnostics.
-    it("says the server's response could not be parsed, rather than surfacing the raw JSON parse error, for a non-JSON 200", async () => {
+    it('records a sentinel error (never the raw JSON parse error) for a non-JSON 200, and keeps the raw text on rawError', async () => {
+        // Minor 2/3 (fix round 1): `error` must never carry an
+        // untranslated English fragment -- this module has no `i18n.t` and
+        // could not translate it if it tried -- so it records the
+        // `UNPARSEABLE_RESPONSE` sentinel instead; `writeOutcomes.ts`'s
+        // `describeError` is what turns that into user-facing prose. The
+        // raw parser message still ends up on `rawError`, for whoever
+        // reads the console.warn logged alongside it (see writes.ts) or a
+        // future caller that wants it for a bug report.
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {
+            // silence the expected diagnostic log
+        })
         const fetcher = async () =>
             new Response('<html>not json</html>', {
                 status: 200,
@@ -256,9 +267,10 @@ describe('writeMemberships', () => {
         expect(result.outcomes).toHaveLength(1)
         const [outcome] = result.outcomes
         expect(outcome.accepted).toBe(0)
-        expect(outcome.error).not.toMatch(/Unexpected token|JSON/i)
-        expect(outcome.error).toMatch(/could not be (read|parsed|understood)/i)
+        expect(outcome.error).toBe(UNPARSEABLE_RESPONSE)
         expect(outcome.rawError).toMatch(/Unexpected token|JSON/i)
+        expect(warn).toHaveBeenCalled()
+        warn.mockRestore()
     })
 
     it('a network failure on one group is recorded as an error and does not stop the rest', async () => {

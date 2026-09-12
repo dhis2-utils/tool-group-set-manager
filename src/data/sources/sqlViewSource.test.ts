@@ -31,6 +31,10 @@ describe('sqlViewSource', () => {
     // does exactly that (Number('') is 0, Number('x') is NaN, and NaN
     // truncates to 0 in a typed array) and 0 would then read as a real,
     // if wrong, hierarchy level rather than as the parse failure it is.
+    // Minor 4 (fix round 1): the row named in the message must match the
+    // CSV line a spreadsheet or the view's own export would call it --
+    // line 1 is the header, so the first data row ("r,1,") is line 2 and
+    // the malformed one ("a,bad,r") is line 3.
     it('throws naming the row when a level column cannot be parsed', async () => {
         const fetcher = async () =>
             csvResponse('uid,level,parent\nr,1,\na,bad,r\n')
@@ -39,7 +43,22 @@ describe('sqlViewSource', () => {
                 'organisationUnit',
                 () => undefined
             )
-        ).rejects.toThrow(/row 2/)
+        ).rejects.toThrow(/row 3/)
+    })
+
+    // Minor 4 (fix round 1): a body ending in a blank line (a trailing
+    // newline after the last real row) used to parse to a phantom row of
+    // one empty field, which the level parser then hard-failed on -- worse
+    // than the old silent-0 behaviour, which at least tolerated it.
+    it('tolerates a trailing blank line rather than treating it as a malformed row', async () => {
+        const fetcher = async () =>
+            csvResponse('uid,level,parent\nr,1,\na,2,r\n\n')
+        const payload = await createSqlViewSource(fetcher, views).loadObjects(
+            'organisationUnit',
+            () => undefined
+        )
+        expect(payload.ids).toEqual(['r', 'a'])
+        expect(Array.from(payload.level ?? [])).toEqual([1, 2])
     })
 
     it('loads memberships from the membership view and keeps only requested groups', async () => {

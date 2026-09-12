@@ -1,5 +1,5 @@
 import { aggregateOutcomes, mergeOutcomes, outcomeText } from './writeOutcomes'
-import { BatchOutcome } from './writes'
+import { BatchOutcome, UNPARSEABLE_RESPONSE } from './writes'
 
 const batch = (
     o: Partial<BatchOutcome> & { groupId: string }
@@ -50,6 +50,18 @@ describe('outcomeText', () => {
         ])
         expect(tone).toBe('error')
         expect(text).toContain('HTTP 500')
+    })
+
+    // Minor 2 (fix round 1): the UNPARSEABLE_RESPONSE sentinel writes.ts
+    // records for a non-JSON 200 must never reach the user as itself --
+    // this is the one place that translates it into prose.
+    it('translates the UNPARSEABLE_RESPONSE sentinel instead of splicing it in raw', () => {
+        const { tone, text } = textFor([
+            batch({ groupId: 'g1', accepted: 0, error: UNPARSEABLE_RESPONSE }),
+        ])
+        expect(tone).toBe('error')
+        expect(text).not.toContain(UNPARSEABLE_RESPONSE)
+        expect(text).toMatch(/could not be read/i)
     })
 
     it('reports a silent short accept as a partial acceptance, not a failure', () => {

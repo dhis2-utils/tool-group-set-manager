@@ -34,12 +34,16 @@ interface Props {
 const groupsLabel = (count: number) =>
     count === 1
         ? i18n.t('1 group')
-        : interpolate(i18n.t('{count} groups'), { count })
+        : interpolate(i18n.t('{count} groups'), {
+              count: count.toLocaleString(),
+          })
 
 const readOnlyLabel = (count: number) =>
     count === 1
         ? i18n.t('1 group read-only for you')
-        : interpolate(i18n.t('{count} groups read-only for you'), { count })
+        : interpolate(i18n.t('{count} groups read-only for you'), {
+              count: count.toLocaleString(),
+          })
 
 /**
  * P3-R5 (review round 1, M1): the check shown must be one the set on screen

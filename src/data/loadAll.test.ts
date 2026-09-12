@@ -302,6 +302,63 @@ describe('loadAll', () => {
         expect(entry.hasData).toBe(true)
     })
 
+    // M1 (fix round 1): the names-failure fallback (`names = objects.ids`)
+    // must never reach the cache. `tryCache` matches on group ids, object
+    // total and every group's `lastUpdated` -- none of which a names
+    // endpoint hiccup touches -- so a cached entry saved with uids-as-names
+    // would be silently reused on every later load, with the type's own
+    // `namesErrors` empty on that later run (nothing failed this time) and
+    // nothing else in `LoadStatus` recording the substitution. The fix is
+    // to skip `cache.put` entirely when this run had a names failure for
+    // the type, so the next load has nothing to reuse and goes back to the
+    // source for names.
+    it('does not cache a names failure, so the next load retries names instead of permanently serving uids (M1)', async () => {
+        const cache = createMemoryCache()
+
+        const failingNamesSource = fakeSource()
+        failingNamesSource.loadNames = async (type) => {
+            if (type === 'organisationUnit') {
+                throw new Error('names boom')
+            }
+            return [
+                { id: 'a', displayName: 'A' },
+                { id: 'r', displayName: 'Root' },
+            ]
+        }
+        await loadAll({
+            source: failingNamesSource,
+            fetcher,
+            cache,
+            engine: inlineEngine(),
+            onStatus: () => undefined,
+        })
+
+        // A second, independent load, sharing only the cache. Its source's
+        // loadNames works fine -- if the first load's failure had been
+        // cached, this second load would reuse it from cache and never
+        // call loadNames at all, serving the first load's uids forever.
+        const secondSource = fakeSource()
+        const secondEngine = inlineEngine()
+        await loadAll({
+            source: secondSource,
+            fetcher,
+            cache,
+            engine: secondEngine,
+            onStatus: () => undefined,
+        })
+
+        expect(secondSource.loads).toContain('names:organisationUnit')
+        const { items } = secondEngine.store.objectsFor(
+            'own',
+            { objectType: 'organisationUnit', rootId: null },
+            {},
+            0,
+            10
+        )
+        const root = items.find((i) => i.id === 'r')
+        expect(root?.displayName).toBe('Root')
+    })
+
     it('keeps a type out of the engine entirely when its memberships fail', async () => {
         const source = fakeSource()
         source.loadMemberships = async (type) => {
