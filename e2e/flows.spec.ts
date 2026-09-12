@@ -1,6 +1,6 @@
+import type { Page } from '@playwright/test'
 import { appRoot, APP_PATH, expect, test } from './fixtures/session'
 import type { AppRoot } from './fixtures/session'
-import type { Page } from '@playwright/test'
 
 /**
  * Five flows against the Sierra Leone demo data both broker instances seed
@@ -17,7 +17,10 @@ import type { Page } from '@playwright/test'
  * Every test that writes ends by reverting that exact change through
  * History's own Revert button -- never by calling the API directly -- so a
  * broken revert would show up as a failing test, not as a quietly
- * poisoned instance.
+ * poisoned instance. That guarantee only holds if the change set the
+ * revert needs actually exists before the test does anything else with the
+ * page -- see `waitForWriteToSettle` below, which is what fix round 1 was
+ * about.
  */
 
 const AREA_SET_NAME = 'Area'
@@ -28,14 +31,19 @@ const NORTHERN_AREA = 'Northern Area'
 // single-assign and revert flows.
 const SINGLE_FACILITY = 'Sembehun CHC'
 
-// Chiefdom "Badjia" (id YuQRtpLP10I) has exactly two children -- used only
-// by the bulk-move flow, reached through the Overview matrix so the
-// dialog's population is exactly these two, not a text-search guess.
-// Confirmed live: the Overview matrix's row for a chiefdom counts every org
-// unit in its subtree, which includes the chiefdom itself alongside its
-// children (Area's population is "every organisation unit", never
-// restricted by level -- OverviewTab.tsx) -- so Badjia's own row totals
-// three, not two: Badjia, Njandama MCHP and Ngelehun CHC.
+// Chiefdom "Badjia" (id YuQRtpLP10I) has exactly two children -- used by
+// both the drill-down and bulk-move flows, reached through the Overview
+// matrix so the dialog's population is exactly these two, not a
+// text-search guess. Confirmed live: the Overview matrix's row for a
+// chiefdom counts every org unit in its subtree, which includes the
+// chiefdom itself alongside its children (Area's population is "every
+// organisation unit", never restricted by level -- OverviewTab.tsx) -- so
+// Badjia's own row totals three, not two: Badjia, Njandama MCHP and
+// Ngelehun CHC. This is a real, pinned number, not a self-consistency
+// check: it is only 3 because Area is the group set under test (fix
+// round 1's M1 -- pointing the drill-down flow at a different group set,
+// e.g. "Facility Type", produces a different total for the same row, so
+// pinning this number is what ties the flow to Area specifically).
 const BULK_CHIEFDOM = 'Badjia'
 const BULK_POPULATION_COUNT = 3
 
@@ -46,7 +54,12 @@ async function goto(page: Page, hash: string): Promise<AppRoot> {
 
 async function openGroupSet(page: Page, name: string): Promise<AppRoot> {
     const root = await goto(page, '/')
-    const card = root.locator('[role="button"]').filter({ hasText: name })
+    // Exact match on the card's own name, not a substring: `hasText`
+    // alone would also match "Area" against a card for a different set
+    // whose name happens to contain it (fix round 1's m5).
+    const card = root
+        .locator('[role="button"]')
+        .filter({ has: root.getByText(name, { exact: true }) })
     await expect(card.first()).toBeVisible({ timeout: 20_000 })
     await card.first().click()
     await expect(root.getByRole('heading', { name, exact: true })).toBeVisible()
@@ -122,8 +135,66 @@ async function searchObjects(root: AppRoot, text: string): Promise<void> {
     await expect(root.getByText(/^1 object$/)).toBeVisible({ timeout: 5_000 })
 }
 
+/**
+ * KNOWN DEFECT, not accommodated as if it were correct behaviour:
+ * `ObjectsTable`'s own per-row assign (`handleConfirm` in
+ * `src/components/ObjectsTable/ObjectsTable.tsx`) never calls `reload()`
+ * after a successful write -- unlike `BulkFixDialog` and the revert
+ * dialog, both of which refresh through `onApplied`. A user who confirms
+ * an assign sees the segmented control snap back to its pre-click state
+ * with no success message (the only in-page message is the *failure*
+ * wording -- `engineHistoryMessage` fires only when something went
+ * wrong), which reads as the write having failed. The natural response,
+ * clicking again, writes the same assignment a second time and adds a
+ * second row to the audit log History exists to keep honest. This is
+ * real, reported separately for a fix of its own, and not this task's to
+ * fix -- but this suite must not rely on the control ever showing
+ * "selected" on this same page, so every assertion below reads the result
+ * through History (or a fresh navigation) instead.
+ *
+ * What this suite *can* rely on, because it is driven by `ObjectsTable`'s
+ * own local `writingRowIds` state rather than the stale engine snapshot,
+ * is that the row's control goes disabled the instant `handleConfirm`
+ * starts writing and is re-enabled only in a `finally`, once `write()`
+ * itself has settled. `write()` awaits all four of its steps -- server,
+ * engine, cache, then `saveChangeSet` -- in one sequential chain
+ * (`useMembershipWrite.ts`), so it never resolves before the change set
+ * exists. Waiting for disabled-then-enabled is therefore a wait on the
+ * actual client-side completion of the write, not a fixed delay and not
+ * "the UI settling" -- it is safe to navigate away the moment this
+ * resolves.
+ *
+ * This is the fix for fix round 1's Critical: clicking "Assign" and
+ * immediately calling `page.goto` (the previous version of this suite)
+ * raced this exact completion. On 2.40.12 that `goto` happened to be a
+ * same-document, hash-only navigation, so the in-flight write survived by
+ * luck; on 2.43.1 the app is served from a URL that redirects once
+ * (`/api/apps/.../index.html` -> `/apps/<key>`), so the page was never
+ * "already there" and the same `goto` was a real top-level navigation --
+ * confirmed live, it tore the document (and the write) down mid-flight,
+ * leaving the membership on the server with no change set to revert it
+ * through. Waiting here instead of racing removes the need to special-case
+ * either instance.
+ *
+ * If this write is broken instead of merely slow (a bulk-fix-style
+ * no-write regression), `write()` still resolves -- it never rejects, it
+ * only reports failure via its own result -- so this wait still completes
+ * quickly and the *next* assertion (the row appearing in History) is what
+ * fails, fast and specifically, rather than this wait timing out and
+ * masking the failure as "the instance is slow" (fix round 1's other
+ * concern).
+ */
+async function waitForWriteToSettle(
+    root: AppRoot,
+    groupName: string
+): Promise<void> {
+    const button = root.getByRole('button', { name: groupName })
+    await expect(button).toBeDisabled({ timeout: 5_000 })
+    await expect(button).toBeEnabled({ timeout: 30_000 })
+}
+
 /** The newest row in History -- `listChangeSets` sorts newest first
- * (src/data/datastore.ts), so this is always the change a test just made. */
+ * (src/data/datastore.ts). */
 function newestHistoryRow(root: AppRoot) {
     return root.locator('table tbody tr').first()
 }
@@ -132,67 +203,33 @@ function newestHistoryRow(root: AppRoot) {
  * every row, so an unscoped `getByRole('button', { name: 'Revert' })` while
  * a revert dialog is open is ambiguous (confirmed live: it resolves to every
  * row's button plus the dialog's own) -- scoping to the modal's own
- * `ModalActions` is what picks out only the dialog's button. */
+ * `ModalActions` is what picks out only the dialog's button. Also needed
+ * for "Close": an unscoped match also finds the modal's own top-right X
+ * (aria-label "Close modal dialog", which contains the same substring). */
 function modalActions(root: AppRoot) {
     return root.locator('[data-test="dhis2-uicore-modalactions"]')
 }
 
 /**
- * History loads its list once per mount (`useChangeSets`'s effect has no
- * poll and nothing here re-triggers it), so re-checking an
- * already-rendered page never sees a change set that lands after that
- * mount -- unlike most of this suite's other waits, a bigger `expect(...)`
- * timeout would not help here at all. Nothing in the UI signals when a
- * write's `saveChangeSet` step (the last of the four `useMembershipWrite`
- * runs -- server, engine, cache, history) has actually landed, so this
- * polls by re-navigating to History from scratch until the expected row is
- * the newest one there.
+ * Navigates to History, reverts the newest change set, and confirms
+ * success -- used by every writing flow's own cleanup, and exercised
+ * directly by the dedicated revert flow below.
+ *
+ * `expectedText` ties the row this reverts to the change this test itself
+ * just made (fix round 1's M2): reverting "whatever the newest row
+ * happens to be" without checking is safe today only because every
+ * caller already waited for its own write to land first, and nothing
+ * enforces that stays true -- asserting the text here is what would catch
+ * it if it ever stopped being true, or if this ran against a shared
+ * instance with other activity.
  */
-async function waitForNewestHistoryRow(
+async function revertChangeSet(
     page: Page,
-    expectedText: string,
-    timeoutMs = 120_000
-): Promise<AppRoot> {
-    const deadline = Date.now() + timeoutMs
-    // The first visit is a real `page.goto` (establishes the canonical,
-    // post-redirect URL -- see `goto`'s doc comment on 2.43.1's shell
-    // redirect). Every re-check after that clicks the app's own nav
-    // links (`SyncUrlWithGlobalShell.tsx`'s React Router `NavLink`s)
-    // instead of calling `page.goto` again: `page.goto` always asks
-    // Chromium for a real top-level navigation, and on 2.43.1 that means
-    // replaying the whole `/api/apps/.../index.html` -> `/apps/<key>`
-    // redirect (and reloading the shell and the iframe with it) on every
-    // single poll -- confirmed live, at roughly 15-20s per cycle, which
-    // is what made a several-minute wait still not see enough attempts.
-    // Clicking the in-app link is an ordinary React Router transition:
-    // no reload, and History's own effect still re-runs on the remount.
-    let root = await goto(page, '/history')
-    for (;;) {
-        const row = newestHistoryRow(root)
-        try {
-            await expect(row).toContainText(expectedText, { timeout: 3_000 })
-            return root
-        } catch (e) {
-            if (Date.now() > deadline) {
-                throw e
-            }
-            await root
-                .getByRole('link', { name: 'Dashboard', exact: true })
-                .click()
-            await root
-                .getByRole('link', { name: 'History', exact: true })
-                .click()
-        }
-    }
-}
-
-/** Opens History, reverts the newest change set, and confirms success --
- * used by every writing flow's own cleanup, and exercised directly by the
- * dedicated revert flow below. */
-async function revertNewestChange(page: Page): Promise<void> {
+    expectedText: string | RegExp
+): Promise<void> {
     const root = await goto(page, '/history')
     const row = newestHistoryRow(root)
-    await expect(row).toBeVisible({ timeout: 20_000 })
+    await expect(row).toContainText(expectedText, { timeout: 15_000 })
     await row.getByRole('button', { name: 'Revert' }).click()
     await expect(
         root.getByRole('heading', { name: 'Revert change' })
@@ -204,12 +241,23 @@ async function revertNewestChange(page: Page): Promise<void> {
         name: 'Revert',
         exact: true,
     })
-    await expect(revertButton).toBeEnabled({ timeout: 60_000 })
+    await expect(revertButton).toBeEnabled({ timeout: 20_000 })
     await revertButton.click()
+    // The write itself -- server, engine, cache, history -- completes
+    // before this text ever appears (`RevertDialog`'s `write()` call is
+    // awaited the same way `ObjectsTable`'s is), so nothing further needs
+    // to wait for anything once this is visible.
     await expect(root.getByText('All changes applied to')).toBeVisible({
-        timeout: 20_000,
+        timeout: 30_000,
     })
     await actions.getByRole('button', { name: 'Close' }).click()
+}
+
+/** "{n} membership change(s)", matching `History.tsx`'s own wording --
+ * used to identify a change set by its row text when it has no note
+ * (the bulk-fix dialog's note field is optional and left blank here). */
+function membershipChangeText(count: number): string {
+    return count === 1 ? '1 membership change' : `${count} membership changes`
 }
 
 test.describe('Group Set Integrity Tool', () => {
@@ -223,7 +271,7 @@ test.describe('Group Set Integrity Tool', () => {
         await expect(root.getByText('Scope:', { exact: false })).toBeVisible()
         const areaCard = root
             .locator('[role="button"]')
-            .filter({ hasText: AREA_SET_NAME })
+            .filter({ has: root.getByText(AREA_SET_NAME, { exact: true }) })
         await expect(areaCard.first()).toBeVisible()
         await expect(areaCard.first().getByText('Conflicts')).toBeVisible()
         await expect(areaCard.first().getByText('OK')).toBeVisible()
@@ -242,18 +290,32 @@ test.describe('Group Set Integrity Tool', () => {
         await openOverviewTab(root)
         await showChiefdomRows(root)
 
+        // The matrix's own column headers are the set's own group names --
+        // "Northern Area" belongs to no other group set on this instance,
+        // so this ties the whole flow to Area specifically. Necessary,
+        // not just belt-and-braces: Facility Type happens to be compulsory
+        // and a data dimension too, so its Badjia row also totals 3 --
+        // pinning only the number (fix round 1's first attempt at M1) was
+        // re-verified live to still pass against "Facility Type" with this
+        // column-header check absent.
+        await expect(
+            root.getByRole('columnheader', { name: NORTHERN_AREA })
+        ).toBeVisible()
+
         const chiefdomRow = root.getByRole('row', {
             name: new RegExp(`^${BULK_CHIEFDOM}\\b`),
         })
-        await expect(chiefdomRow).toBeVisible({ timeout: 60_000 })
+        await expect(chiefdomRow).toBeVisible({ timeout: 20_000 })
+        // Pinned to a real, Area-specific number: not merely "whatever the
+        // cell shows", which would agree with itself even against the
+        // wrong group set or a consistently miscounting engine.
         const totalCell = chiefdomRow.getByRole('cell').last()
-        const total = Number((await totalCell.innerText()).replace(/,/g, ''))
-        expect(total).toBeGreaterThan(0)
+        await expect(totalCell).toHaveText(String(BULK_POPULATION_COUNT))
 
         await totalCell.click()
         await expect(
-            root.getByText(new RegExp(`^${total.toLocaleString()} objects?$`))
-        ).toBeVisible({ timeout: 60_000 })
+            root.getByText(new RegExp(`^${BULK_POPULATION_COUNT} objects?$`))
+        ).toBeVisible({ timeout: 20_000 })
     })
 
     test('single assign: pick a group, confirm, then revert through History', async ({
@@ -281,20 +343,14 @@ test.describe('Group Set Integrity Tool', () => {
         ).toBeVisible()
         await root.getByRole('button', { name: 'Assign' }).click()
 
-        // ObjectsTable's own per-row assign has no `reload()` call after a
-        // successful write (unlike BulkFixDialog and the revert dialog,
-        // both of which refresh through `onApplied`), so this same
-        // in-session view does not reflect the change at all -- confirmed
-        // live: the segmented control stays "none" here no matter how long
-        // this page is polled. History is a separate read (the dataStore,
-        // not the engine) and is what this assertion, and a real user
-        // checking their work, actually relies on.
-        root = await waitForNewestHistoryRow(
+        // See waitForWriteToSettle's doc comment: this is what makes the
+        // subsequent navigation to History safe rather than a race.
+        await waitForWriteToSettle(root, SOUTHERN_AREA)
+
+        await revertChangeSet(
             page,
             `Assigned ${SINGLE_FACILITY} to ${SOUTHERN_AREA}`
         )
-
-        await revertNewestChange(page)
 
         // Back on the same filtered view: the assignment is gone.
         root = await openGroupSet(page, AREA_SET_NAME)
@@ -302,7 +358,7 @@ test.describe('Group Set Integrity Tool', () => {
         await searchObjects(root, SINGLE_FACILITY)
         await expect(
             root.getByRole('button', { name: SOUTHERN_AREA })
-        ).toHaveAttribute('data-state', 'none', { timeout: 60_000 })
+        ).toHaveAttribute('data-state', 'none', { timeout: 20_000 })
     })
 
     test('bulk move: preview counts match the result panel, then revert', async ({
@@ -316,7 +372,7 @@ test.describe('Group Set Integrity Tool', () => {
         const chiefdomRow = root.getByRole('row', {
             name: new RegExp(`^${BULK_CHIEFDOM}\\b`),
         })
-        await expect(chiefdomRow).toBeVisible({ timeout: 60_000 })
+        await expect(chiefdomRow).toBeVisible({ timeout: 20_000 })
         // Area is a data dimension but not compulsory (spec 3.2's third
         // Missing row), so an unassigned facility is a Missing warning, not
         // an "unassigned, and that's fine" Ok -- there is no separate
@@ -331,7 +387,7 @@ test.describe('Group Set Integrity Tool', () => {
 
         await expect(
             root.getByText(`${BULK_POPULATION_COUNT} objects`)
-        ).toBeVisible({ timeout: 60_000 })
+        ).toBeVisible({ timeout: 20_000 })
 
         await root.getByRole('button', { name: 'Bulk fix…' }).click()
         await expect(
@@ -348,12 +404,24 @@ test.describe('Group Set Integrity Tool', () => {
         // tab underneath is still mounted behind this modal and shows the
         // identical "N objects" text in its own row count (confirmed live
         // -- an unscoped match is ambiguous).
+        //
+        // This is the weaker half of the brief's "assert the preview's
+        // counts against the result panel's counts": the result panel
+        // carries no counts at all on a clean write (`writeOutcomes.ts`
+        // reports "All changes applied to {name}", with numbers appearing
+        // only in the partial/failed wording), so that literal comparison
+        // is not implementable against a successful write. The stronger,
+        // implementable form -- confirmed by deliberately dropping one
+        // object from the write and re-checking (see the report) -- is
+        // the post-apply Objects-tab re-filter below, which catches a
+        // write that silently applied to fewer objects than the preview
+        // promised even though the result panel still reports success.
         const dialogContent = root.locator(
             '[data-test="dhis2-uicore-modalcontent"]'
         )
         await expect(
             dialogContent.getByText(`${BULK_POPULATION_COUNT} objects`)
-        ).toBeVisible({ timeout: 60_000 })
+        ).toBeVisible({ timeout: 20_000 })
         const previewLine = dialogContent
             .locator('li', { hasText: NORTHERN_AREA })
             .filter({ hasText: '+' })
@@ -364,23 +432,24 @@ test.describe('Group Set Integrity Tool', () => {
         await root.getByRole('button', { name: 'Apply…' }).click()
         // The result panel: on a clean write every touched group reports
         // full success, by name -- so the same group named in the preview
-        // line above must be named here too, tying the two together.
+        // line above must be named here too, tying the two together. This
+        // text appears only once `write()` (server, engine, cache,
+        // history, in that order) has fully resolved, so nothing further
+        // needs to wait before navigating away.
         await expect(
             root.getByText(`All changes applied to ${NORTHERN_AREA}`)
-        ).toBeVisible({ timeout: 20_000 })
-        // Scoped to the modal's own actions: an unscoped "Close" also
-        // matches the modal's top-right X (aria-label "Close modal
-        // dialog", which contains the same substring) -- confirmed live,
-        // a strict-mode violation.
+        ).toBeVisible({ timeout: 30_000 })
         await modalActions(root).getByRole('button', { name: 'Close' }).click()
 
         // The actual, post-apply population: filtering Objects to this
         // group now returns exactly the preview's count -- the concrete
-        // number the dialog's own success message elides. The tab's
-        // filter is still "Status: Missing" from opening the bulk fix
-        // dialog (GroupSetDetail carries `filter` across tabs), and these
-        // three objects are no longer Missing now that they are assigned
-        // -- combined with the old status filter, "Group: Northern Area"
+        // number the dialog's own success message elides, and the check
+        // that actually proves the preview and the applied write agree
+        // (see the comment above the preview assertion). The tab's filter
+        // is still "Status: Missing" from opening the bulk fix dialog
+        // (GroupSetDetail carries `filter` across tabs), and these three
+        // objects are no longer Missing now that they are assigned --
+        // combined with the old status filter, "Group: Northern Area"
         // alone would show zero. Status is reset to "All" first so the
         // group filter is the only one still applied.
         await openObjectsTab(root)
@@ -388,9 +457,15 @@ test.describe('Group Set Integrity Tool', () => {
         await chooseOption(root, 'Group', NORTHERN_AREA)
         await expect(
             root.getByText(`${BULK_POPULATION_COUNT} objects`)
-        ).toBeVisible({ timeout: 60_000 })
+        ).toBeVisible({ timeout: 20_000 })
 
-        await revertNewestChange(page)
+        await revertChangeSet(
+            page,
+            new RegExp(
+                `${AREA_SET_NAME}.*${membershipChangeText(BULK_POPULATION_COUNT)}`,
+                's'
+            )
+        )
 
         // Reverted: the chiefdom's own subtree is missing again.
         root = await openGroupSet(page, AREA_SET_NAME)
@@ -399,7 +474,7 @@ test.describe('Group Set Integrity Tool', () => {
         const revertedRow = root.getByRole('row', {
             name: new RegExp(`^${BULK_CHIEFDOM}\\b`),
         })
-        await expect(revertedRow).toBeVisible({ timeout: 60_000 })
+        await expect(revertedRow).toBeVisible({ timeout: 20_000 })
         await expect(revertedRow.getByRole('cell').nth(-3)).toHaveText(
             String(BULK_POPULATION_COUNT)
         )
@@ -416,17 +491,12 @@ test.describe('Group Set Integrity Tool', () => {
         await searchObjects(root, SINGLE_FACILITY)
         await root.getByRole('button', { name: SOUTHERN_AREA }).click()
         await root.getByRole('button', { name: 'Assign' }).click()
+        await waitForWriteToSettle(root, SOUTHERN_AREA)
 
-        // ObjectsTable's own per-row assign never calls `reload()`, so this
-        // page does not reflect the write in place (see the single-assign
-        // flow above) -- History is read separately and does, once the
-        // write's own dataStore save has actually landed (see
-        // waitForNewestHistoryRow's doc comment).
-        root = await waitForNewestHistoryRow(
-            page,
-            `Assigned ${SINGLE_FACILITY} to ${SOUTHERN_AREA}`
-        )
+        root = await goto(page, '/history')
         const row = newestHistoryRow(root)
+        const expectedNote = `Assigned ${SINGLE_FACILITY} to ${SOUTHERN_AREA}`
+        await expect(row).toContainText(expectedNote, { timeout: 15_000 })
         await expect(row).toContainText('Assigned to a group')
         await expect(row).toContainText(AREA_SET_NAME)
         await row.getByRole('button', { name: 'Revert' }).click()
@@ -454,7 +524,7 @@ test.describe('Group Set Integrity Tool', () => {
         await expect(revertButton).toBeEnabled({ timeout: 15_000 })
         await revertButton.click()
         await expect(root.getByText('All changes applied to')).toBeVisible({
-            timeout: 20_000,
+            timeout: 30_000,
         })
         await actions.getByRole('button', { name: 'Close' }).click()
 
@@ -463,6 +533,6 @@ test.describe('Group Set Integrity Tool', () => {
         await searchObjects(root, SINGLE_FACILITY)
         await expect(
             root.getByRole('button', { name: SOUTHERN_AREA })
-        ).toHaveAttribute('data-state', 'none', { timeout: 60_000 })
+        ).toHaveAttribute('data-state', 'none', { timeout: 20_000 })
     })
 })

@@ -76,7 +76,6 @@ export interface AuthedApp {
 }
 
 export const test = base.extend<{ authedApp: AuthedApp }>({
-    // eslint-disable-next-line no-empty-pattern
     authedApp: async ({ page, context, baseURL }, use) => {
         if (!baseURL) {
             throw new Error(

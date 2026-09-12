@@ -17,21 +17,20 @@ export default defineConfig({
     forbidOnly: Boolean(process.env.CI),
     retries: 0,
     reporter: [['list']],
-    // One worker: the two projects' browsers, run concurrently on this
-    // sandbox's 4 shared CPUs, were measured starving each other's page --
-    // the engine's own status recompute after a write (all in a Web
-    // Worker, CPU-bound) took over two minutes under that contention on
-    // whichever project lost the scheduler, against a few seconds with
-    // only one browser running. Serializing removes that contention; it
-    // costs wall-clock time, not correctness.
+    // One worker: running both projects' browsers concurrently on this
+    // sandbox's 4 shared CPUs was measured starving whichever one lost the
+    // scheduler -- the engine's own status recompute after a write (a Web
+    // Worker, CPU-bound) took noticeably longer under that contention than
+    // with only one browser running. Serializing removes that variable; it
+    // costs wall-clock time (the suite runs projects one after another
+    // instead of side by side), not correctness.
     workers: 1,
-    // Individual waits after a write allow up to 240s each (this instance's
-    // dataStore save and engine reload can legitimately take that long
-    // against the metadata API -- see flows.spec.ts's
-    // waitForNewestHistoryRow), and a single test can chain more than one
-    // of those (write, then revert), so the overall budget needs headroom
-    // well above a single step's own allowance.
-    timeout: 480_000,
+    // Every wait in flows.spec.ts is now on a specific, named condition
+    // (a control re-enabling, a row's text, a result message) rather than a
+    // fixed delay -- see waitForWriteToSettle's doc comment (fix round 1) --
+    // so this is a safety ceiling for the whole test, not a number anything
+    // is tuned against.
+    timeout: 60_000,
     expect: { timeout: 10_000 },
     use: {
         trace: 'retain-on-failure',
@@ -43,9 +42,11 @@ export default defineConfig({
         // `@playwright/test`'s default project wants (chrome-headless-shell)
         // is missing, but the full chromium binary for the same revision is
         // already present at this path -- pointing at it directly avoids
-        // the download entirely.
+        // the download entirely. `PLAYWRIGHT_CHROME_PATH` overrides this for
+        // any other machine (or CI) where that path does not exist.
         launchOptions: {
             executablePath:
+                process.env.PLAYWRIGHT_CHROME_PATH ??
                 '/opt/playwright-browsers/chromium-1243/chrome-linux-arm64/chrome',
         },
     },
