@@ -7,10 +7,15 @@
 .row {
     display: flex;
     gap: var(--spacers-dp12);
-    /* flex-end, not center: fields have a label above their control, and a
-       control with no label of its own must still sit on the same baseline
-       as one that has. */
-    align-items: flex-end;
+    /* flex-start, not flex-end: every field renders exactly one label
+       line above its control (FilterBarField's one <span>, always
+       present), so flex-start already lines up every control's top edge.
+       flex-end would instead bottom-align each field's box, and a
+       control whose field carries `helpText` (Dashboard.tsx's "Sort by")
+       grows taller below the control -- `Field` renders `Help` inside the
+       field box, under the input -- which would push that one control
+       ~18px above the others if they were bottom-aligned. */
+    align-items: flex-start;
     flex-wrap: wrap;
 }
 .field {
@@ -39,7 +44,15 @@
    one number by itself, so the two Button-backed fields (Organisation
    unit, Data) are pinned to the select fields' 32px here instead. Scoped to
    a direct child, not every descendant button, so a Button nested deeper
-   -- OrgUnitField's own modal actions, for instance -- is unaffected. */
-.field > button {
+   -- OrgUnitField's own modal actions, for instance -- is unaffected.
+   Scoped through `.bar` too, not just `.field`: @dhis2-ui/button's own
+   height rule compiles (via styled-jsx's scoping class) to
+   `button.jsx-<hash> { height: 36px }`, which is also a 2-class
+   selector. Styled-jsx appends its <style> to <head> on mount, after this
+   CSS-module stylesheet is already there, so with equal specificity
+   document order would hand the library's 36px the win over this rule.
+   The extra `.bar` ancestor raises this selector to 3 classes so it wins
+   outright regardless of style order. */
+.bar .field > button {
     height: 32px;
 }

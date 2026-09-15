@@ -551,7 +551,7 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
     }
     return (
         <div>
-            <p className={styles.count}>
+            <p className={styles.count} data-test="objects-count">
                 {objectsCountLabel(current.total)}
                 {isLoading && ` · ${i18n.t('Loading more rows…')}`}
             </p>

@@ -148,6 +148,16 @@ export const SummaryMatrix = ({
     }
 
     const totals = {
+        // Sum of memberships across the folded-away groups, not a count of
+        // distinct objects: an object that is in two of `plan.other`'s
+        // groups (a conflict) is counted twice here, same as it would be
+        // counted twice if those two groups were each shown as their own
+        // column. Left this way on purpose -- each named group column
+        // (`g.total` / `r.perGroup[g.index]` below) has exactly the same
+        // property, so this aggregate stays consistent with the columns
+        // beside it. Making it object-count-accurate here would make the
+        // "Other groups" total silently disagree with what its own
+        // constituent groups would show if unfolded, which would be worse.
         other: plan.other.reduce((s, g) => s + g.total, 0),
         missing: result.rows.reduce((s, r) => s + r.missing, 0),
         unassigned: result.rows.reduce((s, r) => s + r.unassigned, 0),
@@ -326,6 +336,18 @@ export const SummaryMatrix = ({
                                 )}
                                 {showOther &&
                                     otherGroupsCell(
+                                        // Sum of memberships, not distinct
+                                        // objects -- see the matching note
+                                        // on `totals.other` above. On a row
+                                        // with a conflict spanning two of
+                                        // these folded-away groups, this
+                                        // value (and the column total it
+                                        // feeds) can exceed the row's
+                                        // `total`. Left as-is: every other
+                                        // group column has the same
+                                        // per-membership property, so
+                                        // changing just this one would make
+                                        // it the odd one out.
                                         plan.other.reduce(
                                             (s, g) => s + r.perGroup[g.index],
                                             0

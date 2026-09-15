@@ -219,8 +219,10 @@ export const GroupSetDetail = () => {
     }
 
     // Task 6: a row's own level is always `effectiveRowLevel` -- every row
-    // in the matrix sits there by construction (matrix rows carry no path
-    // of their own to re-derive it from). Drilling only makes sense when a
+    // in the matrix sits there by construction (`ObjectRef.level`, on each
+    // row's own `row`, is the same value; `effectiveRowLevel` is used here
+    // only because it is already in scope, not because rows lack a level
+    // of their own). Drilling only makes sense when a
     // level exists below it; `levels` is already sorted ascending and
     // filtered to what lies below the scope, so its first entry past the
     // row's own level is the next one down. When there is none -- the

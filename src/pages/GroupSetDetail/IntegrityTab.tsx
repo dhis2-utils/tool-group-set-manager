@@ -434,7 +434,10 @@ export const IntegrityTab = ({ set, scope }: Props) => {
                     engineCount !== bucket.inScope.length
                 return (
                     <div key={check.name} className={styles.check}>
-                        <h3 className={styles.checkTitle}>
+                        <h3
+                            className={styles.checkTitle}
+                            data-test="integrity-check-title"
+                        >
                             {check.displayName}
                         </h3>
                         {summary && (

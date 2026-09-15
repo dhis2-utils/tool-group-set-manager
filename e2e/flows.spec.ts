@@ -334,9 +334,13 @@ test.describe('Group Set Integrity Tool', () => {
         const root = await authedApp.root()
         // The Organisation unit field (formerly "Scope:") -- see
         // fixtures/session.ts's SCOPE_LABEL doc comment for why `exact`
-        // matters here.
+        // matters, and why this must be scoped to the filter bar rather
+        // than searched for across the whole root (SummaryMatrix renders a
+        // column header with the same text).
         await expect(
-            root.getByText(SCOPE_LABEL, { exact: true })
+            root
+                .locator('[data-test="filter-bar"]')
+                .getByText(SCOPE_LABEL, { exact: true })
         ).toBeVisible()
         const areaCard = root
             .locator('[role="button"]')
@@ -629,8 +633,17 @@ test.describe('Group Set Integrity Tool', () => {
         // this is what "clearing restores the unfiltered count" is
         // actually checked against, rather than a hardcoded population
         // number that would also have to be kept in sync with the seed.
-        const countText = root.getByText(/^[\d,]+ objects?$/)
-        await expect(countText).toBeVisible({ timeout: 20_000 })
+        //
+        // Scoped to `[data-test="objects-count"]` (ObjectsTable.tsx), not
+        // a bare text match: GroupsPanel renders the same "{n} objects"
+        // wording per group on the Overview tab, so an unscoped regex here
+        // is only unique because the Overview tab happens to be unmounted
+        // while the Objects tab is open. Scoping removes the trap rather
+        // than relying on that.
+        const countText = root.locator('[data-test="objects-count"]')
+        await expect(countText).toHaveText(/^[\d,]+ objects?$/, {
+            timeout: 20_000,
+        })
         const unfilteredCount = await countText.textContent()
 
         // 1) A term matching an object beyond ObjectsTable's own first
@@ -738,8 +751,15 @@ test.describe('Group Set Integrity Tool', () => {
         // At least one check the app itself resolved is titled here --
         // never a hardcoded name (IntegrityTab.tsx renders one heading per
         // relevant, resolved check).
+        //
+        // Scoped to `[data-test="integrity-check-title"]`
+        // (IntegrityTab.tsx), not a generic level-3 heading: GroupsPanel's
+        // "Groups in this set" is also an `<h3>`, on the Overview tab. An
+        // unscoped `getByRole('heading', { level: 3 })` is only unique here
+        // because the Overview tab is unmounted while this one is open;
+        // scoping removes that trap.
         await expect(
-            root.getByRole('heading', { level: 3 }).first()
+            root.locator('[data-test="integrity-check-title"]').first()
         ).toBeVisible({ timeout: 20_000 })
 
         await root.getByRole('button', { name: 'Run now' }).click()

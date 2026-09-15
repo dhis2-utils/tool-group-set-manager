@@ -79,6 +79,12 @@ export async function appRoot(page: Page): Promise<AppRoot> {
  * text is gone from the app entirely (`grep -rn "Scope (" src` finds
  * nothing), so the gate is updated to match rather than left pointing at
  * text the app no longer renders.
+ *
+ * Not unique by itself: `SummaryMatrix` renders a column header with
+ * exactly this text too, so an `exact` match against this string is a
+ * strict-mode violation on any group set page's Overview tab. Every use of
+ * this constant must scope its locator to `[data-test="filter-bar"]`
+ * (`FilterBar.tsx`) rather than searching the whole app root.
  */
 export const SCOPE_LABEL = 'Organisation unit'
 
@@ -138,9 +144,19 @@ export const test = base.extend<{ authedApp: AuthedApp }>({
         // case-insensitively -- confirmed live, `exact: false` here is
         // ambiguous (strict-mode violation) the instant the field has no
         // organisation unit chosen yet.
-        const scopeLabel: Locator = (await root()).getByText(SCOPE_LABEL, {
-            exact: true,
-        })
+        //
+        // Scoped to `[data-test="filter-bar"]` (FilterBar.tsx), not the
+        // whole app root: `SummaryMatrix` also renders a column header with
+        // exactly the text "Organisation unit", so an unscoped `exact`
+        // match here is unique only before that component has ever
+        // mounted. True for this gate today (it runs right after
+        // `page.goto`, before any group set page has rendered), but scoping
+        // it removes the trap rather than relying on that ordering.
+        const scopeLabel: Locator = (await root())
+            .locator('[data-test="filter-bar"]')
+            .getByText(SCOPE_LABEL, {
+                exact: true,
+            })
         await expect(scopeLabel).toBeVisible({ timeout: 30_000 })
 
         await use({ page, root })
