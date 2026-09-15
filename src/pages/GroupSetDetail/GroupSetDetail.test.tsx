@@ -465,6 +465,39 @@ describe('DHIS2 integrity tab (m6, review round 1)', () => {
     })
 })
 
+describe('DHIS2 integrity check header button (Task 7)', () => {
+    // The complaint this task fixes: the feature was reachable only by
+    // noticing a tab. The button is a second way in, not a second way to
+    // run the checks -- it only switches to the tab that already owns
+    // running them (see the m6 describe block above for that tab-state
+    // wiring).
+    it('offers the integrity check from the header when it is available', async () => {
+        mockIntegrity.available = true
+        renderDetail()
+
+        const button = await screen.findByRole('button', {
+            name: 'Run DHIS2 integrity checks',
+        })
+        fireEvent.click(button)
+        // it takes the user to the tab that runs them
+        expect(
+            await screen.findByRole('tab', { selected: true })
+        ).toHaveTextContent('DHIS2 integrity')
+    })
+
+    it('offers nothing when the user may not read integrity results', async () => {
+        mockIntegrity.available = false
+        renderDetail()
+
+        await screen.findByText('Overview')
+        expect(
+            screen.queryByRole('button', {
+                name: 'Run DHIS2 integrity checks',
+            })
+        ).not.toBeInTheDocument()
+    })
+})
+
 describe('background reload indicator (Task 7, carried forward from Plan 1)', () => {
     it('says a reload is running and which type it is loading, from the same status the dashboard reads', async () => {
         mockEngine.status = {

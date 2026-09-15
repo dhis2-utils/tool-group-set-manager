@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-15T16:56:25.055Z\n"
-"PO-Revision-Date: 2026-09-15T16:56:25.055Z\n"
+"POT-Creation-Date: 2026-09-15T17:15:10.190Z\n"
+"PO-Revision-Date: 2026-09-15T17:15:10.190Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -616,6 +616,9 @@ msgstr "You do not have permission to change this group set"
 
 msgid "Set properties…"
 msgstr "Set properties…"
+
+msgid "Run DHIS2 integrity checks"
+msgstr "Run DHIS2 integrity checks"
 
 msgid "Fix issues…"
 msgstr "Fix issues…"
