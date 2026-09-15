@@ -341,7 +341,7 @@ EOF
 
 **Interfaces:**
 - Consumes: `FilterBar`, `FilterBarField`, `OrgUnitField` from Task 1.
-- Produces: nothing new. `OverviewTab`'s props lose `rowLevel`, `levels` and `onRowLevel` — it keeps only `set`, `scope`, `onCell` and the caption it derives. Task 6 adds one prop back.
+- Produces: `OverviewTab`'s props lose **`levels` and `onRowLevel`** — the selector they fed now lives in the bar. They **keep `rowLevel`**: `OverviewTab` still needs the chosen level to call `matrixFor` and to build `aboveLevelCaption`. `GroupSetDetail` passes `effectiveRowLevel` into it. So the props after this task are `set`, `scope`, `rowLevel`, `onCell`. Task 6 adds `onDrillDown`.
 
 - [ ] **Step 1: Write the failing tests**
 
