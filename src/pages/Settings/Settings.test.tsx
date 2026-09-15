@@ -436,9 +436,28 @@ describe('Settings — group set usage', () => {
         ).toBeInTheDocument()
     })
 
-    it('does not offer the button to a user who cannot create SQL views', async () => {
+    // Fix round 2 (Important 3): before this fix, a user without the
+    // authority saw "Missing", no button and no explanation -- exactly
+    // after UsageTab.tsx tells them to "Go to Settings to install it". A
+    // loop with no exit. The sibling SQL views section already explains
+    // this case (and the `null` case below); this section must too.
+    it('does not offer the button to a user who cannot create SQL views, and explains why', async () => {
         renderSettings({ canManage: false })
-        expect(await screen.findByText('Group set usage')).toBeInTheDocument()
+        expect(
+            await screen.findByText(/do not have the required authority/i)
+        ).toBeInTheDocument()
+        expect(
+            screen.queryByRole('button', { name: 'Install usage SQL view' })
+        ).not.toBeInTheDocument()
+    })
+
+    it('explains that authority could not be determined when canManage is null', async () => {
+        renderSettings({ canManage: null })
+        expect(
+            await screen.findByText(
+                /could not determine whether you can create/i
+            )
+        ).toBeInTheDocument()
         expect(
             screen.queryByRole('button', { name: 'Install usage SQL view' })
         ).not.toBeInTheDocument()
@@ -575,6 +594,41 @@ describe('Settings — group set usage', () => {
         // Nothing changed on the server -- see the two success-path tests
         // above for what this guards against not happening instead.
         expect(mockUsageRefresh).not.toHaveBeenCalled()
+    })
+
+    // Fix round 2 (Minor folded in): `refreshUsage()` used to run only on
+    // the success path inside the `try`, so an unexpected throw from
+    // `installUsageView` (it does not normally throw -- see its own doc
+    // comment -- but a genuinely unexpected error must still be handled)
+    // left `usageCheck` exactly as it was before the click, even if the
+    // view was actually created on the server moments before the throw.
+    // Moving the re-check into `finally` means the second `checkUsageView`
+    // call below -- simulating the server having the view now -- always
+    // happens, and "Usable" replaces "Missing" despite the error shown.
+    it('re-checks the server after an unexpected install failure, instead of leaving a stale status', async () => {
+        mockCheckUsage
+            .mockResolvedValueOnce({
+                id: null,
+                type: undefined,
+                readable: false,
+                usable: false,
+            })
+            .mockResolvedValueOnce({
+                id: 'v2',
+                type: 'VIEW',
+                readable: true,
+                usable: true,
+            })
+        mockInstallUsage.mockRejectedValueOnce(new Error('boom'))
+        renderSettings({ canManage: true })
+        fireEvent.click(
+            await screen.findByRole('button', {
+                name: 'Install usage SQL view',
+            })
+        )
+        expect(await screen.findByText('boom')).toBeInTheDocument()
+        expect(await screen.findByText('Usable')).toBeInTheDocument()
+        expect(mockCheckUsage).toHaveBeenCalledTimes(2)
     })
 
     // Review fix 2 (Important), status-check half: a failing status check

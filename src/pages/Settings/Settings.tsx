@@ -218,7 +218,6 @@ export const Settings = () => {
         try {
             const result = await installUsageView(fetcher, usageCheck)
             setUsageResult(result)
-            await refreshUsage()
             if (result.installed) {
                 // Only on a real change: a failed install leaves the
                 // instance exactly as `useUsage()`'s readers already saw it.
@@ -227,6 +226,13 @@ export const Settings = () => {
         } catch (e) {
             setUsageActionError(e instanceof Error ? e.message : String(e))
         } finally {
+            // Fix round 2 (Minor folded in): was inside the `try`, so an
+            // unexpected throw skipped it and left `usageCheck` stale --
+            // Settings could keep reporting "Missing" while the view
+            // actually existed on the server. Runs on both paths now, so
+            // the tag always reflects the server's real state regardless
+            // of how the call above ended.
+            await refreshUsage()
             setUsageBusy(false)
         }
     }
@@ -241,11 +247,12 @@ export const Settings = () => {
             await removeUsageView(fetcher, usageCheck.id)
             // The install report belongs to a view that no longer exists.
             setUsageResult(null)
-            await refreshUsage()
             usage.refresh()
         } catch (e) {
             setUsageActionError(e instanceof Error ? e.message : String(e))
         } finally {
+            // Same shape as handleInstallUsage above, same fix.
+            await refreshUsage()
             setUsageBusy(false)
         }
     }
@@ -413,6 +420,39 @@ export const Settings = () => {
                                 {i18n.t('Remove usage SQL view')}
                             </Button>
                         )}
+                        {usageCheck &&
+                            !usageCheck.usable &&
+                            canManage === false && (
+                                // Fix round 2 (Important 3): mirrors the SQL
+                                // views section's own `canManage === false`
+                                // branch above, reusing its exact wording --
+                                // without this a user without the authority
+                                // saw "Missing", no button and no
+                                // explanation, right after the Usage tab
+                                // told them to "Go to Settings to install
+                                // it": a loop with no exit.
+                                <NoticeBox
+                                    warning
+                                    title={i18n.t('SQL views are not set up')}
+                                >
+                                    {i18n.t(
+                                        'You do not have the required authority to create SQL views. Ask an administrator to create them, or grant the authority to add public SQL views.'
+                                    )}
+                                </NoticeBox>
+                            )}
+                        {usageCheck &&
+                            !usageCheck.usable &&
+                            canManage === null &&
+                            !usageChecking && (
+                                <NoticeBox
+                                    warning
+                                    title={i18n.t('SQL views are not set up')}
+                                >
+                                    {i18n.t(
+                                        'The app could not determine whether you can create SQL views.'
+                                    )}
+                                </NoticeBox>
+                            )}
                         {usageResult?.installed && (
                             <NoticeBox
                                 valid

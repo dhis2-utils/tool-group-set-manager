@@ -192,6 +192,21 @@ export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
                                     e.stopPropagation()
                                     onOpenUsage()
                                 }}
+                                onKeyDown={(e) => {
+                                    // Fix round 2 (Minor promoted): the
+                                    // mouse path stops propagation above,
+                                    // but a keydown on this inner button
+                                    // still bubbled to the card's own
+                                    // `activate` handler -- Space hit
+                                    // `preventDefault` there and suppressed
+                                    // this button's own activation
+                                    // (navigating to Overview instead of
+                                    // Usage), and Enter fired `onOpen` on
+                                    // the bubbled keydown *and* `onOpenUsage`
+                                    // on the resulting click, with only
+                                    // ordering deciding which one "won".
+                                    e.stopPropagation()
+                                }}
                             >
                                 {i18n.t('Appears unused')}
                             </button>

@@ -52,8 +52,16 @@ export interface UsageSqlCandidate {
  *   the mapview (measured: 0 of 74 MAP_VIEW rows join to `mapview.uid`).
  * - there is deliberately no data element group set branch for maps or event
  *   visualisations: no such bridge table exists on any supported version.
- * - `age(now(), timestamp)` is evaluated per query, so a database VIEW built
- *   from this body never serves a stale 12-month window.
+ * - `now() - interval '12 months'` is evaluated per query, so a database
+ *   VIEW built from this body never serves a stale 12-month window. Fix
+ *   round 2 (Important 4): this replaces an earlier `age(now(), timestamp)
+ *   < interval '12 month'` condition, which cannot use an index on
+ *   `timestamp` -- fine on the tens of rows every test instance has, not on
+ *   a national instance's `datastatisticsevent`, which runs to millions of
+ *   rows a year and is read on every dashboard load. `timestamp > now() -
+ *   interval '12 months'` is sargable and returns the identical result (see
+ *   `docs/superpowers/notes/2026-09-plan6-usage-tables.md`'s fix-round-2
+ *   addendum).
  */
 export const USAGE_SQL_CANDIDATES: UsageSqlCandidate[] = [
     {
@@ -111,7 +119,7 @@ select r.groupset_uid,
 from refs r
 left join datastatisticsevent e
   on e.favoriteuid = r.favourite_uid
- and age(now(), e.timestamp) < interval '12 month'
+ and e.timestamp > now() - interval '12 months'
 group by r.groupset_uid, r.groupset_type, r.favourite_type
 order by r.groupset_uid, r.favourite_type`,
     },

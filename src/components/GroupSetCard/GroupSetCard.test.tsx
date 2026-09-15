@@ -445,13 +445,56 @@ describe('GroupSetCard — usage', () => {
     })
 
     it('tags a set no favourite references, and the tag opens its Usage tab', () => {
+        const onOpen = jest.fn()
         const onOpenUsage = jest.fn()
         mockUsage.mockReturnValue(
             readyUsage({ favourites: 0, views12m: 0, byFavouriteType: [] })
         )
-        renderCard({ onOpenUsage })
+        renderCard({ onOpen, onOpenUsage })
         fireEvent.click(screen.getByRole('button', { name: 'Appears unused' }))
         expect(onOpenUsage).toHaveBeenCalled()
+        // Fix round 2 (Minor promoted): the whole card is itself a button
+        // with its own click handler wired to `onOpen` -- without the
+        // tag's own `stopPropagation()`, this click would bubble and open
+        // Overview as well as (really, instead of, since it fires second)
+        // Usage. Deleting that call must fail this assertion.
+        expect(onOpen).not.toHaveBeenCalled()
+    })
+
+    // Fix round 2 (Minor promoted): the inner button's keydown used to
+    // bubble to the card's own `activate` handler. Space hit
+    // `e.preventDefault()` there and suppressed the button's own native
+    // activation, landing on Overview instead of Usage; Enter fired
+    // `onOpen` on the bubbled keydown *and* `onOpenUsage` on the resulting
+    // click, with only ordering deciding which "won". `userEvent` (unlike
+    // `fireEvent.keyDown`) simulates a real browser's click-on-Enter/Space
+    // for a native `<button>`, which is what actually exercises the seam.
+    it('activates only the Usage tab, not Overview, when "Appears unused" is reached by Space', async () => {
+        const onOpen = jest.fn()
+        const onOpenUsage = jest.fn()
+        mockUsage.mockReturnValue(
+            readyUsage({ favourites: 0, views12m: 0, byFavouriteType: [] })
+        )
+        renderCard({ onOpen, onOpenUsage })
+        const tag = screen.getByRole('button', { name: 'Appears unused' })
+        tag.focus()
+        await userEvent.keyboard(' ')
+        expect(onOpenUsage).toHaveBeenCalledTimes(1)
+        expect(onOpen).not.toHaveBeenCalled()
+    })
+
+    it('activates only the Usage tab, not Overview, when "Appears unused" is reached by Enter', async () => {
+        const onOpen = jest.fn()
+        const onOpenUsage = jest.fn()
+        mockUsage.mockReturnValue(
+            readyUsage({ favourites: 0, views12m: 0, byFavouriteType: [] })
+        )
+        renderCard({ onOpen, onOpenUsage })
+        const tag = screen.getByRole('button', { name: 'Appears unused' })
+        tag.focus()
+        await userEvent.keyboard('{Enter}')
+        expect(onOpenUsage).toHaveBeenCalledTimes(1)
+        expect(onOpen).not.toHaveBeenCalled()
     })
 
     it('shows nothing about usage when this instance has no usage view', () => {

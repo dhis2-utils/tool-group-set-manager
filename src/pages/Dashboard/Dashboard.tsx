@@ -17,7 +17,7 @@ import { DashboardEntry } from '@/engine/store'
 import { OBJECT_TYPES, ObjectType } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useScope } from '@/hooks/useScope'
-import { useUsage } from '@/hooks/useUsage'
+import { useUsage, UsageStatus } from '@/hooks/useUsage'
 import { interpolate } from '@/utils/interpolate'
 import { typeLabel } from '@/utils/objectTypeLabels'
 
@@ -73,6 +73,25 @@ const sourceLabel = (kind: 'sqlView' | 'metadata') =>
         ? i18n.t('Data loaded from the GSI SQL views')
         : i18n.t('Data loaded from the metadata API')
 
+// Fix round 2 (Important 1): `useUsage()`'s own doc comment is explicit that
+// 'error' (a view that exists but cannot be read) must never be told to the
+// user as if it were 'absent' (no view installed) -- Settings and the Usage
+// tab already keep those apart, so this field must too, rather than
+// collapsing both into one boolean and telling every user mid-load
+// ('loading') the most specific of the four stories regardless of which one
+// is true. 'loading' and 'ready' get no help text at all: a transient state
+// should not explain itself, and a working one needs no explanation.
+const usageSortHelpText = (status: UsageStatus) => {
+    switch (status) {
+        case 'absent':
+            return i18n.t('Usage data is not installed on this instance')
+        case 'error':
+            return i18n.t('Usage data could not be read on this instance')
+        default:
+            return undefined
+    }
+}
+
 export const Dashboard = () => {
     const { client, status, error, sourceKind, fellBack, reload } = useEngine()
     const { rootId, isReady } = useScope()
@@ -88,6 +107,19 @@ export const Dashboard = () => {
     >({})
     const usage = useUsage()
     const usageSortable = usage.status === 'ready'
+
+    // Fix round 2 (Important 1): if usage stops being ready while the usage
+    // sort is selected -- the view is removed in Settings mid-session, or a
+    // read starts erroring -- `shown.sort` below silently falls back to
+    // `byWorstFirst` (it already guards on `usageSortable`), but without
+    // this the field itself kept showing "Usage (least used first)" as
+    // selected. The field and the actual order must never disagree about
+    // which sort is in effect.
+    useEffect(() => {
+        if (!usageSortable && sortKey === 'usage') {
+            setSortKey('issues')
+        }
+    }, [usageSortable, sortKey])
 
     /**
      * Least used first, because that is the question this sort answers --
@@ -223,13 +255,7 @@ export const Dashboard = () => {
                         onChange={({ selected }) =>
                             setSortKey(selected as SortKey)
                         }
-                        helpText={
-                            usageSortable
-                                ? undefined
-                                : i18n.t(
-                                      'Usage data is not installed on this instance'
-                                  )
-                        }
+                        helpText={usageSortHelpText(usage.status)}
                     >
                         <SingleSelectOption
                             value="issues"
@@ -260,6 +286,22 @@ export const Dashboard = () => {
             {sourceKind && (
                 <p className={styles.note}>{sourceLabel(sourceKind)}</p>
             )}
+            {
+                // Fix round 2 (Important 2): spec 3.6 requires every
+                // surface showing a count to carry the caveat, not just the
+                // Usage tab (which has the full sentence) -- the cards
+                // below show a favourites count with none at all. One line
+                // here, not one per card: the plan's own words for this
+                // were "the tab is where the full sentence lives; the card
+                // carries the short form", and this is that short form.
+                usage.status === 'ready' && (
+                    <p className={styles.note}>
+                        {i18n.t(
+                            'Usage counts are indicative — they cover saved favourites and their recorded views.'
+                        )}
+                    </p>
+                )
+            }
             {
                 // Closes Plan 2's deferred item: the D4 fallback is silent
                 // per-load, so a broken SQL view degrades every load with

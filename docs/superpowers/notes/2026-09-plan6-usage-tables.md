@@ -209,3 +209,60 @@ the join is correct.
 executes and reads correctly, with the expected table inventory and join
 behaviour, on 2.40.12, 2.41.10, 2.42.6 and 2.43.1. No version rejected the
 shipped body; no second candidate was added.
+
+## Fix round 2 (final review, Important 4): the `views_12m` join was not sargable
+
+The body above joined `datastatisticsevent` with
+`age(now(), e.timestamp) < interval '12 month'`. `age()` wraps the indexed
+column in a function call, so Postgres cannot use an index on
+`datastatisticsevent.timestamp` to satisfy it -- it has to evaluate `age()`
+against every row. Untestable on the four measurement instances above,
+where `datastatisticsevent` holds only tens of rows; on a national
+production instance it runs to millions of rows a year, and this view is
+read on every dashboard load. Least server load is this project's standing
+tie-breaker (it is why the app computes client-side at all), so the
+condition was changed to `e.timestamp > now() - interval '12 months'`,
+which is sargable.
+
+**This invalidates the four-version verification above, so it was
+re-verified** -- against `agent-gsi-p2` (2.43.1) only, the instance
+running at the time of this fix, not against all four versions again: the
+change touches nothing version-specific (no table or column named differs
+between the two forms), only how the same comparison is expressed, so a
+second measurement against the same instance that already passed the
+original four-version review is what this change needs, not a fresh
+four-version run.
+
+Steps, all against `agent-gsi-p2` (2.43.1), `local_admin`/`district`:
+
+1. Created the **new** body as a throwaway view (`GSI_GROUPSET_USAGE_FR2`,
+   id `gKNLXAiU6BI`, `type: "VIEW"`): `POST /api/sqlViews` → HTTP 201,
+   `POST /api/sqlViews/gKNLXAiU6BI/execute` → HTTP 201,
+   `GET /api/sqlViews/gKNLXAiU6BI/data.json?pageSize=5000` → HTTP 200, 12
+   rows.
+2. Created the **old** (pre-fix, `age()`) body as a second throwaway view
+   on the same instance (`GSI_GROUPSET_USAGE_OLD`, id `tosFuMxFJAT`) the
+   same way: create → 201, execute → 201, read → 200, 12 rows.
+3. Compared the two reads' `listGrid.rows` arrays byte-for-byte (JSON
+   stringified): **identical**, all 12 `(groupset_uid, groupset_type,
+   favourite_type, favourites, views_12m)` tuples, `views_12m = 0` on every
+   row on the 12-month window (unchanged from the original measurement --
+   this seed's newest statistics event still predates 12 months before
+   2026-09-15).
+4. Widened-window control: ran the **new** sargable body directly in
+   `psql` against `dhis2-agent-gsi-p2-db`, with `now() - interval '12
+   months'` widened to `now() - interval '200 months'`. Result: the same
+   12 `(groupset_uid, favourite_type)` pairs and `favourites` counts, with
+   `views_12m` now `32, 3, 6, 12, 11, 0, 89, 0, 0, 14, 25, 0` in row order
+   -- the non-zero values are exactly `{89, 32, 25, 14, 12, 11, 6, 3}`,
+   matching the eight values the original four-version measurement
+   recorded (§4 above) exactly, confirming the sargable rewrite preserves
+   the join's behaviour.
+5. Deleted both throwaway views (`DELETE /api/sqlViews/gKNLXAiU6BI` and
+   `DELETE /api/sqlViews/tosFuMxFJAT`) -- both HTTP 200 -- and confirmed
+   `GET /api/sqlViews.json?filter=code:like:GSI_GROUPSET_USAGE` returns zero
+   rows. `agent-gsi-p2` is a shared instance and the e2e usage flow expects
+   to install the view itself, so nothing was left behind.
+
+The original four-version measurements above (§1 through §4) are left
+exactly as they were recorded; this section is additive.

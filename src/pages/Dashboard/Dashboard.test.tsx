@@ -274,6 +274,50 @@ it('stays silent on a metadata-only server that never fell back', async () => {
     expect(screen.queryByText(/settings/i)).not.toBeInTheDocument()
 })
 
+// Fix round 2 (Important 2): spec 3.6 requires every surface showing a
+// count to carry the caveat -- the dashboard cards show a favourites count
+// with none anywhere on the page until this fix. One line for the whole
+// page, not one per card.
+it('shows the indicative-counts caveat once usage data is ready, and not before', async () => {
+    mockUsage.mockReturnValue({
+        status: 'ready',
+        error: null,
+        forSet: () => ({ favourites: 0, views12m: 0, byFavouriteType: [] }),
+        refresh: jest.fn(),
+    })
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+    expect(
+        screen.getByText(/Usage counts are indicative/)
+    ).toBeInTheDocument()
+})
+
+it('shows no indicative-counts caveat when there is no usage data to caveat', async () => {
+    mockUsage.mockReturnValue({
+        status: 'absent',
+        error: null,
+        forSet: () => null,
+        refresh: jest.fn(),
+    })
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+    expect(
+        screen.queryByText(/Usage counts are indicative/)
+    ).not.toBeInTheDocument()
+})
+
 it('lists sets with issues and hides clean ones by default', async () => {
     render(
         <MemoryRouter>
@@ -618,6 +662,120 @@ it('enables the usage sort, with no help text, once usage data is ready', async 
         '[data-value="usage"]'
     ) as HTMLElement
     expect(usageOption).not.toHaveClass('disabled')
+})
+
+// Fix round 2 (Important 1): 'loading' is true on every fresh dashboard
+// load of a perfectly healthy instance, so it must not show the most
+// specific ('absent'/'error') wording -- and a transient state should not
+// explain itself at all, so neither string appears while the option stays
+// disabled.
+it('shows no help text for the usage sort while usage is still loading, but keeps the option disabled', async () => {
+    mockUsage.mockReturnValue({
+        status: 'loading',
+        error: null,
+        forSet: () => null,
+        refresh: jest.fn(),
+    })
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+    expect(
+        screen.queryByText('Usage data is not installed on this instance')
+    ).not.toBeInTheDocument()
+    expect(
+        screen.queryByText('Usage data could not be read on this instance')
+    ).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('Issues'))
+    const usageOption = document.querySelector(
+        '[data-value="usage"]'
+    ) as HTMLElement
+    expect(usageOption).toHaveClass('disabled')
+})
+
+// Fix round 2 (Important 1): 'error' (a view that exists but cannot be
+// read) is a different story from 'absent' (no view installed) --
+// Settings shows this case as "Usable" and the Usage tab says "could not
+// be read", so the dashboard must not tell the user to install a view
+// that is already there.
+it('shows the "could not be read" wording for an unreadable usage view, never the "not installed" wording', async () => {
+    mockUsage.mockReturnValue({
+        status: 'error',
+        error: 'HTTP 500',
+        forSet: () => null,
+        refresh: jest.fn(),
+    })
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+    expect(
+        screen.getByText('Usage data could not be read on this instance')
+    ).toBeInTheDocument()
+    expect(
+        screen.queryByText('Usage data is not installed on this instance')
+    ).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('Issues'))
+    const usageOption = document.querySelector(
+        '[data-value="usage"]'
+    ) as HTMLElement
+    expect(usageOption).toHaveClass('disabled')
+})
+
+// Fix round 2 (Important 1): without this, choosing the usage sort and
+// then having usage stop being ready (the view removed in Settings, or a
+// read starting to error) left the field still displaying "Usage (least
+// used first)" as selected while the list had already silently fallen
+// back to worst-first -- the field and the actual order disagreeing about
+// which sort was in effect.
+it('returns the sort field to Issues if usage stops being ready after the usage sort was chosen', async () => {
+    mockUsage.mockReturnValue({
+        status: 'ready',
+        error: null,
+        forSet: () => ({ favourites: 0, views12m: 0, byFavouriteType: [] }),
+        refresh: jest.fn(),
+    })
+    const { rerender } = render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+
+    await userEvent.click(screen.getByText('Issues'))
+    await userEvent.click(
+        document.querySelector('[data-value="usage"]') as HTMLElement
+    )
+    expect(screen.getByText('Usage (least used first)')).toBeInTheDocument()
+
+    mockUsage.mockReturnValue({
+        status: 'absent',
+        error: null,
+        forSet: () => null,
+        refresh: jest.fn(),
+    })
+    rerender(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+
+    await waitFor(() => expect(screen.getByText('Issues')).toBeInTheDocument())
+    expect(
+        screen.queryByText('Usage (least used first)')
+    ).not.toBeInTheDocument()
 })
 
 // Task 7 / spec 3.5 amendment: the option only answers one question --

@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test'
 import {
     appRoot,
     APP_PATH,
+    CREDENTIALS,
     expect,
     SCOPE_LABEL,
     test,
@@ -83,6 +84,46 @@ const SEARCH_NO_MATCH_TERM = 'zzz-no-such-object-in-this-instance-zzz'
  * zero-favourites branch of `UsageTab.tsx`.
  */
 const USAGE_SET_NAME = 'Facility Type'
+
+/** `USAGE_SQL_VIEW_CODE` in `src/data/sources/usageSqlView.ts`. */
+const USAGE_SQL_VIEW_CODE = 'GSI_GROUPSET_USAGE'
+
+/**
+ * Fix round 2 (Minor folded in): the usage flow below writes (installs,
+ * then removes) exactly one piece of shared, instance-wide metadata -- the
+ * usage SQL view. Unlike the membership flows, which revert through the
+ * app's own History, there is deliberately no `afterEach` net in this file
+ * (`2026-09-plan5-carry-forward.md` records that as its own open design
+ * question -- not something this fix reopens). Without something here, a
+ * failure between install and remove -- an assertion timeout, a dropped
+ * connection -- leaves the view standing, and every subsequent run's own
+ * `expect(install).toBeVisible()` fails immediately because Settings shows
+ * "Remove usage SQL view" instead. This calls the API directly (never
+ * through the page) precisely because it has to work when the page itself
+ * is the thing that failed.
+ */
+async function deleteUsageViewByCode(
+    request: import('@playwright/test').APIRequestContext,
+    baseURL: string
+): Promise<void> {
+    const auth = Buffer.from(
+        `${CREDENTIALS.username}:${CREDENTIALS.password}`
+    ).toString('base64')
+    const headers = { Authorization: `Basic ${auth}` }
+    const lookup = await request.get(
+        `${baseURL}/api/sqlViews.json?filter=code:eq:${USAGE_SQL_VIEW_CODE}&fields=id`,
+        { headers }
+    )
+    if (!lookup.ok()) {
+        return
+    }
+    const body = (await lookup.json()) as { sqlViews: { id: string }[] }
+    for (const view of body.sqlViews) {
+        await request.delete(`${baseURL}/api/sqlViews/${view.id}`, {
+            headers,
+        })
+    }
+}
 
 async function goto(page: Page, hash: string): Promise<AppRoot> {
     await page.goto(`${APP_PATH}#${hash}`)
@@ -802,103 +843,133 @@ test.describe('Group Set Integrity Tool', () => {
      * the view it installs is instance-wide metadata, not data on any
      * particular object.
      *
-     * `root` is re-resolved after every navigation that goes through one of
-     * the app's own nav links (`SyncUrlWithGlobalShell`'s "Dashboard" and
-     * "Settings", plus the dashboard card's own client-side navigation into
-     * a group set page) -- never reused across one -- because on 2.43.1
-     * the app runs inside the Global App Shell's `<iframe>`, which the
-     * shell can tear down and recreate on a route change; a `root` handed
-     * out before that happens can end up asserting against a detached
-     * frame. `authedApp.root()` hides that behind one call, and costs
-     * nothing extra on 2.40.12, which has no shell and no iframe to lose.
+     * Nested in its own `describe` purely to scope `afterAll`
+     * (`deleteUsageViewByCode` above) to this one flow -- see that
+     * function's doc comment for why it exists, and why it is not the
+     * suite-wide `afterEach` the carry-forward note already treats as a
+     * separate, open design question.
      */
-    test('usage: install the SQL view, read a count on a group set, then remove it', async ({
-        authedApp,
-    }) => {
-        let root = await authedApp.root()
-
-        // `exact: true`: without it, a substring match on "Settings" also
-        // resolves Dashboard.tsx's `fellBack` notice link ("Go to Settings to
-        // check or repair the SQL views") and UsageTab.tsx's own "Go to
-        // Settings to install it" -- neither renders in this flow's own run
-        // (the general SQL views are fine, and the usage view is installed
-        // before the Usage tab is ever opened here), but nothing prevents a
-        // future run where one does, and `exact` removes the trap rather
-        // than relying on that.
-        await root.getByRole('link', { name: 'Settings', exact: true }).click()
-        root = await authedApp.root()
-
-        await expect(
-            root.getByRole('heading', { name: 'Group set usage', exact: true })
-        ).toBeVisible()
-
-        const install = root.getByRole('button', {
-            name: 'Install usage SQL view',
-        })
-        await expect(install).toBeVisible({ timeout: 15_000 })
-        await install.click()
-        // Creates the SQL view, then executes it once to prove it is
-        // readable (Settings.tsx's `handleInstallUsage` -> `usageAdmin.ts`'s
-        // `installUsageView`) -- slower than a plain metadata write, hence
-        // the generous timeout the other write flows in this file also use
-        // for their own settle waits.
-        await expect(root.getByText('Usage data is installed')).toBeVisible({
-            timeout: 30_000,
+    test.describe('usage', () => {
+        test.afterAll(async ({ request, baseURL }) => {
+            if (!baseURL) {
+                return
+            }
+            await deleteUsageViewByCode(request, baseURL)
         })
 
-        // `exact: true`: GroupSetDetail.tsx's own breadcrumb link is also
-        // named exactly "Dashboard", but only on a group set page -- this
-        // click happens from Settings, where the nav link is the only match,
-        // so `exact` costs nothing here and avoids the trap on a future
-        // reuse from a page that has both.
-        await root.getByRole('link', { name: 'Dashboard', exact: true }).click()
-        root = await authedApp.root()
+        /**
+         * `root` is re-resolved after every navigation that goes through
+         * one of the app's own nav links (`SyncUrlWithGlobalShell`'s
+         * "Dashboard" and "Settings", plus the dashboard card's own
+         * client-side navigation into a group set page) -- never reused
+         * across one -- because on 2.43.1 the app runs inside the Global
+         * App Shell's `<iframe>`, which the shell can tear down and
+         * recreate on a route change; a `root` handed out before that
+         * happens can end up asserting against a detached frame.
+         * `authedApp.root()` hides that behind one call, and costs nothing
+         * extra on 2.40.12, which has no shell and no iframe to lose.
+         */
+        test('usage: install the SQL view, read a count on a group set, then remove it', async ({
+            authedApp,
+        }) => {
+            let root = await authedApp.root()
 
-        // Exact match on the card's own name, not a substring -- see
-        // `openGroupSet`'s identical comment above: `hasText` alone would
-        // also match a card whose name merely contains this one.
-        const card = root
-            .locator('[role="button"]')
-            .filter({ has: root.getByText(USAGE_SET_NAME, { exact: true }) })
-        await expect(card.first()).toBeVisible({ timeout: 20_000 })
-        await card.first().click()
-        root = await authedApp.root()
-        await expect(
-            root.getByRole('heading', { name: USAGE_SET_NAME, exact: true })
-        ).toBeVisible()
+            // `exact: true`: without it, a substring match on "Settings" also
+            // resolves Dashboard.tsx's `fellBack` notice link ("Go to Settings to
+            // check or repair the SQL views") and UsageTab.tsx's own "Go to
+            // Settings to install it" -- neither renders in this flow's own run
+            // (the general SQL views are fine, and the usage view is installed
+            // before the Usage tab is ever opened here), but nothing prevents a
+            // future run where one does, and `exact` removes the trap rather
+            // than relying on that.
+            await root
+                .getByRole('link', { name: 'Settings', exact: true })
+                .click()
+            root = await authedApp.root()
 
-        await root.getByRole('tab', { name: 'Usage', exact: true }).click()
-        // The headline sentence: `references? ` (the `s` is dropped only in
-        // the plural-count wording, "N favourites reference this group
-        // set" -- `UsageTab.tsx`'s `headlineFavouritesLabel`) covers all
-        // three of its complete strings (zero, one, many) without pinning
-        // this flow to whichever one the seed happens to produce today.
-        await expect(
-            root.getByText(/references? this group set/)
-        ).toBeVisible({ timeout: 15_000 })
-        await expect(root.getByText(/in the last 12 months/)).toBeVisible()
-        // Spec 3.6's caveat, rendered on every surface that shows a count.
-        await expect(
-            root.getByText(/leaves no favourite behind/)
-        ).toBeVisible()
+            await expect(
+                root.getByRole('heading', {
+                    name: 'Group set usage',
+                    exact: true,
+                })
+            ).toBeVisible()
 
-        await root.getByRole('link', { name: 'Settings', exact: true }).click()
-        root = await authedApp.root()
+            const install = root.getByRole('button', {
+                name: 'Install usage SQL view',
+            })
+            await expect(install).toBeVisible({ timeout: 15_000 })
+            await install.click()
+            // Creates the SQL view, then executes it once to prove it is
+            // readable (Settings.tsx's `handleInstallUsage` -> `usageAdmin.ts`'s
+            // `installUsageView`) -- slower than a plain metadata write, hence
+            // the generous timeout the other write flows in this file also use
+            // for their own settle waits.
+            await expect(root.getByText('Usage data is installed')).toBeVisible(
+                {
+                    timeout: 30_000,
+                }
+            )
 
-        const remove = root.getByRole('button', {
-            name: 'Remove usage SQL view',
+            // `exact: true`: GroupSetDetail.tsx's own breadcrumb link is also
+            // named exactly "Dashboard", but only on a group set page -- this
+            // click happens from Settings, where the nav link is the only match,
+            // so `exact` costs nothing here and avoids the trap on a future
+            // reuse from a page that has both.
+            await root
+                .getByRole('link', { name: 'Dashboard', exact: true })
+                .click()
+            root = await authedApp.root()
+
+            // Exact match on the card's own name, not a substring -- see
+            // `openGroupSet`'s identical comment above: `hasText` alone would
+            // also match a card whose name merely contains this one.
+            const card = root
+                .locator('[role="button"]')
+                .filter({
+                    has: root.getByText(USAGE_SET_NAME, { exact: true }),
+                })
+            await expect(card.first()).toBeVisible({ timeout: 20_000 })
+            await card.first().click()
+            root = await authedApp.root()
+            await expect(
+                root.getByRole('heading', { name: USAGE_SET_NAME, exact: true })
+            ).toBeVisible()
+
+            await root.getByRole('tab', { name: 'Usage', exact: true }).click()
+            // The headline sentence: `references? ` (the `s` is dropped only in
+            // the plural-count wording, "N favourites reference this group
+            // set" -- `UsageTab.tsx`'s `headlineFavouritesLabel`) covers all
+            // three of its complete strings (zero, one, many) without pinning
+            // this flow to whichever one the seed happens to produce today.
+            await expect(
+                root.getByText(/references? this group set/)
+            ).toBeVisible({ timeout: 15_000 })
+            await expect(root.getByText(/in the last 12 months/)).toBeVisible()
+            // Spec 3.6's caveat, rendered on every surface that shows a count.
+            await expect(
+                root.getByText(/leaves no favourite behind/)
+            ).toBeVisible()
+
+            await root
+                .getByRole('link', { name: 'Settings', exact: true })
+                .click()
+            root = await authedApp.root()
+
+            const remove = root.getByRole('button', {
+                name: 'Remove usage SQL view',
+            })
+            await expect(remove).toBeVisible({ timeout: 15_000 })
+            await remove.click()
+            // `handleRemoveUsage` deletes the view then re-checks status
+            // (`refreshUsage`) -- the install button reappearing is that
+            // re-check landing on "missing" again, not merely the click having
+            // registered. A fresh locator against the current `root`, not the
+            // `install` above: that one was resolved against the root from
+            // before the Dashboard round trip, which this suite's own rule
+            // (see this test's doc comment) never trusts past a navigation.
+            await expect(
+                root.getByRole('button', { name: 'Install usage SQL view' })
+            ).toBeVisible({ timeout: 30_000 })
         })
-        await expect(remove).toBeVisible({ timeout: 15_000 })
-        await remove.click()
-        // `handleRemoveUsage` deletes the view then re-checks status
-        // (`refreshUsage`) -- the install button reappearing is that
-        // re-check landing on "missing" again, not merely the click having
-        // registered. A fresh locator against the current `root`, not the
-        // `install` above: that one was resolved against the root from
-        // before the Dashboard round trip, which this suite's own rule
-        // (see this test's doc comment) never trusts past a navigation.
-        await expect(
-            root.getByRole('button', { name: 'Install usage SQL view' })
-        ).toBeVisible({ timeout: 30_000 })
     })
 })
