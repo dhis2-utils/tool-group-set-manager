@@ -1,5 +1,12 @@
 # Group Set Integrity Tool
 
+> ![Maturity: Experimental](https://img.shields.io/badge/maturity-Experimental-orange).  
+> Intended use: Identify and resolve integrity issues of group sets in DHIS2.  
+> Maintainers: HISP Centre implementation team.  
+> 
+> **WARNING**  
+> This tool is intended to be used by system administrators, not end users. It is available as a DHIS2 app, but has not been through the same rigorous testing as normal core apps. It should be used with care, and always tested in a development environment.
+
 A DHIS2 application for finding and fixing broken group set membership.
 
 Group sets carry two properties that make membership a correctness question
