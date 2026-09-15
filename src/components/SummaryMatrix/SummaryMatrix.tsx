@@ -85,15 +85,24 @@ export const SummaryMatrix = ({
     showUnassigned = false,
 }: Props) => {
     // Spec §4.2: an explicit choice persists while the user stays on that set
-    // and is dropped on leaving it. `result.groups` changes identity when the
-    // engine returns a different set's matrix, which is exactly that
-    // boundary.
+    // and is dropped on leaving it. `result.groups` is NOT a stable proxy for
+    // "still the same set": `matrixFor` runs in a Web Worker
+    // (src/engine/client.ts), so every response is structured-cloned and
+    // gets a brand-new `groups` array even for a byte-identical query, and
+    // `useEngineQuery` re-issues that query on every `status.phase` /
+    // `status.type` change -- by its own comment, "several times per load"
+    // during ordinary progressive loading, and again on an explicit reload.
+    // Keying the reset on `result.groups`'s object identity would silently
+    // wipe a user's pinned columns mid-load or on reload, well before they
+    // actually left the set. The group ids themselves, though, only change
+    // when the matrix really is showing a different set's groups.
+    const groupKey = result.groups.map((g) => g.id).join(',')
     const [pinnedGroups, setPinnedGroups] = useState<number[] | undefined>(
         undefined
     )
     useEffect(() => {
         setPinnedGroups(undefined)
-    }, [result.groups])
+    }, [groupKey])
 
     const plan = useMemo(
         () => planColumns(result, pinnedGroups),

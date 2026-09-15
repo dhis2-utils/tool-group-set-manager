@@ -196,10 +196,13 @@ it('marks every numeric column header as numeric', () => {
     numeric.forEach((h) => expect(h.className).toMatch(/numericHeader/))
 })
 
-// The CSS workaround above only earns its keep while @dhis2/ui's own align
-// rule targets a class nothing renders; this fails the day the library
-// starts rendering a `.label` element, which is the signal to remove it.
-it('confirms the numericHeader workaround is still needed: @dhis2/ui renders no `.label` element for the CSS align rule to target', () => {
+// Detects only one of the ways @dhis2/ui could fix `align`: it starting to
+// render an element with the literal `.label` class its own generated rule
+// already targets. It would NOT catch the library fixing `align` by
+// retargeting that generated selector at `.top` (the class that already
+// exists) instead -- that fix leaves this assertion passing forever, so a
+// human still has to notice the CHANGELOG entry.
+it('would fail if @dhis2/ui started rendering the `.label` element its own align rule already targets', () => {
     const { container } = render(
         <SummaryMatrix result={result} onCell={jest.fn()} />
     )
@@ -269,6 +272,65 @@ it('opens a picker on the Other groups cell instead of calling onCell', async ()
     // Every group, including the twelfth, is offered in the picker -- the
     // panel that shares this same ranking (Task 5) must see them all too.
     expect(screen.getByText('Group 11')).toBeInTheDocument()
+})
+
+// A repeat query through the worker (src/engine/client.ts) structured-clones
+// its response, so `useEngineQuery` re-issuing the same query -- which it
+// does "several times per load" per its own comment, and again on reload --
+// hands SummaryMatrix a brand-new `groups` array holding the very same
+// group ids. A pinned selection must survive that; it should only reset
+// when the matrix is genuinely showing a different set's groups.
+it('keeps a pinned selection across a re-render carrying a new but identical `groups` array (a repeat query, not a set change)', async () => {
+    const onCell = jest.fn()
+    const { rerender } = render(
+        <SummaryMatrix result={manyGroupsResult} onCell={onCell} />
+    )
+    // Pin a non-default set of eight: drop Group 0 (shown by default, as
+    // the biggest), add Group 8 (hidden by default). Checkboxes are
+    // queried by role rather than by their label text, since the same
+    // group name is already on screen as a column header behind the modal.
+    await userEvent.click(screen.getByText('12'))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Group 0' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Group 8' }))
+    await userEvent.click(screen.getByText('Save'))
+    expect(screen.queryByText('Group 0')).not.toBeInTheDocument()
+    expect(screen.getByText('Group 8')).toBeInTheDocument()
+
+    // Simulate a repeat query's structured-cloned response: a new object,
+    // new arrays, but the same group ids and the same data.
+    const repeatQueryResult = {
+        ...manyGroupsResult,
+        groups: manyGroupsResult.groups.map((g) => ({ ...g })),
+        rows: manyGroupsResult.rows.map((r) => ({
+            ...r,
+            perGroup: [...r.perGroup],
+        })),
+    }
+    rerender(<SummaryMatrix result={repeatQueryResult} onCell={onCell} />)
+    expect(screen.queryByText('Group 0')).not.toBeInTheDocument()
+    expect(screen.getByText('Group 8')).toBeInTheDocument()
+})
+
+it('drops a pinned selection once the matrix actually shows a different set (different group ids)', async () => {
+    const onCell = jest.fn()
+    const { rerender } = render(
+        <SummaryMatrix result={manyGroupsResult} onCell={onCell} />
+    )
+    await userEvent.click(screen.getByText('12'))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Group 0' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Group 8' }))
+    await userEvent.click(screen.getByText('Save'))
+    expect(screen.getByText('Group 8')).toBeInTheDocument()
+
+    // A different set's matrix: different group ids entirely.
+    rerender(<SummaryMatrix result={result} onCell={onCell} />)
+    // The stale pin is {1,2,3,4,5,6,7,8}; this set's own indices are just 0
+    // and 1, so a stale, unreset pin would coincidentally still match index
+    // 1 ("Private") and fold index 0 ("Public") into an Other groups column
+    // instead of showing it plainly. Seeing "Public" on its own is the
+    // signal that the pin was actually dropped, not just harmlessly stale.
+    expect(screen.getByText('Public')).toBeInTheDocument()
+    expect(screen.getByText('Private')).toBeInTheDocument()
 })
 
 it('does not let the Other groups cell in the aggregate "above the row level" row open the picker either', () => {
