@@ -1,15 +1,24 @@
 import i18n from '@dhis2/d2-i18n'
 import {
+    Button,
+    ButtonStrip,
+    Checkbox,
     DataTable,
     DataTableBody,
     DataTableCell,
     DataTableColumnHeader,
     DataTableHead,
     DataTableRow,
+    Modal,
+    ModalActions,
+    ModalContent,
+    ModalTitle,
 } from '@dhis2/ui'
-import React from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { MAX_GROUP_COLUMNS, planColumns } from './columnPlan'
 import styles from './SummaryMatrix.module.css'
 import { MatrixResult, ObjectRef } from '@/engine/store'
+import { interpolate } from '@/utils/interpolate'
 
 export type MatrixColumn =
     | { kind: 'group'; index: number }
@@ -75,10 +84,49 @@ export const SummaryMatrix = ({
     aboveLevelCaption,
     showUnassigned = false,
 }: Props) => {
+    // Spec §4.2: an explicit choice persists while the user stays on that set
+    // and is dropped on leaving it. `result.groups` changes identity when the
+    // engine returns a different set's matrix, which is exactly that
+    // boundary.
+    const [pinnedGroups, setPinnedGroups] = useState<number[] | undefined>(
+        undefined
+    )
+    useEffect(() => {
+        setPinnedGroups(undefined)
+    }, [result.groups])
+
+    const plan = useMemo(
+        () => planColumns(result, pinnedGroups),
+        [result, pinnedGroups]
+    )
+    const showOther = plan.other.length > 0
+
+    const [pickerOpen, setPickerOpen] = useState(false)
+    const [draftSelected, setDraftSelected] = useState<number[]>([])
+    const openPicker = () => {
+        setDraftSelected(plan.shown.map((g) => g.index))
+        setPickerOpen(true)
+    }
+    const toggleGroup = (index: number) => {
+        setDraftSelected((prev) =>
+            prev.includes(index)
+                ? prev.filter((i) => i !== index)
+                : prev.length >= MAX_GROUP_COLUMNS
+                  ? prev
+                  : [...prev, index]
+        )
+    }
+    const confirmPicker = () => {
+        setPinnedGroups(draftSelected)
+        setPickerOpen(false)
+    }
+    const resetPicker = () => {
+        setPinnedGroups(undefined)
+        setPickerOpen(false)
+    }
+
     const totals = {
-        perGroup: result.groups.map((_, g) =>
-            result.rows.reduce((s, r) => s + r.perGroup[g], 0)
-        ),
+        other: plan.other.reduce((s, g) => s + g.total, 0),
         missing: result.rows.reduce((s, r) => s + r.missing, 0),
         unassigned: result.rows.reduce((s, r) => s + r.unassigned, 0),
         conflict: result.rows.reduce((s, r) => s + r.conflict, 0),
@@ -121,6 +169,26 @@ export const SummaryMatrix = ({
             </DataTableCell>
         )
     }
+    // The Other groups cell opens the picker rather than filtering (spec
+    // §4.2): `ObjectFilter.group` is a single index and cannot express "in
+    // some of N groups", so this deliberately never calls `onCell`.
+    const otherGroupsCell = (
+        value: number,
+        row: ObjectRef | null,
+        clickable: boolean
+    ) => (
+        <DataTableCell
+            key="other"
+            align="right"
+            className={clickable ? styles.cell : styles.cellStatic}
+            onClick={clickable ? () => openPicker() : undefined}
+            title={clickable ? undefined : ABOVE_LEVEL_CLICK_TITLE()}
+        >
+            <span className={value === 0 ? styles.zero : undefined}>
+                {fmt(value)}
+            </span>
+        </DataTableCell>
+    )
     return (
         <div className={styles.wrap}>
             <DataTable>
@@ -129,15 +197,23 @@ export const SummaryMatrix = ({
                         <DataTableColumnHeader>
                             {i18n.t('Organisation unit')}
                         </DataTableColumnHeader>
-                        {result.groups.map((g) => (
+                        {plan.shown.map((g) => (
                             <DataTableColumnHeader
-                                key={g.id}
+                                key={g.group.id}
                                 align="right"
                                 className={styles.numericHeader}
                             >
-                                {g.displayName}
+                                {g.group.displayName}
                             </DataTableColumnHeader>
                         ))}
+                        {showOther && (
+                            <DataTableColumnHeader
+                                align="right"
+                                className={styles.numericHeader}
+                            >
+                                {i18n.t('Other groups')}
+                            </DataTableColumnHeader>
+                        )}
                         {showUnassigned && (
                             <DataTableColumnHeader
                                 align="right"
@@ -201,14 +277,26 @@ export const SummaryMatrix = ({
                                         </div>
                                     )}
                                 </DataTableCell>
-                                {r.perGroup.map((v, g) =>
-                                    cell(v, {
+                                {plan.shown.map((g) =>
+                                    cell(r.perGroup[g.index], {
                                         row: r.row,
-                                        column: { kind: 'group', index: g },
-                                        cellKey: g,
+                                        column: {
+                                            kind: 'group',
+                                            index: g.index,
+                                        },
+                                        cellKey: g.index,
                                         clickable: !isAboveRowLeftover,
                                     })
                                 )}
+                                {showOther &&
+                                    otherGroupsCell(
+                                        plan.other.reduce(
+                                            (s, g) => s + r.perGroup[g.index],
+                                            0
+                                        ),
+                                        r.row,
+                                        !isAboveRowLeftover
+                                    )}
                                 {showUnassigned &&
                                     cell(r.unassigned, {
                                         row: r.row,
@@ -238,11 +326,16 @@ export const SummaryMatrix = ({
                     {result.rows.length > 1 && (
                         <DataTableRow className={styles.totalRow}>
                             <DataTableCell>{i18n.t('Total')}</DataTableCell>
-                            {totals.perGroup.map((v, g) => (
-                                <DataTableCell key={g} align="right">
-                                    {fmt(v)}
+                            {plan.shown.map((g) => (
+                                <DataTableCell key={g.index} align="right">
+                                    {fmt(g.total)}
                                 </DataTableCell>
                             ))}
+                            {showOther && (
+                                <DataTableCell align="right">
+                                    {fmt(totals.other)}
+                                </DataTableCell>
+                            )}
                             {showUnassigned && (
                                 <DataTableCell align="right">
                                     {fmt(totals.unassigned)}
@@ -261,6 +354,72 @@ export const SummaryMatrix = ({
                     )}
                 </DataTableBody>
             </DataTable>
+            {pickerOpen && (
+                <Modal onClose={() => setPickerOpen(false)} position="middle">
+                    <ModalTitle>
+                        {i18n.t('Choose which groups to show')}
+                    </ModalTitle>
+                    <ModalContent>
+                        <p>
+                            {interpolate(
+                                i18n.t(
+                                    'Choose up to {max} groups to show as their own columns; the rest are added together in Other groups.'
+                                ),
+                                { max: MAX_GROUP_COLUMNS }
+                            )}
+                        </p>
+                        <div className={styles.pickerList}>
+                            {plan.ranked.map((g) => {
+                                const checked = draftSelected.includes(
+                                    g.index
+                                )
+                                return (
+                                    <div
+                                        key={g.group.id}
+                                        className={styles.pickerRow}
+                                    >
+                                        <Checkbox
+                                            checked={checked}
+                                            label={g.group.displayName}
+                                            disabled={
+                                                !checked &&
+                                                draftSelected.length >=
+                                                    MAX_GROUP_COLUMNS
+                                            }
+                                            onChange={() =>
+                                                toggleGroup(g.index)
+                                            }
+                                        />
+                                        <span className={styles.pickerTotal}>
+                                            {fmt(g.total)}
+                                        </span>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                        <p>
+                            {draftSelected.length === 1
+                                ? i18n.t('1 group')
+                                : interpolate(i18n.t('{count} groups'), {
+                                      count: draftSelected.length.toLocaleString(),
+                                  })}
+                        </p>
+                    </ModalContent>
+                    <ModalActions>
+                        <ButtonStrip end>
+                            <Button onClick={resetPicker}>
+                                {i18n.t('Reset')}
+                            </Button>
+                            <Button onClick={() => setPickerOpen(false)}>
+                                {i18n.t('Cancel')}
+                            </Button>
+                            <Button primary onClick={confirmPicker}>
+                                {i18n.t('Save')}
+                            </Button>
+                        </ButtonStrip>
+                    </ModalActions>
+                </Modal>
+            )}
         </div>
     )
 }

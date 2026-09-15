@@ -195,3 +195,111 @@ it('marks every numeric column header as numeric', () => {
     expect(rowLabel).not.toHaveClass('numericHeader')
     numeric.forEach((h) => expect(h.className).toMatch(/numericHeader/))
 })
+
+// The CSS workaround above only earns its keep while @dhis2/ui's own align
+// rule targets a class nothing renders; this fails the day the library
+// starts rendering a `.label` element, which is the signal to remove it.
+it('confirms the numericHeader workaround is still needed: @dhis2/ui renders no `.label` element for the CSS align rule to target', () => {
+    const { container } = render(
+        <SummaryMatrix result={result} onCell={jest.fn()} />
+    )
+    expect(container.querySelector('.label')).toBeNull()
+})
+
+const manyGroupsResult = {
+    groups: Array.from({ length: 12 }, (_, i) => ({
+        id: `g${i}`,
+        displayName: `Group ${i}`,
+        canWrite: true,
+    })),
+    rows: [
+        {
+            object: 1,
+            row: {
+                index: 1,
+                id: 'A',
+                displayName: 'Abaji',
+                level: 3,
+                parentId: 'r',
+            },
+            // Descending totals: group 0 has the most (110), group 11 the
+            // least (0) -- so the eight shown are groups 0-7 and the four
+            // hidden (8, 9, 10, 11) sum to 6 + 4 + 2 + 0 = 12.
+            perGroup: [110, 100, 90, 80, 70, 60, 50, 40, 6, 4, 2, 0],
+            missing: 0,
+            unassigned: 0,
+            conflict: 0,
+            total: 612,
+        },
+    ],
+}
+
+it('caps the matrix at eight group columns plus an Other groups column summing the rest', () => {
+    render(<SummaryMatrix result={manyGroupsResult} onCell={jest.fn()} />)
+    for (let i = 0; i < 8; i++) {
+        expect(screen.getByText(`Group ${i}`)).toBeInTheDocument()
+    }
+    for (let i = 8; i < 12; i++) {
+        expect(screen.queryByText(`Group ${i}`)).not.toBeInTheDocument()
+    }
+    expect(screen.getByText('Other groups')).toBeInTheDocument()
+    // 6 + 4 + 2 + 0, the four hidden groups' cells for this row.
+    expect(screen.getByText('12')).toBeInTheDocument()
+})
+
+it('still fires onCell with the original group index (not its rank) for a shown column', async () => {
+    const onCell = jest.fn()
+    render(<SummaryMatrix result={manyGroupsResult} onCell={onCell} />)
+    // "Group 0" is the biggest, shown first, but its original index is 0.
+    await userEvent.click(screen.getByText('110'))
+    expect(onCell).toHaveBeenCalledWith(manyGroupsResult.rows[0].row, {
+        kind: 'group',
+        index: 0,
+    })
+})
+
+it('opens a picker on the Other groups cell instead of calling onCell', async () => {
+    const onCell = jest.fn()
+    render(<SummaryMatrix result={manyGroupsResult} onCell={onCell} />)
+    await userEvent.click(screen.getByText('12'))
+    expect(onCell).not.toHaveBeenCalled()
+    expect(
+        screen.getByText('Choose which groups to show')
+    ).toBeInTheDocument()
+    // Every group, including the twelfth, is offered in the picker -- the
+    // panel that shares this same ranking (Task 5) must see them all too.
+    expect(screen.getByText('Group 11')).toBeInTheDocument()
+})
+
+it('does not let the Other groups cell in the aggregate "above the row level" row open the picker either', () => {
+    const onCell = jest.fn()
+    const withLeftover = {
+        ...manyGroupsResult,
+        rows: [
+            ...manyGroupsResult.rows,
+            {
+                object: -1,
+                row: null,
+                perGroup: [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+                missing: 0,
+                unassigned: 0,
+                conflict: 0,
+                total: 4,
+            },
+        ],
+    }
+    render(<SummaryMatrix result={withLeftover} onCell={onCell} />)
+    const aboveRow = screen
+        .getByText('Above the row level')
+        .closest('tr') as HTMLTableRowElement
+    // The leftover row's Other groups cell sums to 1 + 1 + 1 + 1 = 4.
+    const otherCell = Array.from(aboveRow.querySelectorAll('td')).find(
+        (td) => td.textContent === '4'
+    ) as HTMLTableCellElement
+    expect(otherCell).toBeTruthy()
+    fireEvent.click(otherCell)
+    expect(onCell).not.toHaveBeenCalled()
+    expect(
+        screen.queryByText('Choose which groups to show')
+    ).not.toBeInTheDocument()
+})

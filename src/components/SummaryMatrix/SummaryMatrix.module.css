@@ -35,7 +35,23 @@
    end. `:global` because the class comes from the library, not this
    module, and CSS modules would otherwise rewrite it. Remove this rule if
    @dhis2/ui ever fixes `align`; the `align="right"` props are already in
-   place and would take over. */
+   place and would take over. The canary test in SummaryMatrix.test.tsx
+   (searching a rendered header for a `.label` element) is the signal:
+   it starts failing once the library actually renders one. */
 .numericHeader :global(span.top) {
     justify-content: flex-end;
+}
+.pickerList {
+    max-height: 320px;
+    overflow-y: auto;
+}
+.pickerRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.pickerTotal {
+    font-variant-numeric: tabular-nums;
+    color: var(--colors-grey600);
 }

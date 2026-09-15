@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-15T16:09:19.165Z\n"
-"PO-Revision-Date: 2026-09-15T16:09:19.165Z\n"
+"POT-Creation-Date: 2026-09-15T16:32:37.524Z\n"
+"PO-Revision-Date: 2026-09-15T16:32:37.524Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -451,6 +451,9 @@ msgstr "Includes organisation units above the chosen row level"
 msgid "Objects above the row level cannot be filtered yet"
 msgstr "Objects above the row level cannot be filtered yet"
 
+msgid "Other groups"
+msgstr "Other groups"
+
 msgid "Total"
 msgstr "Total"
 
@@ -459,6 +462,19 @@ msgstr "All objects"
 
 msgid "Above the row level"
 msgstr "Above the row level"
+
+msgid "Choose which groups to show"
+msgstr "Choose which groups to show"
+
+msgid ""
+"Choose up to {max} groups to show as their own columns; the rest are added "
+"together in Other groups."
+msgstr ""
+"Choose up to {max} groups to show as their own columns; the rest are added "
+"together in Other groups."
+
+msgid "Reset"
+msgstr "Reset"
 
 msgid "All changes applied to {name}"
 msgstr "All changes applied to {name}"
