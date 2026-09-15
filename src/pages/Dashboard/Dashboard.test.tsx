@@ -181,12 +181,16 @@ jest.mock('@/hooks/useScope', () => ({
     useScope: () => ({
         rootId: 'root',
         rootName: 'Root',
+        rootLevel: 1,
         setRoot: () => undefined,
         isReady: true,
     }),
 }))
-jest.mock('@/components/ScopeSelector/ScopeSelector', () => ({
-    ScopeSelector: () => <div>scope</div>,
+// OrgUnitField (rendered by the FilterBar below) reads its own roots for the
+// tree through this hook; none of these tests open the tree modal, so it
+// only needs to resolve without hitting the real data engine.
+jest.mock('@/hooks/useUserScope', () => ({
+    useUserScope: () => ({ roots: [{ id: 'root', displayName: 'Root' }] }),
 }))
 
 afterEach(() => {
@@ -436,4 +440,28 @@ it('says which data source served the numbers (spec 8a)', async () => {
             screen.getByText('Data loaded from the metadata API')
         ).toBeInTheDocument()
     )
+})
+
+// "a field never moves between pages" (FilterBar.tsx) is the point of the
+// shared component; pin the dashboard's own field order so a future change
+// has to be deliberate. Anchored full-string matches, not a bare /Data/
+// substring: the source-kind note elsewhere on the page ("Data loaded from
+// the metadata API") also contains "Data" and would otherwise be picked up
+// as a sixth, unwanted match.
+it('renders its filter fields in the fixed order', () => {
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    const labels = screen
+        .getAllByText(/^(Organisation unit|Object type|Show|Sort by|Data)$/)
+        .map((el) => el.textContent)
+    expect(labels).toEqual([
+        'Organisation unit',
+        'Object type',
+        'Show',
+        'Sort by',
+        'Data',
+    ])
 })

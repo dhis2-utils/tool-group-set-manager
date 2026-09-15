@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-15T14:30:15.715Z\n"
-"PO-Revision-Date: 2026-09-15T14:30:15.715Z\n"
+"POT-Creation-Date: 2026-09-15T15:35:44.130Z\n"
+"PO-Revision-Date: 2026-09-15T15:35:44.130Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -161,6 +161,15 @@ msgstr "After"
 
 msgid "and {count} more"
 msgstr "and {count} more"
+
+msgid "Organisation unit"
+msgstr "Organisation unit"
+
+msgid "Choose an organisation unit"
+msgstr "Choose an organisation unit"
+
+msgid "Choose the organisation unit to work in"
+msgstr "Choose the organisation unit to work in"
 
 msgid "1 group"
 msgstr "1 group"
@@ -360,15 +369,6 @@ msgstr ""
 msgid "Assign"
 msgstr "Assign"
 
-msgid "Scope"
-msgstr "Scope"
-
-msgid "Change"
-msgstr "Change"
-
-msgid "Choose the organisation unit to work in"
-msgstr "Choose the organisation unit to work in"
-
 msgid ""
 "Compulsory on — every object in scope must be in exactly one group of this "
 "set, so objects in no group become errors"
@@ -451,9 +451,6 @@ msgstr "Includes organisation units above the chosen row level"
 msgid "Objects above the row level cannot be filtered yet"
 msgstr "Objects above the row level cannot be filtered yet"
 
-msgid "Organisation unit"
-msgstr "Organisation unit"
-
 msgid "Total"
 msgstr "Total"
 
@@ -514,8 +511,29 @@ msgstr "Object type"
 msgid "All object types"
 msgstr "All object types"
 
+msgid "Show"
+msgstr "Show"
+
 msgid "Only sets with issues"
 msgstr "Only sets with issues"
+
+msgid "All sets"
+msgstr "All sets"
+
+msgid "Sort by"
+msgstr "Sort by"
+
+msgid "Issues"
+msgstr "Issues"
+
+msgid "Usage data is not installed on this instance"
+msgstr "Usage data is not installed on this instance"
+
+msgid "Usage"
+msgstr "Usage"
+
+msgid "Data"
+msgstr "Data"
 
 msgid "Reload data"
 msgstr "Reload data"

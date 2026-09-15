@@ -52,12 +52,16 @@ jest.mock('@/hooks/useScope', () => ({
     useScope: () => ({
         rootId: null,
         rootName: '',
+        rootLevel: null,
         setRoot: () => undefined,
         isReady: false,
     }),
 }))
-jest.mock('@/components/ScopeSelector/ScopeSelector', () => ({
-    ScopeSelector: () => <div>scope</div>,
+// OrgUnitField (rendered by the dashboard's FilterBar) reads its own roots
+// for the tree through this hook; this test never opens the tree modal, so
+// it only needs to resolve without hitting the real data engine.
+jest.mock('@/hooks/useUserScope', () => ({
+    useUserScope: () => ({ roots: [] }),
 }))
 
 it('renders the dashboard with the only-issues filter', () => {

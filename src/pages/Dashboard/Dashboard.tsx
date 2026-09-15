@@ -1,7 +1,6 @@
 import i18n from '@dhis2/d2-i18n'
 import {
     Button,
-    Checkbox,
     NoticeBox,
     SingleSelectField,
     SingleSelectOption,
@@ -9,9 +8,10 @@ import {
 import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import styles from './Dashboard.module.css'
+import { FilterBar, FilterBarField } from '@/components/FilterBar/FilterBar'
+import { OrgUnitField } from '@/components/FilterBar/OrgUnitField'
 import { GroupSetCard } from '@/components/GroupSetCard/GroupSetCard'
 import { LoadProgress } from '@/components/LoadProgress/LoadProgress'
-import { ScopeSelector } from '@/components/ScopeSelector/ScopeSelector'
 import { DashboardEntry } from '@/engine/store'
 import { OBJECT_TYPES, ObjectType } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
@@ -138,8 +138,8 @@ export const Dashboard = () => {
 
     return (
         <div className={styles.page}>
-            <div className={styles.toolbar}>
-                <ScopeSelector />
+            <FilterBar>
+                <OrgUnitField />
                 <SingleSelectField
                     dense
                     label={i18n.t('Object type')}
@@ -160,18 +160,55 @@ export const Dashboard = () => {
                         />
                     ))}
                 </SingleSelectField>
-                <Checkbox
-                    checked={onlyIssues}
-                    label={i18n.t('Only sets with issues')}
-                    onChange={({ checked }) => setOnlyIssues(checked)}
-                />
+                <SingleSelectField
+                    dense
+                    label={i18n.t('Show')}
+                    selected={onlyIssues ? 'onlyIssues' : 'all'}
+                    onChange={({ selected }) =>
+                        setOnlyIssues(selected === 'onlyIssues')
+                    }
+                >
+                    <SingleSelectOption
+                        value="onlyIssues"
+                        label={i18n.t('Only sets with issues')}
+                    />
+                    <SingleSelectOption value="all" label={i18n.t('All sets')} />
+                </SingleSelectField>
+                {/* Usage data does not exist until Plan 6 -- the option is
+                    shown, not hidden, so the sort a user will eventually
+                    want is visible now, but disabled with a title
+                    explaining why rather than silently doing nothing. */}
+                <SingleSelectField
+                    dense
+                    label={i18n.t('Sort by')}
+                    selected="issues"
+                >
+                    <SingleSelectOption
+                        value="issues"
+                        label={i18n.t('Issues')}
+                    />
+                    <span
+                        title={i18n.t(
+                            'Usage data is not installed on this instance'
+                        )}
+                    >
+                        <SingleSelectOption
+                            value="usage"
+                            label={i18n.t('Usage')}
+                            disabled
+                            onClick={() => undefined}
+                        />
+                    </span>
+                </SingleSelectField>
                 {/* The cache is reused across restarts, so a user who has
                     just fixed data elsewhere needs a way to say "look
                     again" without clearing browser storage. */}
-                <Button small onClick={() => void reload(true)}>
-                    {i18n.t('Reload data')}
-                </Button>
-            </div>
+                <FilterBarField label={i18n.t('Data')}>
+                    <Button small onClick={() => void reload(true)}>
+                        {i18n.t('Reload data')}
+                    </Button>
+                </FilterBarField>
+            </FilterBar>
             {error && (
                 <NoticeBox error title={i18n.t('Loading failed')}>
                     {error}
