@@ -12,10 +12,12 @@ import { FilterBar, FilterBarField } from '@/components/FilterBar/FilterBar'
 import { OrgUnitField } from '@/components/FilterBar/OrgUnitField'
 import { GroupSetCard } from '@/components/GroupSetCard/GroupSetCard'
 import { LoadProgress } from '@/components/LoadProgress/LoadProgress'
+import { usageApplies } from '@/data/sources/usageSqlView'
 import { DashboardEntry } from '@/engine/store'
 import { OBJECT_TYPES, ObjectType } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useScope } from '@/hooks/useScope'
+import { useUsage } from '@/hooks/useUsage'
 import { interpolate } from '@/utils/interpolate'
 import { typeLabel } from '@/utils/objectTypeLabels'
 
@@ -47,6 +49,8 @@ const byWorstFirst = (a: DashboardEntry, b: DashboardEntry) => {
     )
 }
 
+type SortKey = 'issues' | 'usage'
+
 // See the matching comment in GroupSetCard.tsx: a single i18n.t(key, {
 // count, defaultValue_plural }) call neither pluralises at runtime with
 // this i18next version nor gets picked up by this project's i18n extractor
@@ -75,12 +79,39 @@ export const Dashboard = () => {
     const navigate = useNavigate()
     const [onlyIssues, setOnlyIssues] = useState(true)
     const [typeFilter, setTypeFilter] = useState<ObjectType | 'all'>('all')
+    const [sortKey, setSortKey] = useState<SortKey>('issues')
     const [entries, setEntries] = useState<
         Partial<Record<ObjectType, DashboardEntry[]>>
     >({})
     const [typeErrors, setTypeErrors] = useState<
         Partial<Record<ObjectType, string>>
     >({})
+    const usage = useUsage()
+    const usageSortable = usage.status === 'ready'
+
+    /**
+     * Least used first, because that is the question this sort answers --
+     * which sets nothing references any more (spec 3.5). A set whose type
+     * can never be an analytics dimension (indicators) has no usage to
+     * compare, so it sorts after every set that does, rather than tying at
+     * zero with the genuinely unreferenced ones.
+     */
+    const byLeastUsed = (a: DashboardEntry, b: DashboardEntry) => {
+        const applicable = (e: DashboardEntry) =>
+            usageApplies(e.set.objectType)
+        if (applicable(a) !== applicable(b)) {
+            return applicable(a) ? -1 : 1
+        }
+        if (!applicable(a)) {
+            return 0
+        }
+        const ua = usage.forSet(a.set.id)
+        const ub = usage.forSet(b.set.id)
+        return (
+            (ua?.favourites ?? 0) - (ub?.favourites ?? 0) ||
+            (ua?.views12m ?? 0) - (ub?.views12m ?? 0)
+        )
+    }
 
     useEffect(() => {
         if (!client || !isReady) {
@@ -180,17 +211,25 @@ export const Dashboard = () => {
                     </SingleSelectField>
                 </FilterBarField>
                 <FilterBarField label={i18n.t('Sort by')}>
-                    {/* Usage data does not exist until Plan 6 -- the option
-                        is shown, not hidden, so the sort a user will
-                        eventually want is visible now, but disabled with a
-                        documented `helpText` explaining why, rather than
-                        silently doing nothing. */}
+                    {/* The option is shown, not hidden, whether or not
+                        usage data is available -- so the sort a user will
+                        eventually want is visible now. Until a usage view
+                        is installed and read (`usageSortable`), it stays
+                        disabled with a documented `helpText` explaining
+                        why, rather than silently doing nothing. */}
                     <SingleSelectField
                         dense
-                        selected="issues"
-                        helpText={i18n.t(
-                            'Usage data is not installed on this instance'
-                        )}
+                        selected={sortKey}
+                        onChange={({ selected }) =>
+                            setSortKey(selected as SortKey)
+                        }
+                        helpText={
+                            usageSortable
+                                ? undefined
+                                : i18n.t(
+                                      'Usage data is not installed on this instance'
+                                  )
+                        }
                     >
                         <SingleSelectOption
                             value="issues"
@@ -198,8 +237,8 @@ export const Dashboard = () => {
                         />
                         <SingleSelectOption
                             value="usage"
-                            label={i18n.t('Usage')}
-                            disabled
+                            label={i18n.t('Usage (least used first)')}
+                            disabled={!usageSortable}
                         />
                     </SingleSelectField>
                 </FilterBarField>
@@ -267,8 +306,13 @@ export const Dashboard = () => {
                 )
                     .slice()
                     // Array.prototype.sort is stable, so sets with the same
-                    // error count keep the order the API returned them in.
-                    .sort(byWorstFirst)
+                    // error count (or, under the usage sort, the same
+                    // usage) keep the order the API returned them in.
+                    .sort(
+                        sortKey === 'usage' && usageSortable
+                            ? byLeastUsed
+                            : byWorstFirst
+                    )
                 const hidden = all.length - shown.length
                 // Minor 9 (fix round 1): `byWorstFirst` sorts a set with
                 // no data yet ahead of every loaded one, but until now

@@ -17,6 +17,8 @@ const mockCallOverrides: {
     fellBack: boolean
     notLoadedOrgUnitSet: boolean
     manyCleanOrgUnitSets: boolean
+    usageSortSets: boolean
+    usageDefaultOrderSets: boolean
 } = {
     dataElementError: null,
     extraCleanOrgUnitSet: false,
@@ -25,6 +27,8 @@ const mockCallOverrides: {
     fellBack: false,
     notLoadedOrgUnitSet: false,
     manyCleanOrgUnitSets: false,
+    usageSortSets: false,
+    usageDefaultOrderSets: false,
 }
 
 const cleanSet = (id: string, name: string) => ({
@@ -92,6 +96,21 @@ const brokenSet = (id: string, name: string, conflict: number) => ({
 
 const entries = {
     get organisationUnit() {
+        // Task 7's usage-sort tests need exact, isolated fixtures rather
+        // than the baseline set built up below -- an early return keeps
+        // them from having to reason about 'own'/'clean' noise.
+        if (mockCallOverrides.usageSortSets) {
+            return [
+                brokenSet('heavy', 'Heavy usage set', 9),
+                brokenSet('light', 'Light usage set', 0),
+            ]
+        }
+        if (mockCallOverrides.usageDefaultOrderSets) {
+            return [
+                brokenSet('clean', 'Clean order set', 0),
+                brokenSet('broken', 'Broken order set', 9),
+            ]
+        }
         const sets = [
             brokenSet('own', 'Ownership', 0),
             cleanSet('clean', 'Clean set'),
@@ -182,13 +201,20 @@ jest.mock('@/hooks/useIntegrity', () => ({
 // these tests exercise usage and useUsage's real implementation needs a
 // DataProvider/QueryClient context this file's shallow render tree doesn't
 // have.
+//
+// Task 7: a jest.fn() rather than a static object, so the usage sort tests
+// can swap in 'ready'/'absent' states per test with mockReturnValue while
+// every other test keeps the 'absent' baseline Task 6 set up.
+const mockUsage = jest.fn()
+const defaultUsageState = {
+    status: 'absent',
+    error: null,
+    forSet: () => null,
+    refresh: jest.fn(),
+}
+mockUsage.mockReturnValue(defaultUsageState)
 jest.mock('@/hooks/useUsage', () => ({
-    useUsage: () => ({
-        status: 'absent',
-        error: null,
-        forSet: () => null,
-        refresh: jest.fn(),
-    }),
+    useUsage: () => mockUsage(),
 }))
 jest.mock('@/hooks/useScope', () => ({
     useScope: () => ({
@@ -214,6 +240,9 @@ afterEach(() => {
     mockCallOverrides.fellBack = false
     mockCallOverrides.notLoadedOrgUnitSet = false
     mockCallOverrides.manyCleanOrgUnitSets = false
+    mockCallOverrides.usageSortSets = false
+    mockCallOverrides.usageDefaultOrderSets = false
+    mockUsage.mockReturnValue(defaultUsageState)
 })
 
 it('shows the SQL view repair notice after a real fallback', async () => {
@@ -526,7 +555,19 @@ it('keeps one height convention across the bar: no button size prop, every selec
 // which depended on undocumented Menu internals. helpText is always
 // visible, unlike a hover-only title, and doesn't need the option itself
 // wrapped in anything.
+// Task 7: this is now the "no usage view installed" case for the sort
+// field -- explicitly mocking 'absent' (rather than relying on the mock's
+// own baseline) so it keeps guarding this state regardless of what the
+// baseline default happens to be. Assertions are unchanged from before
+// Task 7: the help text is shown and the option carries the `disabled`
+// class.
 it('disables the not-yet-available usage sort, with help text explaining why', async () => {
+    mockUsage.mockReturnValue({
+        status: 'absent',
+        error: null,
+        forSet: () => null,
+        refresh: jest.fn(),
+    })
     render(
         <MemoryRouter>
             <Dashboard />
@@ -548,4 +589,107 @@ it('disables the not-yet-available usage sort, with help text explaining why', a
         '[data-value="usage"]'
     ) as HTMLElement
     expect(usageOption).toHaveClass('disabled')
+})
+
+// Task 7: once a usage view is installed and read, the option stops being
+// disabled and the field's helpText disappears -- the flip side of the
+// "absent" case just above.
+it('enables the usage sort, with no help text, once usage data is ready', async () => {
+    mockUsage.mockReturnValue({
+        status: 'ready',
+        error: null,
+        forSet: () => ({ favourites: 0, views12m: 0, byFavouriteType: [] }),
+        refresh: jest.fn(),
+    })
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+    expect(
+        screen.queryByText('Usage data is not installed on this instance')
+    ).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('Issues'))
+    const usageOption = document.querySelector(
+        '[data-value="usage"]'
+    ) as HTMLElement
+    expect(usageOption).not.toHaveClass('disabled')
+})
+
+// Task 7 / spec 3.5 amendment: the option only answers one question --
+// which sets nothing references any more -- so it sorts least-used-first,
+// and its label says so rather than making the user try it.
+it('sorts the least used set first when the usage sort is chosen', async () => {
+    mockCallOverrides.usageSortSets = true
+    const usageById: Record<
+        string,
+        { favourites: number; views12m: number; byFavouriteType: never[] }
+    > = {
+        heavy: { favourites: 40, views12m: 90, byFavouriteType: [] },
+        light: { favourites: 0, views12m: 0, byFavouriteType: [] },
+    }
+    mockUsage.mockReturnValue({
+        status: 'ready',
+        error: null,
+        forSet: (id: string) =>
+            usageById[id] ?? {
+                favourites: 0,
+                views12m: 0,
+                byFavouriteType: [],
+            },
+        refresh: jest.fn(),
+    })
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Heavy usage set')).toBeInTheDocument()
+    )
+
+    await userEvent.click(screen.getByText('Issues'))
+    await userEvent.click(
+        document.querySelector('[data-value="usage"]') as HTMLElement
+    )
+
+    await waitFor(() => {
+        const names = screen
+            .getAllByRole('button')
+            .map((b) => b.textContent ?? '')
+            .filter((t) => t.includes('usage set'))
+        expect(names[0]).toContain('Light usage set')
+        expect(names[1]).toContain('Heavy usage set')
+    })
+})
+
+// Task 7: choosing the usage sort must not change the default -- a user
+// arriving to triage errors still sees the worst set first until they
+// deliberately pick "Usage (least used first)".
+it('keeps worst-first as the default order', async () => {
+    mockCallOverrides.usageDefaultOrderSets = true
+    mockUsage.mockReturnValue({
+        status: 'ready',
+        error: null,
+        forSet: () => ({ favourites: 0, views12m: 0, byFavouriteType: [] }),
+        refresh: jest.fn(),
+    })
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Broken order set')).toBeInTheDocument()
+    )
+    const names = screen
+        .getAllByRole('button')
+        .map((b) => b.textContent ?? '')
+        .filter((t) => t.includes('order set'))
+    expect(names[0]).toContain('Broken order set')
+    expect(names[1]).toContain('Clean order set')
 })

@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-15T21:57:30.446Z\n"
-"PO-Revision-Date: 2026-09-15T21:57:30.446Z\n"
+"POT-Creation-Date: 2026-09-15T22:06:52.769Z\n"
+"PO-Revision-Date: 2026-09-15T22:06:52.769Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -560,8 +560,8 @@ msgstr "Usage data is not installed on this instance"
 msgid "Issues"
 msgstr "Issues"
 
-msgid "Usage"
-msgstr "Usage"
+msgid "Usage (least used first)"
+msgstr "Usage (least used first)"
 
 msgid "Data"
 msgstr "Data"
@@ -631,6 +631,9 @@ msgstr "Overview"
 
 msgid "Objects"
 msgstr "Objects"
+
+msgid "Usage"
+msgstr "Usage"
 
 msgid "DHIS2 integrity"
 msgstr "DHIS2 integrity"

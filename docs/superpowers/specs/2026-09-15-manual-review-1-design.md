@@ -198,9 +198,13 @@ would serve arbitrarily old counts with no signal.
   by favourite type, and the caveat in §3.6.
 - **Dashboard card**: a usage figure on every card.
 - **Dashboard sort control**: `Issues` (the default, today's worst-first
-  order) or `Usage`. The default does not change — a user arriving to triage
-  errors still sees the worst first — but a user pruning dead sets can invert
-  it.
+  order) or `Usage (least used first)`. The option answers one question —
+  which sets nothing references any more — so it always sorts that way
+  round rather than requiring the user to invert it, and its label says so
+  rather than making them try it to find out. The default does not change
+  — a user arriving to triage errors still sees the worst first. The
+  option is shown whether or not a usage view is installed; until one is,
+  it stays disabled with help text explaining why, rather than hidden.
 - **"Appears unused" tag** on a card with zero favourites, linking to that
   set's Usage tab.
 
