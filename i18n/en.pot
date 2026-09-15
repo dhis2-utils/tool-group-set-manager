@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-15T16:51:14.099Z\n"
-"PO-Revision-Date: 2026-09-15T16:51:14.099Z\n"
+"POT-Creation-Date: 2026-09-15T16:56:25.055Z\n"
+"PO-Revision-Date: 2026-09-15T16:56:25.055Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -209,6 +209,9 @@ msgstr "Show 1 group"
 
 msgid "Show all {count} groups"
 msgstr "Show all {count} groups"
+
+msgid "No groups match \"{term}\""
+msgstr "No groups match \"{term}\""
 
 msgid "Groups in this set"
 msgstr "Groups in this set"

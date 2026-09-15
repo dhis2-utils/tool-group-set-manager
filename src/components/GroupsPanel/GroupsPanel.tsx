@@ -21,6 +21,12 @@ const showAllLabel = (count: number) =>
               count: count.toLocaleString(),
           })
 
+// One complete sentence naming the term that matched nothing, rather than
+// a generic "No results" glued to the term afterwards -- see CLAUDE.md's
+// "Translatable strings".
+const noMatchLabel = (term: string) =>
+    interpolate(i18n.t('No groups match "{term}"'), { term })
+
 /**
  * Spec 2026-09-15 §4.4. Takes the plan and the population total and
  * renders them -- it derives nothing and issues no query of its own, so
@@ -35,17 +41,23 @@ export const GroupsPanel = ({
 }) => {
     const [expanded, setExpanded] = useState(false)
     const [filter, setFilter] = useState('')
+    const trimmedFilter = filter.trim()
     const rows = useMemo(() => {
         if (!expanded) {
             return plan.ranked.slice(0, MAX_GROUP_COLUMNS)
         }
-        const needle = filter.trim().toLowerCase()
+        const needle = trimmedFilter.toLowerCase()
         return needle
             ? plan.ranked.filter((g) =>
                   g.group.displayName.toLowerCase().includes(needle)
               )
             : plan.ranked
-    }, [plan.ranked, expanded, filter])
+    }, [plan.ranked, expanded, trimmedFilter])
+    // Distinct from "nothing to show yet" (never true here -- the panel
+    // only mounts once there is a population): the list is empty because
+    // this specific search term matched nothing, and the user needs to
+    // know that rather than see a silently blank box.
+    const noMatches = expanded && trimmedFilter !== '' && rows.length === 0
 
     return (
         <section className={styles.panel}>
@@ -58,27 +70,31 @@ export const GroupsPanel = ({
                     onChange={({ value }) => setFilter(value ?? '')}
                 />
             )}
-            {/* max-height in the CSS, so a 400-group set cannot push the
-                matrix off the page */}
-            <ul className={expanded ? styles.listExpanded : styles.list}>
-                {rows.map((g) => (
-                    <li key={g.group.id} className={styles.row}>
-                        <span className={styles.name}>
-                            {g.group.displayName}
-                        </span>
-                        <span className={styles.count}>
-                            {objectsLabel(g.total)}
-                        </span>
-                        <span className={styles.bar}>
-                            <i
-                                style={{
-                                    width: `${total > 0 ? (g.total / total) * 100 : 0}%`,
-                                }}
-                            />
-                        </span>
-                    </li>
-                ))}
-            </ul>
+            {noMatches ? (
+                <p className={styles.empty}>{noMatchLabel(trimmedFilter)}</p>
+            ) : (
+                // max-height in the CSS, so a 400-group set cannot push the
+                // matrix off the page
+                <ul className={expanded ? styles.listExpanded : styles.list}>
+                    {rows.map((g) => (
+                        <li key={g.group.id} className={styles.row}>
+                            <span className={styles.name}>
+                                {g.group.displayName}
+                            </span>
+                            <span className={styles.count}>
+                                {objectsLabel(g.total)}
+                            </span>
+                            <span className={styles.bar}>
+                                <i
+                                    style={{
+                                        width: `${total > 0 ? (g.total / total) * 100 : 0}%`,
+                                    }}
+                                />
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+            )}
             {plan.ranked.length > MAX_GROUP_COLUMNS && (
                 <Button small onClick={() => setExpanded((v) => !v)}>
                     {expanded

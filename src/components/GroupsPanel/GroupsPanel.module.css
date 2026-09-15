@@ -52,3 +52,8 @@
     background: var(--colors-blue500);
     font-style: normal;
 }
+.empty {
+    margin: 0;
+    padding: 8px 0;
+    color: var(--colors-grey600);
+}

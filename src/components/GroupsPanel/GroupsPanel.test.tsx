@@ -60,6 +60,21 @@ it('narrows the expanded list by name through the filter input', async () => {
     expect(screen.queryByText('Group 0')).not.toBeInTheDocument()
 })
 
+it('explains a filter that matches nothing, then restores the full list once cleared', async () => {
+    render(<GroupsPanel plan={plan} total={4500} />)
+    await userEvent.click(screen.getByText('Show all 9 groups'))
+    const input = screen.getByPlaceholderText('Filter groups by name')
+    await userEvent.type(input, 'zzz')
+    expect(screen.getByText('No groups match "zzz"')).toBeInTheDocument()
+    expect(screen.queryByText('Group 0')).not.toBeInTheDocument()
+    await userEvent.clear(input)
+    expect(
+        screen.queryByText('No groups match "zzz"')
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Group 0')).toBeInTheDocument()
+    expect(screen.getByText('Group 8')).toBeInTheDocument()
+})
+
 it('does not offer Show all or a filter for a set with eight or fewer groups', () => {
     const smallPlan: ColumnPlan = {
         shown: ranked.slice(0, 3),
