@@ -82,14 +82,25 @@ and it is also how a user decides which sets are worth fixing at all.
 
 ### 3.2 The SQL view
 
-One new view, code `GSI_GROUPSET_USAGE`, returning one row per group set:
+One new view, code `GSI_GROUPSET_USAGE`, returning **one row per (group set,
+favourite type) that has at least one referencing favourite**:
 
-| Column          | Meaning                                                              |
-| --------------- | -------------------------------------------------------------------- |
-| `groupset_uid`  | the group set                                                         |
-| `groupset_type` | `orgUnitGroupSet`, `dataElementGroupSet`, `categoryOptionGroupSet`    |
-| `favourites`    | distinct saved analytics objects referencing it as a dimension        |
-| `views_12m`     | rows in `datastatisticsevent` for those favourites, last 12 months    |
+| Column           | Meaning                                                              |
+| ---------------- | -------------------------------------------------------------------- |
+| `groupset_uid`   | the group set                                                         |
+| `groupset_type`  | `orgUnitGroupSet`, `dataElementGroupSet`, `categoryOptionGroupSet`    |
+| `favourite_type` | `visualization`, `map`, `eventVisualization`                          |
+| `favourites`     | distinct saved analytics objects of that type referencing it as a dimension |
+| `views_12m`      | rows in `datastatisticsevent` for those favourites, last 12 months    |
+
+§3.5 requires the Usage tab to break favourites down by favourite type, which
+a four-column, one-row-per-group-set result cannot do. The `favourite_type`
+column is the fix. A group set absent from the result has no referencing
+favourite of any type — exactly the "Appears unused" case in §3.5. A cross
+join of every set against every favourite type was rejected: it would emit
+rows for combinations that cannot exist on this schema (a data element group
+set on a map, for instance — see the table inventory below), and a reader
+cannot tell those apart from a real zero.
 
 Modelled on `github.com/dhis2/tool-category-dimension-disabler` (`src/app.js`),
 which counts views of favourites using a category dimension. That app counts
@@ -97,11 +108,48 @@ only views; the review asks for a count of favourites. Both are kept, because
 they answer different questions: zero favourites means nothing references the
 set, while referenced-but-never-viewed means the reference is probably stale.
 
-The body is a `UNION ALL` over each favourite table crossed with each of the
-three dimension link tables (`orgunitgroupsetdimension`,
-`dataelementgroupsetdimension`, `categoryoptiongroupsetdimension`) joined
-through their `<favourite>_<type>dimensions` bridge tables, aggregated once at
-the end.
+The body is a `UNION` (not `UNION ALL` — a favourite carrying the same group
+set in two dimension slots must not be double-counted) over each favourite
+table crossed with each of the three dimension link tables
+(`orgunitgroupsetdimension`, `dataelementgroupsetdimension`,
+`categoryoptiongroupsetdimension`) joined through their
+`<favourite>_<type>dimensions` bridge tables, aggregated once at the end.
+
+**Table inventory** (measured live against DHIS2 2.40.12, 2.41.10, 2.42.6 and
+2.43.1 — see `docs/superpowers/notes/2026-09-plan6-usage-tables.md` for the
+full per-version detail; identical on all four):
+
+- The group-set dimension link tables are `orgunitgroupsetdimension`,
+  `dataelementgroupsetdimension`, `categoryoptiongroupsetdimension`, each
+  keyed by `<name>id` and carrying `<groupset>id`.
+- Eleven bridge tables exist: `visualization_orgunitgroupsetdimensions`,
+  `visualization_dataelementgroupsetdimensions`,
+  `visualization_categoryoptiongroupsetdimensions`,
+  `mapview_orgunitgroupsetdimensions`,
+  `mapview_categoryoptiongroupsetdimensions`,
+  `eventvisualization_orgunitgroupsetdimensions`,
+  `eventvisualization_categoryoptiongroupsetdimensions`,
+  `eventchart_orgunitgroupsetdimensions`,
+  `eventchart_categoryoptiongroupsetdimensions`,
+  `eventreport_orgunitgroupsetdimensions`,
+  `eventreport_categoryoptiongroupsetdimensions`. **There is no
+  `mapview_dataelementgroupsetdimensions` and no
+  `eventvisualization_dataelementgroupsetdimensions`** — a data element group
+  set can only be a dimension of a `visualization`. `indicatorgroupset` has no
+  dimension table at all, which is the measured basis for the rule below that
+  indicator group sets never appear.
+- `eventchart` and `eventreport` are legacy projections of the same rows as
+  `eventvisualization` (measured: every `eventchart`/`eventreport` `uid` is
+  present in `eventvisualization`, on every version tested) — the query reads
+  `eventvisualization` only; including the legacy tables as well would count
+  each event favourite twice unless deduplicated, and buys nothing.
+- `datastatisticsevent.favoriteuid` names the **favourite the user opened**,
+  which for a map is the `map`, not the `mapview`: measured 0 matches against
+  `mapview.uid` for every `MAP_VIEW` statistics row, on every version tested.
+  The `tool-category-dimension-disabler` app that this view is modelled on
+  joins to `mapview.uid` and therefore never matches a single view — **that is
+  a bug in the reference app, not a pattern to copy**. This view's map branch
+  instead goes `mapview → mapmapviews → map`.
 
 Indicator group sets are not analytics dimensions, so they never appear in the
 result and their Usage tab says so rather than showing a zero that reads as a
@@ -119,6 +167,14 @@ Install tries each in turn until one both creates and executes, and Settings
 reports which variant took. The inventory of favourite tables per version is a
 verification task in Plan 6, run against 2.40, 2.41, 2.42 and 2.43 on live
 instances; no table name enters this spec that has not been seen on a server.
+
+Plan 6 Task 1 ran that verification: the single shipped candidate
+(`variant: 'eventvisualization'`) creates, executes and reads correctly on
+**2.40.12, 2.41.10, 2.42.6 and 2.43.1** — every version this app supports.
+No version rejected it, so no second candidate was added
+(`docs/superpowers/notes/2026-09-plan6-usage-tables.md` has the full
+per-version measurements). A second candidate remains something later work
+adds only if a future DHIS2 version actually rejects the first.
 
 ### 3.4 Installation
 
@@ -370,6 +426,13 @@ independent of everything here.
   what the app lets a user do.
 - §9: mark the two items in §8 above as answered once they are, and leave the
   translations item open.
+- §3.2 (of this document): amended by Plan 6 Task 1 from the original
+  four-column, one-row-per-group-set shape to five columns, one row per
+  (group set, favourite type), with the measured table inventory and the
+  `mapmapviews`/`map` correction folded in — see
+  `docs/superpowers/notes/2026-09-plan6-usage-tables.md`. §3.3 was updated in
+  the same task to record that the shipped candidate was proven on 2.40
+  through 2.43.
 
 ## 10. Verification
 
