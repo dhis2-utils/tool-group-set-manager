@@ -13,6 +13,7 @@ DHIS2 App Platform app (TypeScript, Vite, pnpm). Spec: docs/superpowers/specs/20
 - `src/engine` is pure TypeScript with typed arrays, runs in a Web Worker, no React or DHIS2 imports. Test it with plain Jest.
 - Data comes from SQL views when present (`GSI_*` codes) else from the metadata API; both produce the same payloads (`src/data/types.ts`).
 - Conflict = in more than one group of a set: always an error. Membership counted per set.
+- Membership is evaluated the same way at every org unit level: conflict is always an error, one group is Ok, and no group is an error when the set is compulsory, a warning when it is a data dimension, and allowed otherwise. The per-set "required levels" policy was removed in Plan 4.
 - Data fetching through `useApiDataQuery` (TanStack Query v4), never `useDataQuery` directly.
 - Group sets are loaded per type with `Promise.allSettled`; a type that fails is recorded in `LoadStatus.errors` and the rest of the dashboard still loads (spec 6.4).
 - The IndexedDB cache is reused only when the group ids, the object total **and** every group's `lastUpdated` match the server (spec 4.4). The first two are blind to an object moving between groups, which is the change this tool exists to watch.

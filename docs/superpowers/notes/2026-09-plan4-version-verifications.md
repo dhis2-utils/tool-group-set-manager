@@ -1,12 +1,13 @@
 # Two open items from spec §9, measured on live 2.40 and 2.43
 
 Measured against two disposable broker instances, both on the same Sierra
-Leone demo seed: `agent-gsi-p2` (DHIS2 2.43.1) for both questions, and
-`agent-gsi-p2-40` (DHIS2 2.40.12) for both questions on version 1 and for
-question 2 specifically as the brief requires. The app's own pinned SQL view
-definitions (`src/data/sources/sqlViewSource.ts`, `SQL_VIEW_DEFINITIONS`)
-were posted directly to `/api/sqlViews`, executed, then read — the app's
-dev server and Settings UI were never started for this task.
+Leone demo seed: `agent-gsi-p2` (DHIS2 2.43.1) answered question 1 only, and
+`agent-gsi-p2-40` (DHIS2 2.40.12) answered both question 1 and question 2,
+question 2 being scoped to 2.40 only as the brief requires. The app's own
+pinned SQL view definitions (`src/data/sources/sqlViewSource.ts`,
+`SQL_VIEW_DEFINITIONS`) were posted directly to `/api/sqlViews`, executed,
+then read — the app's dev server and Settings UI were never started for
+this task.
 
 ## Question 1: does `paging=false` on a SQL view export return every row, on both CSV and JSON?
 

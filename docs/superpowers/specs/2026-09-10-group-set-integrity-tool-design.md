@@ -23,9 +23,8 @@ The app lets a user:
 - fix violations in bulk by moving objects to a set-specific "Other/unknown"
   group, or individually by picking the correct group;
 - create that catch-all group when the set lacks one;
-- adjust the set's compulsory and data dimension properties, or declare at
-  which org unit levels the set is required, when the strict reading is
-  wrong for the instance;
+- adjust the set's compulsory and data dimension properties when the strict
+  reading is wrong for the instance;
 - review and revert past changes.
 
 Performance is a first-class requirement: the Nigeria EMIS instance has
@@ -60,8 +59,7 @@ categorised by it.
 
 - **Organisation units**: every org unit in the current scope. The default
   scope is the subtree under the user's data capture org units. The user
-  can narrow the scope to any descendant. Admins can configure app level
-  **required levels** per set (see 3.3).
+  can narrow the scope to any descendant.
 - **Data elements**: aggregate domain by default. A toggle includes tracker
   domain data elements. DHIS2 itself has no compulsory check for data
   elements, so this is the app's own rule.
@@ -74,26 +72,19 @@ categorised by it.
 
 Evaluated per group set and per object in the population.
 
-| Rule     | Condition                                                                  | Applies to                               | Severity |
-| -------- | -------------------------------------------------------------------------- | ---------------------------------------- | -------- |
-| Conflict | Object is in more than one group of the set                                | Every set, every type                    | Error    |
-| Missing  | Object is in no group, set is DHIS2 compulsory                             | Org unit (all levels), data element, indicator | Error |
-| Missing  | Object is in no group at an app level required level, set not compulsory   | Org unit                                 | Error    |
-| Missing  | Object is in no group, set is a data dimension but not compulsory          | Org unit, data element, category option  | Warning  |
+| Membership count | Condition                               | Status           |
+| ---------------- | ---------------------------------------- | ---------------- |
+| > 1               | any set, any type                       | `Conflict`       |
+| 1                 | any set, any type                       | `Ok`             |
+| 0                 | set is compulsory                       | `MissingError`   |
+| 0                 | set is a data dimension, not compulsory | `MissingWarning` |
+| 0                 | otherwise                                | `Ok`             |
 
 Conflict is always an error regardless of the data dimension property. This
 matches DHIS2's `*_violating_exclusive_group_sets` checks and the Maintenance
 app's single select behaviour. Sets that are neither compulsory nor a data
-dimension get only the conflict rule but still appear in the overview.
-
-The third and fourth Missing rows are mutually exclusive per set, not
-additive: an org unit set with required levels configured (3.3) is narrowed
-to only those levels, so the fourth row's data-dimension warning does not
-apply to it at all, at any level -- not just at the required ones. An admin
-who configures required levels is saying "this set only applies at these
-levels"; a warning at every other level is exactly the noise they configured
-required levels to remove. The fourth row applies only to a set with no
-required levels configured.
+dimension get only the conflict rule but still appear in the overview. The
+rule does not vary by organisation unit level.
 
 Groups can belong to more than one set (EMIS has "Private" in both
 Ownership and School Type). Membership is therefore counted per set, never
@@ -103,11 +94,11 @@ per group.
 
 Stored in the dataStore namespace `group-set-integrity`, editable by admins:
 
-- `config/orgUnitGroupSets/<setId>`: `{ requiredLevels: number[] }`. When
-  set on a non-compulsory set, missing objects at those levels are errors
-  and other levels are ignored. When the set is DHIS2 compulsory the strict
-  rule wins and the app offers to un-flag compulsory and keep the required
-  levels instead.
+- `config/orgUnitGroupSets/<setId>`: no longer read or written. The per-set
+  required-levels policy this key held was removed; documents already
+  stored under it from before that removal are left in place and never
+  deleted (see §2.3 of
+  `docs/superpowers/specs/2026-09-15-manual-review-1-design.md`).
 - `config/catchAll/<setId>`: `{ groupId }`. The set's Other/unknown group.
   Written when the app creates the group, or when an admin picks an
   existing group. The user can pick another target at fix time and may
@@ -127,7 +118,7 @@ Stored in the dataStore namespace `group-set-integrity`, editable by admins:
   short name, a code derived from the set's code, and sharing copied from a
   sibling group; adds it to the set; records the mapping.
 - **Set properties**: toggle compulsory and data dimension on the set
-  (JSON patch). Set required levels (dataStore).
+  (JSON patch).
 
 ## 4. Data loading and validation engine
 
@@ -234,7 +225,7 @@ https://claude.ai/code/artifact/a4e4e147-2142-4a72-9dbf-f07124db9503.
 Scope selector at the top (org unit tree rooted at the user's data capture
 org units). Progress per type while loading. One card per group set,
 grouped by object type, sorted by error count. Card content: name,
-property badges (Compulsory, Data dimension, Required at level N), group
+property badges (Compulsory, Data dimension), group
 count, population size in scope, conflict count, missing count, OK count,
 a lock indicator when the user cannot write to some groups, and for admins
 the integrity result with its run time and a stale marker. Filters: object
@@ -242,8 +233,8 @@ type, only sets with issues.
 
 ### 5.2 Group set detail
 
-Header: name, badges, and actions "Set properties", "Required levels",
-"Catch-all group: <name>" and "Fix N issues". Three tabs:
+Header: name, badges, and actions "Set properties", "Catch-all group:
+<name>" and "Fix N issues". Three tabs:
 
 - **Overview**: summary matrix. Rows are org units at a chosen level under
   the scope root, children by default. Columns: one per group, then
@@ -288,8 +279,8 @@ configuration changes are listed but not revertible from here.
 
 ### 5.5 Settings (admins)
 
-Required levels per org unit group set, catch-all mapping per set, default
-tracker toggle, SQL view status with create or repair, clear cache.
+Catch-all mapping per set, default tracker toggle, SQL view status with
+create or repair, clear cache.
 
 ### 5.6 Write access
 
@@ -404,18 +395,12 @@ while keeping the hierarchy and membership views.
   its own writes, only to detect an *external* edit when deciding whether
   its cache is stale. See `docs/superpowers/notes/2026-09-plan2-write-compatibility.md`.
 - Whether SQL view CSV export honours `paging=false` on 2.40 and 2.43 the
-  way it does on 2.41. **Still open.** No note on the branch measures this
-  specifically: Plan 1's compatibility campaign
-  (`docs/superpowers/notes/2026-09-plan1-compatibility.md`) ran the app
-  end to end on 2.40, 2.42 and 2.43 and reconciled its on-screen numbers
-  against the API, but that note does not say which of those runs had the
-  `GSI_*` SQL views installed, and it never mentions CSV export or
-  `paging=false` at all — the per-run reports it points to
-  ("the procedure section of the 2.40 report is the one to start from")
-  were not committed to the repo. A future plan should confirm directly
-  (install the SQL views on a 2.40 and a 2.43 instance, request
-  `sqlViews/<id>/data.csv?paging=false` on each, and check the full row
-  count returned) before relying on this.
+  way it does on 2.41. **Answered:** yes on both — `data.csv?paging=false`
+  and `data.json?paging=false` each returned the true row count for all
+  three `GSI_*` views on 2.40.12 and 2.43.1, with no capping observed. This
+  was checked only up to 3526 rows and does not rule out a cap that only
+  bites above that size. See
+  `docs/superpowers/notes/2026-09-plan4-version-verifications.md`.
 - Exact field names of the integrity details payload (`refs`, `comment`)
   across versions. **Answered:** 2.43 returns `refs` (an array of strings),
   2.40 returns `comment` (a single string); both hold the same unparseable
@@ -423,8 +408,11 @@ while keeping the hierarchy and membership views.
   either field's content. See
   `docs/superpowers/notes/2026-09-plan3-integrity-api-findings.md`.
 - Whether `access.write` is returned on group collections for non-admin
-  users on 2.40. **Still open** — out of scope for Plans 1-3; a future plan
-  should measure it before relying on it.
+  users on 2.40. **Answered:** yes, on 2.40.12 — measured with a
+  purpose-made non-admin user, and it correctly predicted a subsequent
+  write's success in both a positive and a negative case. 2.43 was not
+  tested. See
+  `docs/superpowers/notes/2026-09-plan4-version-verifications.md`.
 - Whether resolving org unit name translations inside the names SQL view is
   practical on 2.40 to 2.43, which would remove the divergence in 8a.
   **Still open** — out of scope for Plans 1-3; a future plan should
