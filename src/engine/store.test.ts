@@ -609,6 +609,73 @@ describe('EngineStore', () => {
         ).toThrow(/Unknown or unevaluated group set/)
     })
 
+    it('setConfig re-evaluates immediately when includeTracker changes', () => {
+        // includeTracker is the one surviving config knob (Plan 4 removed
+        // required levels): it decides whether tracker data elements are in
+        // the population at all (populationFor). Observe the contract on
+        // the thing includeTracker actually changes -- the population/
+        // status of a tracker element -- not through a spy on an internal
+        // method.
+        const compulsory: GroupSetMeta = {
+            id: 'de',
+            displayName: 'DE Set',
+            objectType: 'dataElement',
+            compulsory: true,
+            dataDimension: false,
+            canWrite: true,
+            groups: [{ id: 'g1', displayName: 'G1', canWrite: true }],
+        }
+        const store = new EngineStore()
+        store.loadObjects({
+            objectType: 'dataElement',
+            ids: ['agg', 'trk'],
+            names: ['Aggregate', 'Tracker'],
+            level: null,
+            parentIds: null,
+            domainType: Uint8Array.from([1, 2]), // 1 aggregate, 2 tracker
+            categoryIdsOfOption: null,
+        })
+        store.setGroupSets([compulsory])
+        store.loadMemberships({
+            objectType: 'dataElement',
+            groups: [{ groupId: 'g1', memberIds: [] }],
+        })
+        store.evaluate()
+
+        const before = store.dashboard({
+            objectType: 'dataElement',
+            rootId: null,
+        })
+        // Tracker element is out of the population by default: only the
+        // aggregate element is counted, and it is missing from the
+        // compulsory set.
+        expect(before[0].summary).toEqual({
+            population: 1,
+            ok: 0,
+            unassigned: 0,
+            missingError: 1,
+            missingWarning: 0,
+            conflict: 0,
+        })
+
+        store.setConfig({ includeTracker: true })
+
+        const after = store.dashboard({
+            objectType: 'dataElement',
+            rootId: null,
+        })
+        // The tracker element now enters the population and is also
+        // missing -- with no explicit evaluate() call in between.
+        expect(after[0].summary).toEqual({
+            population: 2,
+            ok: 0,
+            unassigned: 0,
+            missingError: 2,
+            missingWarning: 0,
+            conflict: 0,
+        })
+    })
+
     it('resolveParents resolves the parent ref of each given object', () => {
         const store = loadedStore()
         const a1 = store.indexOf('organisationUnit', 'a1')
