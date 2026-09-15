@@ -4,8 +4,6 @@ import {
     Button,
     Checkbox,
     CircularLoader,
-    MultiSelectField,
-    MultiSelectOption,
     NoticeBox,
     SingleSelectField,
     SingleSelectOption,
@@ -23,11 +21,6 @@ import {
 import { useEngine } from '@/hooks/useEngine'
 import { useGsiConfig } from '@/hooks/useGsiConfig'
 import { interpolate } from '@/utils/interpolate'
-import { useApiDataQuery } from '@/utils/useApiDataQuery'
-
-interface LevelsResponse {
-    organisationUnitLevels: { level: number; displayName: string }[]
-}
 
 /** Two complete strings, never a fragment glued to a number: see CLAUDE.md. */
 const createdSummary = (count: number) =>
@@ -65,7 +58,6 @@ export const Settings = () => {
     const {
         config,
         isLoaded: configLoaded,
-        setRequiredLevels,
         setCatchAllGroup,
         setIncludeTracker,
     } = useGsiConfig()
@@ -91,9 +83,6 @@ export const Settings = () => {
     // rather than the write vanishing silently. Keyed by which control
     // caused it, so one save's error cannot outlive the control that raised
     // it or be mistaken for a different one's.
-    const [requiredLevelsError, setRequiredLevelsError] = useState<
-        string | null
-    >(null)
     const [catchAllError, setCatchAllError] = useState<string | null>(null)
     const [trackerError, setTrackerError] = useState<string | null>(null)
 
@@ -170,25 +159,6 @@ export const Settings = () => {
         }
     }
 
-    const { data: levelsData } = useApiDataQuery<LevelsResponse>({
-        queryKey: ['organisationUnitLevels'],
-        query: {
-            resource: 'organisationUnitLevels',
-            params: { fields: 'level,displayName', pageSize: 100 },
-        },
-        staleTime: Infinity,
-    })
-    const levels = useMemo(
-        () =>
-            (levelsData?.organisationUnitLevels ?? []).sort(
-                (a, b) => a.level - b.level
-            ),
-        [levelsData]
-    )
-
-    const orgUnitSets = groupSets.filter(
-        (s) => s.objectType === 'organisationUnit'
-    )
     const allUsable = checks !== null && checks.every((c) => c.usable)
     const anyUnusable = checks !== null && checks.some((c) => !c.usable)
 
@@ -293,74 +263,6 @@ export const Settings = () => {
                             </NoticeBox>
                         )}
                     </>
-                )}
-            </div>
-
-            <div className={styles.section}>
-                <h2 className={styles.heading}>
-                    {i18n.t('Required organisation unit levels')}
-                </h2>
-                {orgUnitSets.map((set) => (
-                    <div key={set.id} className={styles.row}>
-                        <span className={styles.setLabel}>
-                            {set.displayName}
-                        </span>
-                        <div className={styles.field}>
-                            <MultiSelectField
-                                dense
-                                label=""
-                                placeholder={i18n.t('Choose required levels')}
-                                selected={(
-                                    config.requiredLevels[set.id] ?? []
-                                ).map(String)}
-                                disabled={!configLoaded}
-                                onChange={({
-                                    selected,
-                                }: {
-                                    selected: string[]
-                                }) => {
-                                    setRequiredLevelsError(null)
-                                    setRequiredLevels(
-                                        set.id,
-                                        selected
-                                            .map(Number)
-                                            .sort((a, b) => a - b)
-                                    ).catch((e: unknown) => {
-                                        // I3: `datastore.ts` deliberately
-                                        // rethrows anything but a 404 here,
-                                        // precisely so a transient failure
-                                        // is never mistaken for "nothing to
-                                        // merge" and silently erases other
-                                        // group sets' saved levels -- that
-                                        // real rejection must not then be
-                                        // dropped on the floor by this call
-                                        // site.
-                                        setRequiredLevelsError(
-                                            e instanceof Error
-                                                ? e.message
-                                                : String(e)
-                                        )
-                                    })
-                                }}
-                            >
-                                {levels.map((l) => (
-                                    <MultiSelectOption
-                                        key={l.level}
-                                        value={String(l.level)}
-                                        label={l.displayName}
-                                    />
-                                ))}
-                            </MultiSelectField>
-                        </div>
-                    </div>
-                ))}
-                {requiredLevelsError && (
-                    <NoticeBox
-                        error
-                        title={i18n.t('Could not save required levels')}
-                    >
-                        {requiredLevelsError}
-                    </NoticeBox>
                 )}
             </div>
 

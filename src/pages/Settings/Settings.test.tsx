@@ -33,42 +33,24 @@ jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => mockEngine,
 }))
 
-const mockSetRequiredLevels = jest.fn(async () => undefined)
 const mockSetCatchAllGroup = jest.fn(async () => undefined)
 const mockSetIncludeTracker = jest.fn(async () => undefined)
 const mockGsiConfig: {
     config: {
-        requiredLevels: Record<string, number[]>
         catchAllGroup: Record<string, string>
         includeTracker: boolean
     }
     isLoaded: boolean
-    setRequiredLevels: typeof mockSetRequiredLevels
     setCatchAllGroup: typeof mockSetCatchAllGroup
     setIncludeTracker: typeof mockSetIncludeTracker
 } = {
-    config: { requiredLevels: {}, catchAllGroup: {}, includeTracker: false },
+    config: { catchAllGroup: {}, includeTracker: false },
     isLoaded: true,
-    setRequiredLevels: mockSetRequiredLevels,
     setCatchAllGroup: mockSetCatchAllGroup,
     setIncludeTracker: mockSetIncludeTracker,
 }
 jest.mock('@/hooks/useGsiConfig', () => ({
     useGsiConfig: () => mockGsiConfig,
-}))
-
-jest.mock('@/utils/useApiDataQuery', () => ({
-    useApiDataQuery: () => ({
-        data: {
-            organisationUnitLevels: [
-                { level: 1, displayName: 'National' },
-                { level: 2, displayName: 'District' },
-                { level: 3, displayName: 'Chiefdom' },
-                { level: 4, displayName: 'Facility' },
-            ],
-        },
-        isLoading: false,
-    }),
 }))
 
 const mockCheckSqlViews = jest.fn()
@@ -111,7 +93,6 @@ const ALL_MISSING = [
 
 beforeEach(() => {
     mockReload.mockClear()
-    mockSetRequiredLevels.mockClear()
     mockSetCatchAllGroup.mockClear()
     mockSetIncludeTracker.mockClear()
     mockClearCache.mockClear()
@@ -119,7 +100,6 @@ beforeEach(() => {
     mockCanCreateSqlViews.mockReset()
     mockCreateOrRepairSqlViews.mockReset()
     mockGsiConfig.config = {
-        requiredLevels: {},
         catchAllGroup: {},
         includeTracker: false,
     }
@@ -289,49 +269,20 @@ describe('SQL view status', () => {
 })
 
 describe('required levels', () => {
-    // M3: this pins that Settings calls setRequiredLevels correctly and
-    // never calls reload itself over this -- NOT that the change takes
-    // effect without a reload, which is a claim about useGsiConfig's own
-    // wiring and is pinned there (useGsiConfig.test.tsx), independent of
-    // this component's mocked version of the hook.
-    it('saves the selected levels for an org unit group set, and never calls reload itself', async () => {
+    // Spec 2026-09-15 §2.2: the setting is gone, not hidden. A user who had
+    // it configured must not find a control that silently does nothing.
+    it('has no required organisation unit levels control', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
         mockCanCreateSqlViews.mockResolvedValue(true)
         render(<Settings />)
-        const placeholder = await screen.findByText('Choose required levels')
-        await act(async () => {
-            fireEvent.click(placeholder)
-        })
-        const option = await screen.findByText('District')
-        await act(async () => {
-            fireEvent.click(option)
-        })
-        await waitFor(() =>
-            expect(mockSetRequiredLevels).toHaveBeenCalledWith('own', [2])
-        )
-        expect(mockReload).not.toHaveBeenCalled()
-    })
-
-    // I3
-    it('reports a save failure rather than discarding it silently', async () => {
-        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
-        mockCanCreateSqlViews.mockResolvedValue(true)
-        mockSetRequiredLevels.mockRejectedValueOnce(new Error('HTTP 403'))
-        render(<Settings />)
-        const placeholder = await screen.findByText('Choose required levels')
-        await act(async () => {
-            fireEvent.click(placeholder)
-        })
-        const option = await screen.findByText('District')
-        await act(async () => {
-            fireEvent.click(option)
-        })
         await waitFor(() =>
             expect(
-                screen.getByText(/could not save required levels/i)
+                screen.getByText('GSI org unit hierarchy')
             ).toBeInTheDocument()
         )
-        expect(screen.getByText('HTTP 403')).toBeInTheDocument()
+        expect(
+            screen.queryByText('Required organisation unit levels')
+        ).not.toBeInTheDocument()
     })
 })
 

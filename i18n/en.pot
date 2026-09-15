@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-12T07:36:12.975Z\n"
-"PO-Revision-Date: 2026-09-12T07:36:12.975Z\n"
+"POT-Creation-Date: 2026-09-15T13:17:07.652Z\n"
+"PO-Revision-Date: 2026-09-15T13:17:07.652Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -826,15 +826,6 @@ msgstr "SQL view update complete"
 
 msgid "SQL view update failed"
 msgstr "SQL view update failed"
-
-msgid "Required organisation unit levels"
-msgstr "Required organisation unit levels"
-
-msgid "Choose required levels"
-msgstr "Choose required levels"
-
-msgid "Could not save required levels"
-msgstr "Could not save required levels"
 
 msgid "Choose catch-all group"
 msgstr "Choose catch-all group"
