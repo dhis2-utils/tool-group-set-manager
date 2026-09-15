@@ -271,8 +271,15 @@ Expected: PASS.
 
 In `src/pages/Dashboard/Dashboard.tsx`, replace the `styles.toolbar` block with a `FilterBar` holding five fields in this order: **Organisation unit · Object type · Show · Sort by · Reload data**.
 
+**One height, one label style — this is the point of the task, and it beats any sample below.** Two rules bind every field in the bar, here and in Task 2:
+
+1. **`FilterBarField` supplies the label; the library control never does.** Drop `label=` from every `SingleSelectField` in the bar. Otherwise the row carries two label typographies — `FilterBarField`'s own span against `@dhis2-ui/label`'s `Label`, which `SingleSelectField` renders at a different size, colour and weight.
+2. **Every control renders at the same height.** In @dhis2/ui 10.17.0 a default `Button` is 36px, a `small` `Button` is 28px, and a `dense` `SingleSelectField` is 32px — so mixing the defaults gives three heights. Choose one convention across the whole bar, record it in a comment in `FilterBar.module.css`, and close any residual gap with an explicit height on the field's control slot only if the library's own size props cannot.
+
+With those in force:
+
 - `Organisation unit` is `<OrgUnitField />` — it brings its own `FilterBarField`.
-- `Object type` keeps today's `SingleSelectField` with `dense`, unchanged apart from living inside the bar.
+- `Object type` is today's `SingleSelectField` wrapped in a `FilterBarField`, with its own `label` prop removed and its size matched to the convention.
 - `Show` replaces the `Checkbox`. Two options, `Only sets with issues` (the default, matching today's `useState(true)`) and `All sets`. Keep the `onlyIssues` boolean in state and map it, rather than storing the string.
 - `Sort by` is new: `Issues` (today's `byWorstFirst`, the default) and `Usage`. **Usage data does not exist until Plan 6.** Render the option `disabled` with the title `i18n.t('Usage data is not installed on this instance')` and leave `byWorstFirst` as the only sort actually implemented. Do not invent a usage sort or a placeholder number.
 - `Reload data` is today's button wrapped in a `FilterBarField` whose label is `i18n.t('Data')`, so it sits on the same baseline. Do not use a blank or `&nbsp;` label — an empty label is unreadable to a screen reader.
@@ -410,7 +417,7 @@ In `GroupSetDetail.tsx`, above the header, render:
 </FilterBar>
 ```
 
-Keep `SingleSelectField`'s own `label` prop off — `FilterBarField` supplies the label, and two labels would render twice.
+Keep `SingleSelectField`'s own `label` prop off — `FilterBarField` supplies the label, and two labels would render twice. **Match Task 1's height convention**, which is recorded in a comment in `FilterBar.module.css`; the `dense` in the sample above is a placeholder for whatever that convention turned out to be, not an instruction.
 
 **Preserve the existing guard exactly.** `OverviewTab` currently refuses to render the selector when `levels.length === 0`, because `@dhis2/ui`'s `SingleSelect` throws a hard runtime error — not a blank — when `selected` matches no rendered option. The `levels.length > 0` condition above is that same guard; do not drop it. `effectiveRowLevel` (not `rowLevel`) is likewise the synchronously-corrected value that already exists in `GroupSetDetail.tsx` for this reason; keep using it.
 
