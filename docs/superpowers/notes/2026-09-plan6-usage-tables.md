@@ -243,26 +243,98 @@ Steps, all against `agent-gsi-p2` (2.43.1), `local_admin`/`district`:
 2. Created the **old** (pre-fix, `age()`) body as a second throwaway view
    on the same instance (`GSI_GROUPSET_USAGE_OLD`, id `tosFuMxFJAT`) the
    same way: create → 201, execute → 201, read → 200, 12 rows.
-3. Compared the two reads' `listGrid.rows` arrays byte-for-byte (JSON
-   stringified): **identical**, all 12 `(groupset_uid, groupset_type,
-   favourite_type, favourites, views_12m)` tuples, `views_12m = 0` on every
-   row on the 12-month window (unchanged from the original measurement --
-   this seed's newest statistics event still predates 12 months before
-   2026-09-15).
+3. **Comparison method**: saved both `GET .../data.json?pageSize=5000`
+   response bodies to disk (`new_data.json` for `GSI_GROUPSET_USAGE_FR2`,
+   `old_data.json` for `GSI_GROUPSET_USAGE_OLD`), parsed each as JSON, and
+   compared `JSON.stringify(newData.listGrid.rows)` against
+   `JSON.stringify(oldData.listGrid.rows)` -- **identical**, both are the
+   same 12-row array in the same order. The full compared result (the
+   **new** sargable body's own read; the old body's read is byte-identical
+   to it, so it is not repeated), all `views_12m = 0` on the 12-month
+   window (unchanged from the original measurement -- this seed's newest
+   statistics event still predates 12 months before 2026-09-15):
+
+   | groupset_uid | groupset_type | favourite_type | favourites | views_12m |
+   | --- | --- | --- | --- | --- |
+   | Bpx0589u8y0 | orgUnitGroupSet | map | 1 | 0 |
+   | Bpx0589u8y0 | orgUnitGroupSet | visualization | 11 | 0 |
+   | C31vHZqu0qU | categoryOptionGroupSet | eventVisualization | 2 | 0 |
+   | Cbuj0VCyDjL | orgUnitGroupSet | eventVisualization | 1 | 0 |
+   | Cbuj0VCyDjL | orgUnitGroupSet | visualization | 5 | 0 |
+   | J5jldMd8OHv | orgUnitGroupSet | eventVisualization | 4 | 0 |
+   | J5jldMd8OHv | orgUnitGroupSet | map | 1 | 0 |
+   | J5jldMd8OHv | orgUnitGroupSet | visualization | 37 | 0 |
+   | jp826jAJHUc | dataElementGroupSet | visualization | 8 | 0 |
+   | lv8UXn17ZOm | dataElementGroupSet | visualization | 5 | 0 |
+   | SooXFOUnciJ | categoryOptionGroupSet | eventVisualization | 1 | 0 |
+   | uIuxlbV1vRT | orgUnitGroupSet | visualization | 3 | 0 |
+
+   Raw form, exactly as `listGrid.rows` returned it (both files identical):
+
+   ```json
+   [
+     ["Bpx0589u8y0","orgUnitGroupSet","map","1","0"],
+     ["Bpx0589u8y0","orgUnitGroupSet","visualization","11","0"],
+     ["C31vHZqu0qU","categoryOptionGroupSet","eventVisualization","2","0"],
+     ["Cbuj0VCyDjL","orgUnitGroupSet","eventVisualization","1","0"],
+     ["Cbuj0VCyDjL","orgUnitGroupSet","visualization","5","0"],
+     ["J5jldMd8OHv","orgUnitGroupSet","eventVisualization","4","0"],
+     ["J5jldMd8OHv","orgUnitGroupSet","map","1","0"],
+     ["J5jldMd8OHv","orgUnitGroupSet","visualization","37","0"],
+     ["jp826jAJHUc","dataElementGroupSet","visualization","8","0"],
+     ["lv8UXn17ZOm","dataElementGroupSet","visualization","5","0"],
+     ["SooXFOUnciJ","categoryOptionGroupSet","eventVisualization","1","0"],
+     ["uIuxlbV1vRT","orgUnitGroupSet","visualization","3","0"]
+   ]
+   ```
+
 4. Widened-window control: ran the **new** sargable body directly in
    `psql` against `dhis2-agent-gsi-p2-db`, with `now() - interval '12
-   months'` widened to `now() - interval '200 months'`. Result: the same
-   12 `(groupset_uid, favourite_type)` pairs and `favourites` counts, with
-   `views_12m` now `32, 3, 6, 12, 11, 0, 89, 0, 0, 14, 25, 0` in row order
-   -- the non-zero values are exactly `{89, 32, 25, 14, 12, 11, 6, 3}`,
-   matching the eight values the original four-version measurement
-   recorded (§4 above) exactly, confirming the sargable rewrite preserves
-   the join's behaviour.
+   months'` widened to `now() - interval '200 months'` (the interval
+   literal is the only edit to the query text). Full tuples, so a reader
+   can match each one against the original four-version measurement in §4
+   above by `groupset_uid` and `favourite_type`, not just by the bag of
+   `views_12m` values:
+
+   | groupset_uid | groupset_type | favourite_type | favourites | views_12m |
+   | --- | --- | --- | --- | --- |
+   | Bpx0589u8y0 | orgUnitGroupSet | map | 1 | 0 |
+   | Bpx0589u8y0 | orgUnitGroupSet | visualization | 11 | 32 |
+   | C31vHZqu0qU | categoryOptionGroupSet | eventVisualization | 2 | 3 |
+   | Cbuj0VCyDjL | orgUnitGroupSet | eventVisualization | 1 | 6 |
+   | Cbuj0VCyDjL | orgUnitGroupSet | visualization | 5 | 12 |
+   | J5jldMd8OHv | orgUnitGroupSet | eventVisualization | 4 | 11 |
+   | J5jldMd8OHv | orgUnitGroupSet | map | 1 | 0 |
+   | J5jldMd8OHv | orgUnitGroupSet | visualization | 37 | 89 |
+   | jp826jAJHUc | dataElementGroupSet | visualization | 8 | 0 |
+   | lv8UXn17ZOm | dataElementGroupSet | visualization | 5 | 0 |
+   | SooXFOUnciJ | categoryOptionGroupSet | eventVisualization | 1 | 14 |
+   | uIuxlbV1vRT | orgUnitGroupSet | visualization | 3 | 25 |
+
+   Every `(groupset_uid, groupset_type, favourite_type, favourites)` tuple
+   here matches the corresponding row in the 12-month table in step 3
+   above exactly; only `views_12m` changes, from 0 to these values. The
+   `groupset_uid`/`favourite_type` pairs and their `favourites` counts are
+   also exactly the twelve rows in the original four-version measurement's
+   §4 table above (same instance family, same seed data), and the non-zero
+   `views_12m` values -- 32, 3, 6, 12, 11, 89, 14, 25 -- are exactly the
+   eight values that measurement's own widened-window control recorded
+   (`89, 32, 25, 14, 12, 11, 6, 3`, order aside), row for row, not merely
+   as a matching multiset: confirming the sargable rewrite preserves the
+   join's behaviour precisely, not just its totals.
 5. Deleted both throwaway views (`DELETE /api/sqlViews/gKNLXAiU6BI` and
    `DELETE /api/sqlViews/tosFuMxFJAT`) -- both HTTP 200 -- and confirmed
    `GET /api/sqlViews.json?filter=code:like:GSI_GROUPSET_USAGE` returns zero
    rows. `agent-gsi-p2` is a shared instance and the e2e usage flow expects
    to install the view itself, so nothing was left behind.
+
+Addendum (re-review): the row table and JSON above are the exact output
+saved from this run (`new_data.json`/`old_data.json`, the `GET
+.../data.json` responses; `widened_control.txt`, the `psql` output) --
+nothing here was re-run to produce this addendum, only transcribed from
+data already captured. The instance was re-checked at the time of writing
+this addendum (`GET /api/sqlViews.json?filter=code:like:GSI_GROUPSET_USAGE`)
+and still shows zero matching views.
 
 The original four-version measurements above (§1 through §4) are left
 exactly as they were recorded; this section is additive.
