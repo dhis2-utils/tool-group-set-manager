@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-15T21:06:27.182Z\n"
-"PO-Revision-Date: 2026-09-15T21:06:27.182Z\n"
+"POT-Creation-Date: 2026-09-15T21:16:35.722Z\n"
+"PO-Revision-Date: 2026-09-15T21:16:35.722Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -924,8 +924,14 @@ msgstr "The existing usage SQL view was repaired and can now be read."
 msgid "The usage SQL view could not be installed"
 msgstr "The usage SQL view could not be installed"
 
+msgid "The existing usage SQL view could not be repaired — {message}"
+msgstr "The existing usage SQL view could not be repaired — {message}"
+
 msgid "The {variant} query variant could not be installed — {message}"
 msgstr "The {variant} query variant could not be installed — {message}"
+
+msgid "The usage SQL view action failed"
+msgstr "The usage SQL view action failed"
 
 msgid "Choose catch-all group"
 msgstr "Choose catch-all group"

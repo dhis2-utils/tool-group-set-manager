@@ -125,6 +125,12 @@ beforeEach(() => {
     mockCheckSqlViews.mockResolvedValue([])
     mockCanCreateSqlViews.mockReset()
     mockCreateOrRepairSqlViews.mockReset()
+    // Cleared (not just re-configured in each usage test's own beforeEach)
+    // so call-count assertions like `toHaveBeenCalledTimes` aren't polluted
+    // by every other test in the file also rendering the usage section.
+    mockCheckUsage.mockReset()
+    mockInstallUsage.mockReset()
+    mockRemoveUsage.mockReset()
     mockGsiConfig.config = {
         catchAllGroup: {},
         includeTracker: false,
@@ -440,9 +446,7 @@ describe('Settings — group set usage', () => {
             installed: false,
             variant: null,
             id: null,
-            failures: [
-                { variant: 'eventvisualization', message: 'HTTP 409' },
-            ],
+            failures: [{ variant: 'eventvisualization', message: 'HTTP 409' }],
         })
         renderSettings({ canManage: true })
         fireEvent.click(
@@ -468,9 +472,123 @@ describe('Settings — group set usage', () => {
         fireEvent.click(
             await screen.findByRole('button', { name: 'Remove usage SQL view' })
         )
-        await waitFor(() => expect(mockRemoveUsage).toHaveBeenCalledWith(
-            expect.anything(),
-            'v1'
-        ))
+        await waitFor(() =>
+            expect(mockRemoveUsage).toHaveBeenCalledWith(
+                expect.anything(),
+                'v1'
+            )
+        )
+    })
+
+    // Review fix 1 (Important): `usageCheck` starts `null`, so before the
+    // status check resolves neither `usable` nor `id` is truthy -- without a
+    // distinct "still checking" state the tag would assert "Missing" before
+    // anything had looked.
+    it('shows neither Missing nor Usable while the check is still pending, and Missing once it resolves', async () => {
+        let resolveCheck: (value: {
+            id: string | null
+            type: string | undefined
+            readable: boolean
+            usable: boolean
+        }) => void = () => undefined
+        mockCheckUsage.mockReturnValue(
+            new Promise((resolve) => {
+                resolveCheck = resolve
+            })
+        )
+        renderSettings({ canManage: true })
+        expect(await screen.findByText('Group set usage')).toBeInTheDocument()
+        expect(screen.queryByText('Missing')).not.toBeInTheDocument()
+        expect(screen.queryByText('Usable')).not.toBeInTheDocument()
+
+        resolveCheck({
+            id: null,
+            type: undefined,
+            readable: false,
+            usable: false,
+        })
+        expect(await screen.findByText('Missing')).toBeInTheDocument()
+    })
+
+    // Review fix 2 (Important): an install/remove failure must not gate the
+    // whole section -- a 403 on remove (or a view someone else deleted
+    // mid-session) would otherwise wipe the tag and both buttons with no way
+    // back except reloading the page.
+    it('leaves the remove button and the view row on screen when removal fails, reporting the error alongside them', async () => {
+        mockCheckUsage.mockResolvedValue({
+            id: 'v1',
+            type: 'VIEW',
+            readable: true,
+            usable: true,
+        })
+        mockRemoveUsage.mockRejectedValue(new Error('HTTP 403'))
+        renderSettings({ canManage: true })
+        const button = await screen.findByRole('button', {
+            name: 'Remove usage SQL view',
+        })
+        fireEvent.click(button)
+        expect(await screen.findByText('HTTP 403')).toBeInTheDocument()
+        expect(
+            screen.getByRole('button', { name: 'Remove usage SQL view' })
+        ).toBeInTheDocument()
+        expect(screen.getByText('Group set usage view')).toBeInTheDocument()
+    })
+
+    // Review fix 2 (Important), status-check half: a failing status check
+    // (unlike an action failure) is a real "nothing to show" state, gated
+    // the same way the SQL views section gates on `checkError`, with the
+    // same retry affordance.
+    it('shows an error and a retry option when the status check itself fails, and retrying re-checks', async () => {
+        mockCheckUsage.mockRejectedValueOnce(new Error('HTTP 500'))
+        renderSettings({ canManage: true })
+        expect(
+            await screen.findByText('Could not check the usage SQL view')
+        ).toBeInTheDocument()
+        expect(screen.getByText('HTTP 500')).toBeInTheDocument()
+        expect(
+            screen.queryByRole('button', { name: 'Install usage SQL view' })
+        ).not.toBeInTheDocument()
+
+        mockCheckUsage.mockResolvedValue({
+            id: null,
+            type: undefined,
+            readable: false,
+            usable: false,
+        })
+        fireEvent.click(screen.getByRole('button', { name: /try again/i }))
+        await waitFor(() => expect(mockCheckUsage).toHaveBeenCalledTimes(2))
+        expect(await screen.findByText('Missing')).toBeInTheDocument()
+    })
+
+    // Review fix 3 (Minor): `variant: 'existing'` is a placeholder for "the
+    // view already there", not a SQL variant name, and must not reach the
+    // "{variant} query variant" wording.
+    it('names an existing-view repair failure without the query-variant wording', async () => {
+        mockCheckUsage.mockResolvedValue({
+            id: 'v1',
+            type: 'VIEW',
+            readable: false,
+            usable: false,
+        })
+        mockInstallUsage.mockResolvedValue({
+            installed: false,
+            variant: null,
+            id: 'v1',
+            failures: [{ variant: 'existing', message: 'HTTP 500' }],
+        })
+        renderSettings({ canManage: true })
+        fireEvent.click(
+            await screen.findByRole('button', {
+                name: 'Install usage SQL view',
+            })
+        )
+        expect(
+            await screen.findByText(
+                'The existing usage SQL view could not be repaired — HTTP 500'
+            )
+        ).toBeInTheDocument()
+        expect(
+            screen.queryByText(/existing query variant/)
+        ).not.toBeInTheDocument()
     })
 })

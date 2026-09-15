@@ -94,19 +94,31 @@ export const Settings = () => {
     const [trackerError, setTrackerError] = useState<string | null>(null)
 
     const [usageCheck, setUsageCheck] = useState<UsageViewCheck | null>(null)
+    const [usageChecking, setUsageChecking] = useState(true)
     const [usageBusy, setUsageBusy] = useState(false)
     const [usageResult, setUsageResult] = useState<InstallUsageResult | null>(
         null
     )
-    const [usageError, setUsageError] = useState<string | null>(null)
+    // Split the way `checkError`/`createError` are split above: a failing
+    // status check gates the whole section (there is nothing to show), but
+    // an install/remove failure must not -- a 403 on remove, or a view
+    // someone else deleted mid-session, would otherwise wipe the tag and
+    // both buttons with no way back except reloading the page.
+    const [usageCheckError, setUsageCheckError] = useState<string | null>(null)
+    const [usageActionError, setUsageActionError] = useState<string | null>(
+        null
+    )
 
     const refreshUsage = useCallback(async () => {
+        setUsageChecking(true)
+        setUsageCheckError(null)
         try {
             setUsageCheck(await checkUsageView(fetcher))
-            setUsageError(null)
         } catch (e) {
             setUsageCheck(null)
-            setUsageError(e instanceof Error ? e.message : String(e))
+            setUsageCheckError(e instanceof Error ? e.message : String(e))
+        } finally {
+            setUsageChecking(false)
         }
     }, [fetcher])
 
@@ -192,13 +204,13 @@ export const Settings = () => {
             return
         }
         setUsageBusy(true)
-        setUsageError(null)
+        setUsageActionError(null)
         try {
             const result = await installUsageView(fetcher, usageCheck)
             setUsageResult(result)
             await refreshUsage()
         } catch (e) {
-            setUsageError(e instanceof Error ? e.message : String(e))
+            setUsageActionError(e instanceof Error ? e.message : String(e))
         } finally {
             setUsageBusy(false)
         }
@@ -209,14 +221,14 @@ export const Settings = () => {
             return
         }
         setUsageBusy(true)
-        setUsageError(null)
+        setUsageActionError(null)
         try {
             await removeUsageView(fetcher, usageCheck.id)
             // The install report belongs to a view that no longer exists.
             setUsageResult(null)
             await refreshUsage()
         } catch (e) {
-            setUsageError(e instanceof Error ? e.message : String(e))
+            setUsageActionError(e instanceof Error ? e.message : String(e))
         } finally {
             setUsageBusy(false)
         }
@@ -336,12 +348,19 @@ export const Settings = () => {
                         'An optional SQL view that counts the saved favourites referencing each group set, and how often they were viewed in the last 12 months. Without it the app works exactly as before, only with no usage figures.'
                     )}
                 </p>
-                {usageError ? (
+                {usageChecking && usageCheck === null ? (
+                    <CircularLoader small />
+                ) : usageCheckError ? (
                     <NoticeBox
                         error
                         title={i18n.t('Could not check the usage SQL view')}
                     >
-                        {usageError}
+                        {usageCheckError}
+                        <div>
+                            <Button small onClick={() => void refreshUsage()}>
+                                {i18n.t('Try again')}
+                            </Button>
+                        </div>
                     </NoticeBox>
                 ) : (
                     <>
@@ -357,15 +376,17 @@ export const Settings = () => {
                                 <Tag negative>{i18n.t('Missing')}</Tag>
                             )}
                         </div>
-                        {usageCheck && !usageCheck.usable && canManage === true && (
-                            <Button
-                                onClick={handleInstallUsage}
-                                disabled={usageBusy}
-                                loading={usageBusy}
-                            >
-                                {i18n.t('Install usage SQL view')}
-                            </Button>
-                        )}
+                        {usageCheck &&
+                            !usageCheck.usable &&
+                            canManage === true && (
+                                <Button
+                                    onClick={handleInstallUsage}
+                                    disabled={usageBusy}
+                                    loading={usageBusy}
+                                >
+                                    {i18n.t('Install usage SQL view')}
+                                </Button>
+                            )}
                         {usageCheck?.usable && canManage === true && (
                             <Button
                                 secondary
@@ -405,19 +426,44 @@ export const Settings = () => {
                                     'The usage SQL view could not be installed'
                                 )}
                             >
-                                {usageResult.failures.map((f) => (
-                                    <div key={f.variant}>
-                                        {interpolate(
-                                            i18n.t(
-                                                'The {variant} query variant could not be installed — {message}'
-                                            ),
-                                            {
-                                                variant: f.variant,
-                                                message: f.message,
-                                            }
-                                        )}
-                                    </div>
-                                ))}
+                                {usageResult.failures.map((f) =>
+                                    // `existing` is a placeholder id for "the
+                                    // view already there", not a SQL variant
+                                    // name -- it must not reach the
+                                    // "{variant} query variant" wording.
+                                    f.variant === 'existing' ? (
+                                        <div key={f.variant}>
+                                            {interpolate(
+                                                i18n.t(
+                                                    'The existing usage SQL view could not be repaired — {message}'
+                                                ),
+                                                { message: f.message }
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div key={f.variant}>
+                                            {interpolate(
+                                                i18n.t(
+                                                    'The {variant} query variant could not be installed — {message}'
+                                                ),
+                                                {
+                                                    variant: f.variant,
+                                                    message: f.message,
+                                                }
+                                            )}
+                                        </div>
+                                    )
+                                )}
+                            </NoticeBox>
+                        )}
+                        {usageActionError && (
+                            <NoticeBox
+                                error
+                                title={i18n.t(
+                                    'The usage SQL view action failed'
+                                )}
+                            >
+                                {usageActionError}
                             </NoticeBox>
                         )}
                     </>
