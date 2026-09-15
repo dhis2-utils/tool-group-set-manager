@@ -4,21 +4,31 @@ import React from 'react'
 import styles from './GroupSetCard.module.css'
 import { IntegrityLine } from '@/components/IntegrityLine/IntegrityLine'
 import { CheckSummary, LogicalCheck, ResolvedCheck } from '@/data/integrity'
+import { usageApplies } from '@/data/sources/usageSqlView'
 import { DashboardEntry } from '@/engine/store'
 import { ObjectType } from '@/engine/types'
 import { useIntegrity } from '@/hooks/useIntegrity'
+import { useUsage } from '@/hooks/useUsage'
 import { groupsLabel } from '@/utils/groupsLabel'
 import { interpolate } from '@/utils/interpolate'
 
 interface Props {
     entry: DashboardEntry
     onOpen: () => void
+    onOpenUsage: () => void
 }
 
 const readOnlyLabel = (count: number) =>
     count === 1
         ? i18n.t('1 group read-only for you')
         : interpolate(i18n.t('{count} groups read-only for you'), {
+              count: count.toLocaleString(),
+          })
+
+const cardFavouritesLabel = (count: number) =>
+    count === 1
+        ? i18n.t('1 favourite')
+        : interpolate(i18n.t('{count} favourites'), {
               count: count.toLocaleString(),
           })
 
@@ -54,10 +64,19 @@ function checkFor(
     return checks.find((c) => c.logical === logical)
 }
 
-export const GroupSetCard = ({ entry, onOpen }: Props) => {
+export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
     const { set, summary, hasData } = entry
     const readOnlyGroups = set.groups.filter((g) => !g.canWrite).length
     const { available, checks, summaries, stale } = useIntegrity()
+    const usage = useUsage()
+    // Only a set whose type can be an analytics dimension, on an instance
+    // that actually has the usage view, shows anything here. Everything
+    // else renders nothing at all -- not a dash, not a zero (the same rule
+    // the integrity line below already follows).
+    const setUsage =
+        usage.status === 'ready' && usageApplies(set.objectType)
+            ? usage.forSet(set.id)
+            : null
     // A user without the overlay (available === false, the normal case for
     // a district manager) gets nothing from this at all -- not an empty
     // element, not a placeholder, not a dash. `relevantCheck` stays
@@ -164,6 +183,27 @@ export const GroupSetCard = ({ entry, onOpen }: Props) => {
                         ? readOnlyLabel(readOnlyGroups)
                         : i18n.t('You can edit all groups')}
                 </div>
+                {setUsage && (
+                    <div className={styles.usage}>
+                        <span>{cardFavouritesLabel(setUsage.favourites)}</span>
+                        {setUsage.favourites === 0 && (
+                            <button
+                                type="button"
+                                className={styles.unusedTag}
+                                onClick={(e) => {
+                                    // The whole card is itself a button;
+                                    // without this the card's own onOpen
+                                    // would fire too and land the user on
+                                    // the Overview tab instead.
+                                    e.stopPropagation()
+                                    onOpenUsage()
+                                }}
+                            >
+                                {i18n.t('Appears unused')}
+                            </button>
+                        )}
+                    </div>
+                )}
                 {relevantCheck && relevantSummary && (
                     <IntegrityLine
                         check={relevantCheck}

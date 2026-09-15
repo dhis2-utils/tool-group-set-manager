@@ -329,6 +329,12 @@ export const Dashboard = () => {
                                                     `/sets/${entry.set.id}`
                                                 )
                                             }
+                                            onOpenUsage={() =>
+                                                navigate(
+                                                    `/sets/${entry.set.id}`,
+                                                    { state: { tab: 'usage' } }
+                                                )
+                                            }
                                         />
                                     ))}
                                 </div>
@@ -342,6 +348,12 @@ export const Dashboard = () => {
                                         entry={entry}
                                         onOpen={() =>
                                             navigate(`/sets/${entry.set.id}`)
+                                        }
+                                        onOpenUsage={() =>
+                                            navigate(
+                                                `/sets/${entry.set.id}`,
+                                                { state: { tab: 'usage' } }
+                                            )
                                         }
                                     />
                                 ))}

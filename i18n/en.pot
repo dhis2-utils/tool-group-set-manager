@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-15T21:34:23.784Z\n"
-"PO-Revision-Date: 2026-09-15T21:34:23.784Z\n"
+"POT-Creation-Date: 2026-09-15T21:49:46.925Z\n"
+"PO-Revision-Date: 2026-09-15T21:49:46.925Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -177,6 +177,12 @@ msgstr "1 group read-only for you"
 msgid "{count} groups read-only for you"
 msgstr "{count} groups read-only for you"
 
+msgid "1 favourite"
+msgstr "1 favourite"
+
+msgid "{count} favourites"
+msgstr "{count} favourites"
+
 msgid "Compulsory"
 msgstr "Compulsory"
 
@@ -203,6 +209,9 @@ msgstr "OK"
 
 msgid "You can edit all groups"
 msgstr "You can edit all groups"
+
+msgid "Appears unused"
+msgstr "Appears unused"
 
 msgid "Show 1 group"
 msgstr "Show 1 group"
@@ -737,12 +746,6 @@ msgstr "1 view in the last 12 months"
 
 msgid "{count} views in the last 12 months"
 msgstr "{count} views in the last 12 months"
-
-msgid "1 favourite"
-msgstr "1 favourite"
-
-msgid "{count} favourites"
-msgstr "{count} favourites"
 
 msgid ""
 "Indicator group sets are not analytics dimensions, so there is no usage "

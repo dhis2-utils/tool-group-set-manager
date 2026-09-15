@@ -67,3 +67,20 @@
     font-size: var(--gsi-font-size-sm, 12px);
     color: var(--colors-grey600);
 }
+.usage {
+    display: flex;
+    align-items: center;
+    gap: var(--spacers-dp8);
+    font-size: var(--gsi-font-size-sm, 12px);
+    color: var(--colors-grey600);
+}
+.unusedTag {
+    border: none;
+    border-radius: 3px;
+    padding: 2px var(--spacers-dp8);
+    background-color: var(--colors-yellow050);
+    color: var(--colors-yellow800);
+    font-size: var(--gsi-font-size-xs, 11px);
+    font-weight: 500;
+    cursor: pointer;
+}

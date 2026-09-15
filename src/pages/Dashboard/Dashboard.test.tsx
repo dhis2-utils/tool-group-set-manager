@@ -177,6 +177,19 @@ jest.mock('@/hooks/useIntegrity', () => ({
         refresh: async () => undefined,
     }),
 }))
+// R6: Dashboard renders GroupSetCard, which depends on @/hooks/useUsage --
+// mocked at module level the same way useIntegrity is above, since none of
+// these tests exercise usage and useUsage's real implementation needs a
+// DataProvider/QueryClient context this file's shallow render tree doesn't
+// have.
+jest.mock('@/hooks/useUsage', () => ({
+    useUsage: () => ({
+        status: 'absent',
+        error: null,
+        forSet: () => null,
+        refresh: jest.fn(),
+    }),
+}))
 jest.mock('@/hooks/useScope', () => ({
     useScope: () => ({
         rootId: 'root',

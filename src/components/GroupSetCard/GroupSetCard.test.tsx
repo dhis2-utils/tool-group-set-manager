@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { GroupSetCard } from './GroupSetCard'
+import { ObjectType } from '@/engine/types'
 
 // Mutable, test-controlled override -- see Dashboard.test.tsx's comment on
 // why this must be prefixed "mock" (babel-plugin-jest-hoist).
@@ -20,11 +21,33 @@ jest.mock('@/hooks/useIntegrity', () => ({
     useIntegrity: () => mockIntegrity,
 }))
 
+const mockUsage = jest.fn()
+jest.mock('@/hooks/useUsage', () => ({ useUsage: () => mockUsage() }))
+
+const readyUsage = (usage: unknown) => ({
+    status: 'ready',
+    error: null,
+    forSet: () => usage,
+    refresh: jest.fn(),
+})
+
 afterEach(() => {
     mockIntegrity.available = false
     mockIntegrity.checks = []
     mockIntegrity.summaries = {}
     mockIntegrity.stale = new Set()
+})
+
+beforeEach(() => {
+    // Baseline: no usage view on this instance, so none of the tests below
+    // that do not care about usage see any usage-related text -- only the
+    // "GroupSetCard — usage" describe block overrides this per test.
+    mockUsage.mockReturnValue({
+        status: 'absent',
+        error: null,
+        forSet: () => null,
+        refresh: jest.fn(),
+    })
 })
 
 const entry = {
@@ -51,9 +74,39 @@ const entry = {
     hasData: true,
 }
 
+/**
+ * `entry` above is this file's one fixture; most tests only need to swap in
+ * a different `entry` altogether (a different summary, group list, or
+ * `hasData`) or tweak one field of its `set`. `onOpen` and `onOpenUsage`
+ * default to fresh jest.fn()s so a test that doesn't care about either can
+ * omit them entirely.
+ */
+const renderCard = (
+    overrides: {
+        entry?: typeof entry
+        set?: Partial<Omit<(typeof entry)['set'], 'objectType'>> & {
+            objectType?: ObjectType
+        }
+        onOpen?: () => void
+        onOpenUsage?: () => void
+    } = {}
+) =>
+    render(
+        <GroupSetCard
+            entry={
+                overrides.entry ?? {
+                    ...entry,
+                    set: { ...entry.set, ...(overrides.set ?? {}) },
+                }
+            }
+            onOpen={overrides.onOpen ?? jest.fn()}
+            onOpenUsage={overrides.onOpenUsage ?? jest.fn()}
+        />
+    )
+
 it('shows name, properties, counts and a lock when some groups are read-only', async () => {
     const onOpen = jest.fn()
-    render(<GroupSetCard entry={entry} onOpen={onOpen} />)
+    renderCard({ onOpen })
     expect(screen.getByText('Ownership')).toBeInTheDocument()
     expect(screen.getByText('Compulsory')).toBeInTheDocument()
     expect(screen.getByText('Data dimension')).toBeInTheDocument()
@@ -81,7 +134,7 @@ it('formats large stat counts with the same thousands separator as the rest of t
             conflict: 1000,
         },
     }
-    render(<GroupSetCard entry={bigEntry} onOpen={jest.fn()} />)
+    renderCard({ entry: bigEntry })
     expect(screen.getByText((1000).toLocaleString())).toBeInTheDocument()
     expect(screen.getByText((12000).toLocaleString())).toBeInTheDocument()
     expect(screen.getByText((8000).toLocaleString())).toBeInTheDocument()
@@ -89,12 +142,7 @@ it('formats large stat counts with the same thousands separator as the rest of t
 })
 
 it('shows a loading state when the type has no data yet', () => {
-    render(
-        <GroupSetCard
-            entry={{ ...entry, hasData: false }}
-            onOpen={() => undefined}
-        />
-    )
+    renderCard({ entry: { ...entry, hasData: false } })
     expect(screen.getByText(/Loading/)).toBeInTheDocument()
 })
 
@@ -110,9 +158,7 @@ it('pluralises the read-only-groups count for more than one group', () => {
             ],
         },
     }
-    render(
-        <GroupSetCard entry={entryWithManyReadOnly} onOpen={() => undefined} />
-    )
+    renderCard({ entry: entryWithManyReadOnly })
     expect(screen.getByText('3 groups read-only for you')).toBeInTheDocument()
 })
 
@@ -124,12 +170,12 @@ it('uses the singular group count for exactly one group', () => {
             groups: [{ id: 'a', displayName: 'A', canWrite: true }],
         },
     }
-    render(<GroupSetCard entry={entryWithOneGroup} onOpen={() => undefined} />)
+    renderCard({ entry: entryWithOneGroup })
     expect(screen.getByText('1 group')).toBeInTheDocument()
 })
 
 it('pluralises the group count tag for more than one group', () => {
-    render(<GroupSetCard entry={entry} onOpen={() => undefined} />)
+    renderCard()
     expect(screen.getByText('2 groups')).toBeInTheDocument()
 })
 
@@ -146,9 +192,7 @@ it('formats the group count and read-only count with the same thousands separato
         ...entry,
         set: { ...entry.set, groups: manyGroups },
     }
-    render(
-        <GroupSetCard entry={entryWithManyGroups} onOpen={() => undefined} />
-    )
+    renderCard({ entry: entryWithManyGroups })
     expect(
         screen.getByText((1200).toLocaleString() + ' groups')
     ).toBeInTheDocument()
@@ -162,7 +206,7 @@ it('shows a configuration-gap message instead of all-clean stats when a set has 
         ...entry,
         set: { ...entry.set, groups: [] },
     }
-    render(<GroupSetCard entry={entryWithNoGroups} onOpen={() => undefined} />)
+    renderCard({ entry: entryWithNoGroups })
     expect(
         screen.getByText('This group set has no groups configured')
     ).toBeInTheDocument()
@@ -172,7 +216,7 @@ it('shows a configuration-gap message instead of all-clean stats when a set has 
 
 it('can be activated with the Space key', () => {
     const onOpen = jest.fn()
-    render(<GroupSetCard entry={entry} onOpen={onOpen} />)
+    renderCard({ onOpen })
     fireEvent.keyDown(screen.getByRole('button'), { key: ' ' })
     expect(onOpen).toHaveBeenCalled()
 })
@@ -193,13 +237,17 @@ it('shows the "no group, not required" count only for a set where being in no gr
             conflict: 0,
         },
     }
-    const { rerender } = render(
-        <GroupSetCard entry={permissive} onOpen={() => undefined} />
-    )
+    const { rerender } = renderCard({ entry: permissive })
     expect(screen.getByText('No group (not required)')).toBeInTheDocument()
     expect(screen.getByText('70')).toBeInTheDocument()
 
-    rerender(<GroupSetCard entry={entry} onOpen={() => undefined} />)
+    rerender(
+        <GroupSetCard
+            entry={entry}
+            onOpen={() => undefined}
+            onOpenUsage={() => undefined}
+        />
+    )
     expect(
         screen.queryByText('No group (not required)')
     ).not.toBeInTheDocument()
@@ -223,7 +271,7 @@ it('renders nothing from the integrity overlay when the user does not have it av
             finishedTime: '2026-09-01T10:00:00.000Z',
         },
     }
-    render(<GroupSetCard entry={entry} onOpen={() => undefined} />)
+    renderCard()
     // Distinguishes "the overlay rendered nothing" from "the card rendered
     // nothing": the card's own stats are still there, but the count that
     // only the integrity overlay would ever show (42) must not appear
@@ -252,7 +300,7 @@ it('shows the integrity result for an admin with a resolved check for this type'
             finishedTime: '2026-09-01T10:00:00.000Z',
         },
     }
-    render(<GroupSetCard entry={entry} onOpen={() => undefined} />)
+    renderCard()
     expect(screen.getByText(/42/)).toBeInTheDocument()
 })
 
@@ -279,7 +327,7 @@ it('renders nothing from the overlay when available but the only resolved check 
             finishedTime: '2026-09-01T10:00:00.000Z',
         },
     }
-    render(<GroupSetCard entry={entry} onOpen={() => undefined} />)
+    renderCard()
     expect(screen.getByText('Ownership')).toBeInTheDocument()
     expect(screen.queryByText(/99/)).not.toBeInTheDocument()
     expect(screen.queryByText(/has not been run/i)).not.toBeInTheDocument()
@@ -321,7 +369,7 @@ it('picks the compulsory check for a compulsory set, not the conflicting check f
         },
     }
     // `entry.set.compulsory` is true.
-    render(<GroupSetCard entry={entry} onOpen={() => undefined} />)
+    renderCard()
     expect(screen.getByText(/272/)).toBeInTheDocument()
     expect(screen.queryByText(/17\b/)).not.toBeInTheDocument()
 })
@@ -357,7 +405,7 @@ it('picks the conflicting check for a non-compulsory set, not the compulsory che
         },
     }
     const nonCompulsory = { ...entry, set: { ...entry.set, compulsory: false } }
-    render(<GroupSetCard entry={nonCompulsory} onOpen={() => undefined} />)
+    renderCard({ entry: nonCompulsory })
     expect(screen.getByText(/17/)).toBeInTheDocument()
     expect(screen.queryByText(/272/)).not.toBeInTheDocument()
 })
@@ -382,7 +430,47 @@ it('renders nothing when the set is compulsory but no compulsory check resolved 
             finishedTime: '2026-09-01T10:00:00.000Z',
         },
     }
-    render(<GroupSetCard entry={entry} onOpen={() => undefined} />)
+    renderCard()
     expect(screen.getByText('Ownership')).toBeInTheDocument()
     expect(screen.queryByText(/17/)).not.toBeInTheDocument()
+})
+
+describe('GroupSetCard — usage', () => {
+    it('shows the favourite count', () => {
+        mockUsage.mockReturnValue(
+            readyUsage({ favourites: 42, views12m: 100, byFavouriteType: [] })
+        )
+        renderCard()
+        expect(screen.getByText('42 favourites')).toBeInTheDocument()
+    })
+
+    it('tags a set no favourite references, and the tag opens its Usage tab', () => {
+        const onOpenUsage = jest.fn()
+        mockUsage.mockReturnValue(
+            readyUsage({ favourites: 0, views12m: 0, byFavouriteType: [] })
+        )
+        renderCard({ onOpenUsage })
+        fireEvent.click(screen.getByRole('button', { name: 'Appears unused' }))
+        expect(onOpenUsage).toHaveBeenCalled()
+    })
+
+    it('shows nothing about usage when this instance has no usage view', () => {
+        mockUsage.mockReturnValue({
+            status: 'absent',
+            error: null,
+            forSet: () => null,
+            refresh: jest.fn(),
+        })
+        renderCard()
+        expect(screen.queryByText('Appears unused')).not.toBeInTheDocument()
+        expect(screen.queryByText(/favourites/)).not.toBeInTheDocument()
+    })
+
+    it('shows nothing about usage on an indicator group set', () => {
+        mockUsage.mockReturnValue(
+            readyUsage({ favourites: 0, views12m: 0, byFavouriteType: [] })
+        )
+        renderCard({ set: { objectType: 'indicator' } })
+        expect(screen.queryByText('Appears unused')).not.toBeInTheDocument()
+    })
 })
