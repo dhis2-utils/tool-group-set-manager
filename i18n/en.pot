@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-15T16:32:37.524Z\n"
-"PO-Revision-Date: 2026-09-15T16:32:37.524Z\n"
+"POT-Creation-Date: 2026-09-15T16:51:14.099Z\n"
+"PO-Revision-Date: 2026-09-15T16:51:14.099Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -171,12 +171,6 @@ msgstr "Choose an organisation unit"
 msgid "Choose the organisation unit to work in"
 msgstr "Choose the organisation unit to work in"
 
-msgid "1 group"
-msgstr "1 group"
-
-msgid "{count} groups"
-msgstr "{count} groups"
-
 msgid "1 group read-only for you"
 msgstr "1 group read-only for you"
 
@@ -209,6 +203,21 @@ msgstr "OK"
 
 msgid "You can edit all groups"
 msgstr "You can edit all groups"
+
+msgid "Show 1 group"
+msgstr "Show 1 group"
+
+msgid "Show all {count} groups"
+msgstr "Show all {count} groups"
+
+msgid "Groups in this set"
+msgstr "Groups in this set"
+
+msgid "Filter groups by name"
+msgstr "Filter groups by name"
+
+msgid "Show fewer groups"
+msgstr "Show fewer groups"
 
 msgid ""
 "DHIS2 check {check} found 1 object across all group sets on this instance "
@@ -896,6 +905,12 @@ msgstr "Clear cache"
 
 msgid "Settings"
 msgstr "Settings"
+
+msgid "1 group"
+msgstr "1 group"
+
+msgid "{count} groups"
+msgstr "{count} groups"
 
 msgid "Organisation unit group sets"
 msgstr "Organisation unit group sets"

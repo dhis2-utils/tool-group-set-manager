@@ -27,6 +27,7 @@ import { useEngineQuery } from '@/hooks/useEngineQuery'
 import { useIntegrity } from '@/hooks/useIntegrity'
 import { useScope } from '@/hooks/useScope'
 import { useUserScope } from '@/hooks/useUserScope'
+import { groupsLabel } from '@/utils/groupsLabel'
 import { interpolate } from '@/utils/interpolate'
 import { useApiDataQuery } from '@/utils/useApiDataQuery'
 
@@ -268,9 +269,7 @@ export const GroupSetDetail = () => {
                         {set.dataDimension && (
                             <Tag positive>{i18n.t('Data dimension')}</Tag>
                         )}
-                        <Tag neutral>
-                            {set.groups.map((g) => g.displayName).join(' · ')}
-                        </Tag>
+                        <Tag neutral>{groupsLabel(set.groups.length)}</Tag>
                     </div>
                 </div>
                 <div className={styles.actions}>

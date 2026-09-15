@@ -18,6 +18,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { MAX_GROUP_COLUMNS, planColumns } from './columnPlan'
 import styles from './SummaryMatrix.module.css'
 import { MatrixResult, ObjectRef } from '@/engine/store'
+import { groupsLabel } from '@/utils/groupsLabel'
 import { interpolate } from '@/utils/interpolate'
 
 export type MatrixColumn =
@@ -406,13 +407,7 @@ export const SummaryMatrix = ({
                                 )
                             })}
                         </div>
-                        <p>
-                            {draftSelected.length === 1
-                                ? i18n.t('1 group')
-                                : interpolate(i18n.t('{count} groups'), {
-                                      count: draftSelected.length.toLocaleString(),
-                                  })}
-                        </p>
+                        <p>{groupsLabel(draftSelected.length)}</p>
                     </ModalContent>
                     <ModalActions>
                         <ButtonStrip end>

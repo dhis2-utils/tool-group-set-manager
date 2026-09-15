@@ -1,0 +1,54 @@
+.panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+.heading {
+    margin: 0;
+}
+.list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+/* Bounds the expanded list so a set with hundreds of groups cannot push the
+   matrix below it off the page -- the same 320px cap SummaryMatrix's own
+   group picker (.pickerList) uses. */
+.listExpanded {
+    composes: list;
+    max-height: 320px;
+    overflow-y: auto;
+}
+.row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+}
+.name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.count {
+    font-variant-numeric: tabular-nums;
+    color: var(--colors-grey600);
+    white-space: nowrap;
+}
+.bar {
+    display: block;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--colors-grey100);
+    overflow: hidden;
+}
+.bar i {
+    display: block;
+    height: 100%;
+    background: var(--colors-blue500);
+    font-style: normal;
+}

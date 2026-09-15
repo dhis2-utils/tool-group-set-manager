@@ -243,6 +243,28 @@ it('does not repeat the organisation unit as a header tag', async () => {
     expect(screen.queryByText(/^Scope \(/)).not.toBeInTheDocument()
 })
 
+// Task 5: the header tag used to join every group name with " · ", which
+// overflows on an EMIS-scale set and reads as a list of things one object
+// is in when an object is in exactly one of them. It is now a count chip;
+// the distribution itself lives in the Overview tab's GroupsPanel instead.
+it('shows a group count chip in the header instead of the group names', async () => {
+    renderDetail({
+        objectType: 'organisationUnit',
+        groups: [
+            { id: 'g1', displayName: 'Alpha', canWrite: true },
+            { id: 'g2', displayName: 'Bravo', canWrite: true },
+            { id: 'g3', displayName: 'Charlie', canWrite: true },
+            { id: 'g4', displayName: 'Delta', canWrite: true },
+        ],
+    })
+    await screen.findByText('Overview')
+    expect(screen.getByText('4 groups')).toBeInTheDocument()
+    expect(
+        screen.queryByText('Alpha · Bravo · Charlie · Delta')
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Alpha')).not.toBeInTheDocument()
+})
+
 it('keeps the row level in sync when late-arriving roots change the available levels, instead of crashing', async () => {
     render(
         <MemoryRouter initialEntries={['/sets/own']}>

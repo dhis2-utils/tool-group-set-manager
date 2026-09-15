@@ -1,6 +1,8 @@
 import { CircularLoader, NoticeBox } from '@dhis2/ui'
-import React from 'react'
+import React, { useMemo } from 'react'
 import styles from './GroupSetDetail.module.css'
+import { GroupsPanel } from '@/components/GroupsPanel/GroupsPanel'
+import { planColumns } from '@/components/SummaryMatrix/columnPlan'
 import {
     MatrixColumn,
     SummaryMatrix,
@@ -34,6 +36,16 @@ export const OverviewTab = ({
         [set.id, scope, rowLevel]
     )
     const isHierarchical = set.objectType === 'organisationUnit'
+    // Computed once here, independent of SummaryMatrix's own `pinnedGroups`
+    // state (which only partitions this same `ranked` array into
+    // shown/other -- see columnPlan.ts): the panel always lists every group
+    // ranked, whatever subset of columns the matrix currently shows, so the
+    // two views of the same set cannot disagree.
+    const plan = useMemo(() => (data ? planColumns(data) : null), [data])
+    const populationTotal = useMemo(
+        () => (data ? data.rows.reduce((s, r) => s + r.total, 0) : 0),
+        [data]
+    )
     return (
         <div className={styles.overview}>
             {/* Data first, loader only when there is none. `useEngineQuery`
@@ -48,17 +60,22 @@ export const OverviewTab = ({
             {error ? (
                 <NoticeBox error>{error}</NoticeBox>
             ) : data ? (
-                <SummaryMatrix
-                    result={data}
-                    onCell={onCell}
-                    flat={!isHierarchical}
-                    aboveLevelCaption={aboveLevelCaption}
-                    // Only a set that is neither compulsory nor a data
-                    // dimension can hold objects that are in no group and
-                    // still Ok (spec 3.2); anywhere else the column would be
-                    // a permanent zero.
-                    showUnassigned={!set.compulsory && !set.dataDimension}
-                />
+                <>
+                    {plan && (
+                        <GroupsPanel plan={plan} total={populationTotal} />
+                    )}
+                    <SummaryMatrix
+                        result={data}
+                        onCell={onCell}
+                        flat={!isHierarchical}
+                        aboveLevelCaption={aboveLevelCaption}
+                        // Only a set that is neither compulsory nor a data
+                        // dimension can hold objects that are in no group and
+                        // still Ok (spec 3.2); anywhere else the column would
+                        // be a permanent zero.
+                        showUnassigned={!set.compulsory && !set.dataDimension}
+                    />
+                </>
             ) : isLoading ? (
                 <CircularLoader small />
             ) : null}
