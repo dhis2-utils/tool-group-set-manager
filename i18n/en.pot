@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-15T16:04:43.560Z\n"
-"PO-Revision-Date: 2026-09-15T16:04:43.561Z\n"
+"POT-Creation-Date: 2026-09-15T16:09:19.165Z\n"
+"PO-Revision-Date: 2026-09-15T16:09:19.165Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -571,6 +571,9 @@ msgstr "Still loading, so these summaries are not ready yet"
 msgid "Group set not found or not loaded yet."
 msgstr "Group set not found or not loaded yet."
 
+msgid "Includes organisation units above the {level} level"
+msgstr "Includes organisation units above the {level} level"
+
 msgid "Dashboard"
 msgstr "Dashboard"
 
@@ -691,9 +694,6 @@ msgstr "Clear area filter"
 
 msgid "Bulk fix…"
 msgstr "Bulk fix…"
-
-msgid "Includes organisation units above level {level}"
-msgstr "Includes organisation units above level {level}"
 
 msgid "Moved to a group"
 msgstr "Moved to a group"

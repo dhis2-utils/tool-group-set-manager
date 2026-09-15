@@ -163,6 +163,36 @@ export const GroupSetDetail = () => {
         rootId: set.objectType === 'organisationUnit' ? rootId : null,
     }
 
+    // Pre-composed, already-translated explanation of why the "above the
+    // row level" row exists in OverviewTab's matrix -- see SummaryMatrix's
+    // own doc comment on `aboveLevelCaption` for why it wants the caller to
+    // supply this rather than working it out itself. Every organisation
+    // unit group set -- compulsory or not -- evaluates every organisation
+    // unit at every level (`populationFor` in `src/engine/population.ts`
+    // never restricts an org unit set's population by level), so the row is
+    // not specific to compulsory sets: confirmed against the Sierra Leone
+    // demo, where the non-compulsory "Area" set still has a non-empty one.
+    // What *is* true, and known here (this is the one place that still
+    // holds `levels`, now that the row level selector lives in the bar
+    // above), is which row level was actually chosen and what it is
+    // called -- so that is what the caption names. When the level list
+    // hasn't resolved yet, or doesn't contain the current level, there is
+    // nothing to name it with; `undefined` lets SummaryMatrix fall back to
+    // its own generic default instead.
+    //
+    // One whole translated sentence with a placeholder filled in
+    // afterwards, never a join of separately translated fragments -- see
+    // src/utils/interpolate.ts.
+    const rowLevelLabel = levels.find(
+        (l) => l.level === effectiveRowLevel
+    )?.displayName
+    const aboveLevelCaption = rowLevelLabel
+        ? interpolate(
+              i18n.t('Includes organisation units above the {level} level'),
+              { level: rowLevelLabel }
+          )
+        : undefined
+
     const onCell = (row: ObjectRef | null, column: MatrixColumn) => {
         const next: ObjectFilter = {}
         if (row) {
@@ -296,6 +326,7 @@ export const GroupSetDetail = () => {
                     set={set}
                     scope={scope}
                     rowLevel={effectiveRowLevel}
+                    aboveLevelCaption={aboveLevelCaption}
                     onCell={onCell}
                 />
             ) : tab === 'integrity' && integrity.available ? (
