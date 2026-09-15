@@ -7,6 +7,18 @@ jest.mock('@/utils/useApiDataQuery', () => ({
     useApiDataQuery: (args: unknown) => mockQuery(args),
 }))
 
+// Fix round 1: `refresh()` now invalidates through `useQueryClient()`
+// rather than closing over `lookup`/`read`'s own `refetch` -- mocked here
+// the same way `useApiDataQuery` is mocked above, since nothing in this
+// file needs a real QueryClient (or the real TanStack Query behaviour
+// `invalidateQueries` triggers -- that propagation is the e2e flow's job,
+// not this hook-level suite's; see Settings.test.tsx and
+// e2e/flows.spec.ts's "usage" test).
+const mockInvalidateQueries = jest.fn()
+jest.mock('@tanstack/react-query', () => ({
+    useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+}))
+
 const lookup = (sqlViews: unknown[]) => ({
     data: { sqlViews },
     isLoading: false,
@@ -59,7 +71,10 @@ const mockQueries = (
 }
 
 describe('useUsage', () => {
-    beforeEach(() => mockQuery.mockReset())
+    beforeEach(() => {
+        mockQuery.mockReset()
+        mockInvalidateQueries.mockReset()
+    })
 
     it('is absent when no view carries the usage code', async () => {
         mockQueries(lookup([]), pending)
@@ -258,7 +273,17 @@ describe('useUsage', () => {
         expect(result.current.forSet('set0')).toBeNull()
     })
 
-    it('refresh refetches both queries', async () => {
+    // Fix round 1: `refresh()` used to call `lookup.refetch()`/
+    // `read.refetch()` directly, captured at the render that produced this
+    // hook's own closure. That is wrong for a caller like Settings, which
+    // invokes `refresh()` after an install or a remove has already changed
+    // what the *next* render's `view`/queryKey should be -- the closure's
+    // own `read.refetch()` would still target the pre-change key (e.g.
+    // `sqlViewData/none` right after an install that just created the
+    // view), a doomed request. `refresh()` now invalidates by key instead,
+    // so whichever consumer is actually mounted refetches under its own,
+    // current key.
+    it('refresh invalidates the lookup and data query keys, not the closure-captured refetch', async () => {
         const lookupRefetch = jest.fn()
         const readRefetch = jest.fn()
         mockQueries(
@@ -268,7 +293,16 @@ describe('useUsage', () => {
         const { result } = renderHook(() => useUsage())
         await waitFor(() => expect(result.current.status).toBe('absent'))
         result.current.refresh()
-        expect(lookupRefetch).toHaveBeenCalled()
-        expect(readRefetch).toHaveBeenCalled()
+
+        expect(mockInvalidateQueries).toHaveBeenCalledWith({
+            queryKey: ['sqlViews', 'GSI_GROUPSET_USAGE'],
+        })
+        expect(mockInvalidateQueries).toHaveBeenCalledWith({
+            queryKey: ['sqlViewData'],
+        })
+        // The doomed request this fix removes: neither closure-captured
+        // `refetch` is called any more.
+        expect(lookupRefetch).not.toHaveBeenCalled()
+        expect(readRefetch).not.toHaveBeenCalled()
     })
 })

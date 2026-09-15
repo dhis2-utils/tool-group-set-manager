@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useMemo } from 'react'
 import { USABLE_SQL_VIEW_TYPES } from '@/data/sources/sqlViewSource'
 import {
@@ -53,6 +54,7 @@ const PAGE_SIZE = 5000
  * is broken.
  */
 export function useUsage(): UsageState {
+    const queryClient = useQueryClient()
     const lookup = useApiDataQuery<LookupResponse>({
         queryKey: ['sqlViews', USAGE_SQL_VIEW_CODE],
         query: {
@@ -128,10 +130,42 @@ export function useUsage(): UsageState {
         [byId]
     )
 
+    // Fix round 1: this used to call `lookup.refetch()`/`read.refetch()`
+    // directly, but those are captured at render time -- by the time a
+    // caller (Settings, after an install or remove) actually invokes
+    // `refresh()`, the `read` closure's own queryKey can already be wrong.
+    // On install it was still `sqlViewData/none` (the view didn't exist
+    // yet at the render that produced this closure), so the "refetch" was
+    // really a GET against `sqlViews/none/data`; on remove it was still the
+    // id that request had just deleted. `refetch()` bypasses `enabled:
+    // false` and fires anyway (v4), so both were doomed requests that
+    // happened to do nothing harmful only because their responses were
+    // discarded once the *next* render replaced this hook's own view of
+    // the world.
+    //
+    // Invalidating by key instead names what changed and lets whichever
+    // consumer is actually mounted -- possibly a different component with a
+    // newer `view.id` than this render ever saw -- refetch under its own,
+    // current key. `invalidateQueries` only refetches a query that is
+    // active, so an inactive `sqlViewData/none` some other absent-state
+    // reader still holds is marked stale but never actually fetched.
+    // Matching `['sqlViewData']` as a key prefix (not the full
+    // `['sqlViewData', id]`) covers whichever id is current without this
+    // callback having to know it.
+    //
+    // The repair case (`installUsageView` re-executing an existing,
+    // previously-unusable view) is exactly why the lookup key is
+    // invalidated too, not just the data key: the view's id, type and
+    // access are unchanged by a repair, so `view` never changes and the
+    // data query's key never changes either -- only invalidating it
+    // (rather than relying on a key change to trigger a fresh fetch)
+    // clears its 5-minute `staleTime` and forces the re-read.
     const refresh = useCallback(() => {
-        void lookup.refetch()
-        void read.refetch()
-    }, [lookup, read])
+        void queryClient.invalidateQueries({
+            queryKey: ['sqlViews', USAGE_SQL_VIEW_CODE],
+        })
+        void queryClient.invalidateQueries({ queryKey: ['sqlViewData'] })
+    }, [queryClient])
 
     return { status, error, forSet, refresh }
 }

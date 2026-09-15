@@ -147,7 +147,7 @@ beforeEach(() => {
     mockCheckUsage.mockReset()
     mockInstallUsage.mockReset()
     mockRemoveUsage.mockReset()
-    mockUsageRefresh.mockClear()
+    mockUsageRefresh.mockReset()
     mockGsiConfig.config = {
         catchAllGroup: {},
         includeTracker: false,
