@@ -47,6 +47,7 @@ let mockGroupSets: GroupSetMeta[] = [ownershipSet]
 // still-loading tri-state: most of this file's tests set up `mockGroupSets`
 // as if the engine has already finished its first load.
 let mockGroupSetsLoaded = true
+let mockEngineError: string | null = null
 const mockClientCall = jest.fn()
 // Stable reference across renders -- like the real EngineProvider's
 // memoised context value, and unlike a fresh object literal, which would
@@ -58,6 +59,7 @@ jest.mock('@/hooks/useEngine', () => ({
         client: mockClient,
         groupSets: mockGroupSets,
         groupSetsLoaded: mockGroupSetsLoaded,
+        error: mockEngineError,
     }),
 }))
 
@@ -129,6 +131,7 @@ beforeEach(() => {
     mockIsWriting = false
     mockGroupSets = [ownershipSet]
     mockGroupSetsLoaded = true
+    mockEngineError = null
     mockChangeSets.changeSets = []
     mockChangeSets.isLoading = false
     mockChangeSets.isLoadingMore = false
@@ -199,6 +202,30 @@ describe('History', () => {
             )
         ).not.toBeInTheDocument()
         // Still waits rather than offering a working Revert.
+        expect(screen.getByRole('button', { name: 'Revert' })).toBeDisabled()
+    })
+
+    // F1: an errored engine load must not look like "still loading" forever
+    // -- the user needs to be told why Revert never becomes available.
+    it('tells the user group sets failed to load, rather than waiting forever', async () => {
+        mockGroupSets = []
+        mockGroupSetsLoaded = false
+        mockEngineError = 'Network error'
+        mockChangeSets.changeSets = [changeSet({ groupSetId: 'own' })]
+        render(<History />)
+
+        await waitFor(() =>
+            expect(screen.getByText('Ownership')).toBeInTheDocument()
+        )
+        expect(
+            screen.getByText('Could not load group sets')
+        ).toBeInTheDocument()
+        expect(screen.getByText('Network error')).toBeInTheDocument()
+        expect(
+            screen.queryByText(
+                'This group set no longer exists, so this change cannot be reverted from here'
+            )
+        ).not.toBeInTheDocument()
         expect(screen.getByRole('button', { name: 'Revert' })).toBeDisabled()
     })
 

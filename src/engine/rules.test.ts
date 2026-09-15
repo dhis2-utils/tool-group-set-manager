@@ -51,10 +51,11 @@ describe('evaluateSet', () => {
     })
 
     // Spec 2026-09-15 §2.1: the rule no longer varies by organisation unit
-    // level. An object at level 2 and an object at level 4 with the same
-    // membership get the same status, for every kind of set. This is the
-    // case the deleted required-levels tests used to own.
-    it('does not vary by organisation unit level', () => {
+    // level -- `evaluateSet` no longer even takes a level argument. An
+    // object at level 2 and an object at level 4 with the same membership
+    // get the same status, for every kind of set. This is the case the
+    // deleted required-levels tests used to own.
+    it('a missing object in a data dimension set is a warning wherever it sits', () => {
         const deep = buildSetMembership(2, [Int32Array.from([])])
         const s = evaluateSet(
             set({ dataDimension: true }),

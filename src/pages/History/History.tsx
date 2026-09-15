@@ -83,6 +83,11 @@ const missingGroupSetTooltip = () =>
         'This group set no longer exists, so this change cannot be reverted from here'
     )
 
+const groupSetsLoadFailedTooltip = () =>
+    i18n.t(
+        'Group set information could not be loaded, so this change cannot be reverted from here'
+    )
+
 /** Filesystem-unsafe characters a group set's own display name could contain. Same rule as BulkFixDialog's. */
 function safeFileName(name: string): string {
     return name.replace(/[\\/:*?"<>|]/g, '_')
@@ -473,7 +478,12 @@ const RevertDialog = ({ changeSet, onClose, onApplied }: RevertDialogProps) => {
 }
 
 export const History = () => {
-    const { client, groupSets, groupSetsLoaded } = useEngine()
+    const {
+        client,
+        groupSets,
+        groupSetsLoaded,
+        error: groupSetsError,
+    } = useEngine()
     const {
         changeSets,
         isLoading,
@@ -590,6 +600,11 @@ export const History = () => {
                     {error}
                 </NoticeBox>
             )}
+            {!groupSetsLoaded && groupSetsError && (
+                <NoticeBox error title={i18n.t('Could not load group sets')}>
+                    {groupSetsError}
+                </NoticeBox>
+            )}
             {exportError && (
                 <NoticeBox error title={i18n.t('Could not export this change')}>
                     {exportError}
@@ -636,9 +651,14 @@ export const History = () => {
                             )
                             const setExists = groupSetsLoaded && setPresent
                             const setMissing = groupSetsLoaded && !setPresent
-                            // setExists === false && setMissing === false is
-                            // the still-loading case, and it renders neither
-                            // the note nor the tooltip.
+                            // Four states, not three: still loading (neither
+                            // note nor tooltip), loaded-and-present, loaded
+                            // and genuinely absent (the note above plus a
+                            // tooltip), and -- F1 -- loading having failed
+                            // outright, which must say so rather than
+                            // silently behaving like "still loading".
+                            const loadFailed =
+                                !groupSetsLoaded && !!groupSetsError
                             return (
                                 <DataTableRow key={cs.id}>
                                     <DataTableCell>
@@ -716,16 +736,49 @@ export const History = () => {
                                                     )}
                                                 </Tooltip>
                                             )}
-                                            {!setExists && !setMissing && (
-                                                // Still loading: nothing is
-                                                // known yet either way, so
-                                                // Revert waits (disabled,
-                                                // no tooltip, no note)
-                                                // rather than accusing.
-                                                <Button small disabled>
-                                                    {i18n.t('Revert')}
-                                                </Button>
+                                            {loadFailed && (
+                                                <Tooltip
+                                                    content={groupSetsLoadFailedTooltip()}
+                                                >
+                                                    {({
+                                                        onMouseOver,
+                                                        onMouseOut,
+                                                        ref,
+                                                    }) => (
+                                                        <span
+                                                            ref={ref}
+                                                            onMouseOver={
+                                                                onMouseOver
+                                                            }
+                                                            onMouseOut={
+                                                                onMouseOut
+                                                            }
+                                                        >
+                                                            <Button
+                                                                small
+                                                                disabled
+                                                            >
+                                                                {i18n.t(
+                                                                    'Revert'
+                                                                )}
+                                                            </Button>
+                                                        </span>
+                                                    )}
+                                                </Tooltip>
                                             )}
+                                            {!setExists &&
+                                                !setMissing &&
+                                                !loadFailed && (
+                                                    // Still loading: nothing
+                                                    // is known yet either
+                                                    // way, so Revert waits
+                                                    // (disabled, no tooltip,
+                                                    // no note) rather than
+                                                    // accusing.
+                                                    <Button small disabled>
+                                                        {i18n.t('Revert')}
+                                                    </Button>
+                                                )}
                                         </ButtonStrip>
                                     </DataTableCell>
                                 </DataTableRow>

@@ -198,6 +198,15 @@ export function computeMembershipChanges(
  * specifically did not follow it -- never joined fragments, and never
  * reusing the failure wording, since nothing here failed to reach the
  * server.
+ *
+ * F3: an `engineError` never means this row is wrong -- `handleConfirm`
+ * updates this row's own state by construction, regardless of
+ * `engineError`, before this message is even chosen. What `engineError`
+ * means is that the engine itself (the worker state the dashboard and
+ * matrix summary counts are read from) was not told, so those counts are
+ * stale until a reload -- the wording below says that, not that "the
+ * screen" is wrong, which the user can see is false on the very row they
+ * are looking at.
  */
 function engineHistoryMessage(
     engineError: boolean,
@@ -205,12 +214,12 @@ function engineHistoryMessage(
 ): string | undefined {
     if (engineError && historyError) {
         return i18n.t(
-            'The change was saved to the server, but the screen could not be updated and it could not be recorded in History. Reload to see it.'
+            'The change was saved to the server and this row now reflects it, but the dashboard and matrix counts are stale until you reload, and it could not be recorded in History.'
         )
     }
     if (engineError) {
         return i18n.t(
-            'The change was saved to the server, but the screen could not be updated to show it. Reload to see it.'
+            'The change was saved to the server and this row now reflects it, but the dashboard and matrix counts are stale until you reload.'
         )
     }
     if (historyError) {
@@ -295,8 +304,11 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
         const { row, index, changes } = confirm
         setConfirm(null)
         // Cleared here, not just left to the AlertBar's own auto-hide, so a
-        // second assign can never show the previous one's message.
+        // second assign can never show a stale message -- success,
+        // failure, or info -- about a different row.
         setSuccessAlert(null)
+        setFailureAlert(null)
+        setInfoAlert(null)
         setWritingRowIds((prev) => new Set(prev).add(row.id))
         try {
             const name = row.displayName ?? row.id

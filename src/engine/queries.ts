@@ -8,11 +8,11 @@ export interface SetSummary {
     ok: number
     /**
      * In no group of the set, and the rules allow that (spec 3.2: the set is
-     * neither compulsory nor a data dimension, and the object's level is not
-     * a required level). Kept apart from `ok` so every bucket is disjoint and
-     * they sum to `population`, and so the dashboard card can say "N in no
-     * group, which is allowed here" rather than folding those objects into a
-     * green OK number that reads as "in a group".
+     * neither compulsory nor a data dimension). Kept apart from `ok` so
+     * every bucket is disjoint and they sum to `population`, and so the
+     * dashboard card can say "N in no group, which is allowed here" rather
+     * than folding those objects into a green OK number that reads as "in a
+     * group".
      */
     unassigned: number
     missingError: number
