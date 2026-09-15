@@ -17,7 +17,7 @@ import { StatusPill } from '@/components/StatusPill/StatusPill'
 import { GroupChange } from '@/engine/changeSet'
 import { ObjectFilter } from '@/engine/queries'
 import { ObjectRef, ObjectsResult, ScopeRef } from '@/engine/store'
-import { GroupMeta, GroupSetMeta } from '@/engine/types'
+import { GroupMeta, GroupSetMeta, Status } from '@/engine/types'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
 import { useMembershipWrite } from '@/hooks/useMembershipWrite'
 import { interpolate } from '@/utils/interpolate'
@@ -232,6 +232,12 @@ function disabledReasonFor(row: Row, groups: GroupMeta[]): string | undefined {
         : undefined
 }
 
+// One whole translated sentence with placeholders, never joined fragments
+// -- see src/utils/interpolate.ts. No colon: the i18next-scanner reads one
+// as its namespace separator and drops the key.
+const assignedLabel = (name: string, group: string) =>
+    interpolate(i18n.t('{name} is now in {group}'), { name, group })
+
 export const ObjectsTable = ({ set, scope, filter }: Props) => {
     // D3: only organisation units have a hierarchy at all; the level and
     // parent columns (and the resolveParents call below) are both gated on
@@ -264,6 +270,7 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
     // shared banner fighting over its own severity.
     const [failureAlert, setFailureAlert] = useState<string | null>(null)
     const [infoAlert, setInfoAlert] = useState<string | null>(null)
+    const [successAlert, setSuccessAlert] = useState<string | null>(null)
 
     const handleGroupChoice = (row: Row, index: number) => {
         // D5/I2: per row, not per table -- a second click on the row
@@ -287,6 +294,9 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
         }
         const { row, index, changes } = confirm
         setConfirm(null)
+        // Cleared here, not just left to the AlertBar's own auto-hide, so a
+        // second assign can never show the previous one's message.
+        setSuccessAlert(null)
         setWritingRowIds((prev) => new Set(prev).add(row.id))
         try {
             const name = row.displayName ?? row.id
@@ -316,6 +326,34 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
                         'The group change could not be fully applied, so this object may now be in no group at all. Reload and check it before trying again.'
                     )
                 )
+            } else {
+                // The write is confirmed, and `useMembershipWrite` has
+                // already told the engine. `loaded.rows` is this
+                // component's own snapshot, though, and nothing re-requests
+                // it -- so without this the control snaps back to its old
+                // value and a successful write looks exactly like a failed
+                // one.
+                //
+                // The new status is Status.Ok by construction rather than
+                // by re-running the rule: `computeMembershipChanges` makes
+                // the object the sole member of the chosen group, and
+                // "exactly one group is Ok" is the one branch of
+                // evaluateSet that holds for every kind of set (spec
+                // 2026-09-15 §2.1).
+                //
+                // The row is deliberately left in the list even when it no
+                // longer matches the filter (a "only missing" view, say).
+                // Making it vanish at the moment of success is how the
+                // user loses track of what they just did.
+                setLoaded((prev) => ({
+                    ...prev,
+                    rows: prev.rows.map((r) =>
+                        r.id === row.id
+                            ? { ...r, groups: [index], status: Status.Ok }
+                            : r
+                    ),
+                }))
+                setSuccessAlert(assignedLabel(name, groupName))
             }
             // M2: `engineError` and `historyError` both mean the server
             // change already happened -- see useMembershipWrite's own doc
@@ -610,6 +648,11 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
             {infoAlert && (
                 <AlertBar onHidden={() => setInfoAlert(null)}>
                     {infoAlert}
+                </AlertBar>
+            )}
+            {successAlert && (
+                <AlertBar success onHidden={() => setSuccessAlert(null)}>
+                    {successAlert}
                 </AlertBar>
             )}
         </div>

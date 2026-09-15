@@ -833,6 +833,35 @@ describe('interactive membership control', () => {
         })
     })
 
+    it('shows the new group and a confirmation after a successful assign', async () => {
+        // One row, currently the sole member of group 0 ("Public").
+        const row = {
+            ...conflictRow,
+            id: 'o1',
+            displayName: 'Item 0',
+            status: 1,
+            groups: [0],
+        }
+        renderWithRows([row])
+
+        fireEvent.click(screen.getAllByRole('button')[1])
+        fireEvent.click(screen.getByText('Assign'))
+
+        await waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1))
+        // The row now reads as Private, without a reload...
+        await waitFor(() =>
+            expect(screen.getAllByRole('button')[1]).toHaveAttribute(
+                'data-state',
+                'selected'
+            )
+        )
+        // ...and the user is told the write landed, so a successful write
+        // can never look like a failure.
+        expect(
+            screen.getByText('Item 0 is now in Private')
+        ).toBeInTheDocument()
+    })
+
     // M2: `engineError`/`historyError` mean the server change is real --
     // never reported as a failure -- but must not be silently dropped
     // either.
