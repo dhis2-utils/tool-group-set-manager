@@ -26,7 +26,7 @@ Sixteen items in three groups:
 ### 2.1 The rule
 
 `evaluateSet` (`src/engine/rules.ts`) loses its `level` and `config`
-parameters and reduces to four branches:
+parameters and reduces to five branches:
 
 | Membership count | Condition                             | Status           |
 | ---------------- | ------------------------------------- | ---------------- |
@@ -65,10 +65,12 @@ Objects tab's level filter, the matrix row level, the drill-down (§4.3), and
 
 ### 2.3 Stored configuration already on instances
 
-Existing `config/orgUnitGroupSets/<setId>` dataStore keys are left in place
-and never read again. The app stops writing them. Deleting a user's stored
-data as a side effect of an upgrade is worse than leaving orphaned keys, and
-leaving them keeps a downgrade working.
+The existing `config-required-levels` dataStore document -- a single shared
+document holding every group set's required levels together, keyed by set
+id, not one document per set -- is left in place and never read again. The
+app stops writing it. Deleting a user's stored data as a side effect of an
+upgrade is worse than leaving an orphaned document, and leaving it keeps a
+downgrade working.
 
 ## 3. Group set usage
 

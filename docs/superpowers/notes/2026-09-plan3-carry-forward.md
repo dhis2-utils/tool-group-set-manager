@@ -76,7 +76,7 @@ pass:
   e2e suite; because this is a single pnpm package (no workspaces), the
   dependency itself still has to live in the one shared `devDependencies`
   list, but its only real consumer is `e2e/`. The installed Node is
-  `v22.23.2`, and `pnpm why @types/node` resolves every one of the ~500
+  `v22.23.2`, and `pnpm why @types/node` resolves every one of the ~1,100
   entries in the dependency tree to the identical `22.20.2` — nothing
   requires 25.x. The version constraint is therefore left at
   `"@types/node": "^22.20.2"`, unchanged: it already matches the installed

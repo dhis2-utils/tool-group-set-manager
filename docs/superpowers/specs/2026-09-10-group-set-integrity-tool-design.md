@@ -90,14 +90,16 @@ Groups can belong to more than one set (EMIS has "Private" in both
 Ownership and School Type). Membership is therefore counted per set, never
 per group.
 
-### 3.3 App level configuration
+### 3.3 Stored configuration
 
 Stored in the dataStore namespace `group-set-integrity`, editable by admins:
 
-- `config/orgUnitGroupSets/<setId>`: no longer read or written. The per-set
-  required-levels policy this key held was removed; documents already
-  stored under it from before that removal are left in place and never
-  deleted (see §2.3 of
+- `config-required-levels`: no longer read or written. This was a single
+  shared document holding every group set's required levels together,
+  keyed by set id -- not one document per set. The per-set required-levels
+  policy this document held was removed; a document already saved under
+  this key from before that removal is left in place and never deleted
+  (see §2.3 of
   `docs/superpowers/specs/2026-09-15-manual-review-1-design.md`).
 - `config/catchAll/<setId>`: `{ groupId }`. The set's Other/unknown group.
   Written when the app creates the group, or when an admin picks an
