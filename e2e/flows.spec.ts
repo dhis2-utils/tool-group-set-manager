@@ -661,8 +661,14 @@ test.describe('Group Set Integrity Tool', () => {
         await expect(root.getByText('0 objects', { exact: true })).toBeVisible(
             { timeout: 5_000 }
         )
+        // Fix round 1 (Minor 1): `[class*="row"]` was a CSS-module
+        // substring selector, the one locator in this file without a
+        // `data-test` hook -- it breaks silently if that module class is
+        // ever renamed. `ObjectsTable.tsx` now carries its own
+        // `data-test="objects-table-row"` on the same element, matching
+        // every other locator in this suite.
         await expect(
-            root.locator('[data-test="objects-table-scroll"] [class*="row"]')
+            root.locator('[data-test="objects-table-row"]')
         ).toHaveCount(0)
     })
 
@@ -703,9 +709,22 @@ test.describe('Group Set Integrity Tool', () => {
         // back positive -- gate on it rather than asserting the button
         // outright, and skip with a reason instead of failing when this
         // session's user does not have the feature.
-        const available = await headerButton
-            .isVisible({ timeout: 15_000 })
-            .catch(() => false)
+        //
+        // Fix round 1 (Important): `isVisible({ timeout })` does NOT wait --
+        // Playwright's own types mark that `timeout` deprecated and ignored
+        // ("does not wait for the element to become visible and returns
+        // immediately", confirmed in playwright-core@1.63.0's types.d.ts).
+        // The previous version of this line was therefore a one-shot check
+        // against whatever the DOM happened to be at that exact tick, which
+        // races `useIntegrity`'s async `/me` authority call -- a loss of
+        // that race silently skips this test's entire coverage with nothing
+        // reporting that anything went wrong. `waitFor` actually waits;
+        // `isVisible()` afterwards (untimed, so genuinely synchronous) reads
+        // the settled result.
+        await headerButton
+            .waitFor({ state: 'visible', timeout: 15_000 })
+            .catch(() => undefined)
+        const available = await headerButton.isVisible()
         test.skip(
             !available,
             "DHIS2 integrity checks are not available for this session's user (no ALL/F_PERFORM_MAINTENANCE authority, or the server refused)"

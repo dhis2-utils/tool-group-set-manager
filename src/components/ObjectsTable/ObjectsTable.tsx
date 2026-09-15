@@ -580,6 +580,7 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
                             <div
                                 key={r.id}
                                 className={styles.row}
+                                data-test="objects-table-row"
                                 style={{
                                     ...gridStyle,
                                     transform: `translateY(${v.start}px)`,
