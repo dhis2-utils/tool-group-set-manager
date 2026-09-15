@@ -22,6 +22,7 @@ interface Props {
     // forwards it.
     aboveLevelCaption?: string
     onCell: (row: ObjectRef | null, column: MatrixColumn) => void
+    onDrillDown?: (row: ObjectRef) => void
 }
 
 export const OverviewTab = ({
@@ -30,6 +31,7 @@ export const OverviewTab = ({
     rowLevel,
     aboveLevelCaption,
     onCell,
+    onDrillDown,
 }: Props) => {
     const { data, isLoading, error } = useEngineQuery<MatrixResult>(
         'matrixFor',
@@ -67,6 +69,7 @@ export const OverviewTab = ({
                     <SummaryMatrix
                         result={data}
                         onCell={onCell}
+                        onDrillDown={onDrillDown}
                         flat={!isHierarchical}
                         aboveLevelCaption={aboveLevelCaption}
                         // Only a set that is neither compulsory nor a data

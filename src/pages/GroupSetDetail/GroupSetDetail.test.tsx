@@ -118,8 +118,13 @@ const mockScope: {
     rootName: 'Root',
     rootLevel: null,
 }
+// Task 6: a spy rather than a stateful mock -- GroupSetDetail's own
+// `setRowLevel` (real React state) is what the drill-down test observes
+// through the Rows field re-rendering; this only pins what `setRoot` is
+// called with.
+const mockSetRoot = jest.fn()
 jest.mock('@/hooks/useScope', () => ({
-    useScope: () => mockScope,
+    useScope: () => ({ ...mockScope, setRoot: mockSetRoot }),
 }))
 // Captures the query `useApiDataQuery` was called with, so a test can
 // inspect the actual params sent for the organisation unit levels lookup
@@ -205,6 +210,7 @@ afterEach(() => {
     mockScope.rootLevel = null
     mockApiDataQueryCalls.length = 0
     mockReload.mockClear()
+    mockSetRoot.mockClear()
     mockIntegrity.available = false
     mockEngine.status = null
 })
@@ -515,5 +521,142 @@ describe('background reload indicator (Task 7, carried forward from Plan 1)', ()
         ).toBeInTheDocument()
         expect(screen.getByText('Ownership')).toBeInTheDocument()
         expect(screen.getByText('Overview')).toBeInTheDocument()
+    })
+})
+
+describe('drilling into a matrix row (Task 6)', () => {
+    // The review's complaint: "rows should be clickable to drill down --
+    // this was intended in v1 but does not appear to work for orgunits,
+    // only groups." Numeric cells already opened the Objects tab; the row
+    // label itself did nothing.
+    it('drills into a row, moving the scope and the row level down together', async () => {
+        // A level known up front (rather than the null default) so the
+        // matrix can render immediately, with no `levelOf` round trip.
+        mockScope.rootLevel = 1
+        mockEngine.client = {
+            call: async (method: string) => {
+                if (method === 'matrixFor') {
+                    return {
+                        groups: [
+                            { id: 'g1', displayName: 'G1', canWrite: true },
+                        ],
+                        rows: [
+                            {
+                                object: 1,
+                                row: {
+                                    index: 1,
+                                    id: 'ou-badjia',
+                                    displayName: 'Badjia',
+                                    level: 2,
+                                    parentId: 'root1',
+                                },
+                                perGroup: [5],
+                                missing: 0,
+                                unassigned: 0,
+                                conflict: 0,
+                                total: 5,
+                            },
+                        ],
+                    }
+                }
+                return null
+            },
+        }
+        renderDetail({ objectType: 'organisationUnit' })
+
+        // Seeded at scopeLevel (1) + 1 -- the fixture's own level list
+        // (National=1, District=2, Chiefdom=3, Facility=4) -- so the row
+        // level starts at District (2), matching the fixture row above.
+        expect(await screen.findByText('District (level 2)')).toBeInTheDocument()
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Badjia' }))
+
+        // The row's own level -- the current row level, per decision 1 --
+        // not the row's `level` field (2, coincidentally the same value
+        // here) and not re-derived from any path.
+        expect(mockSetRoot).toHaveBeenCalledWith('ou-badjia', 'Badjia', 2)
+        // The Rows field follows the scope one level deeper.
+        expect(
+            await screen.findByText('Chiefdom (level 3)')
+        ).toBeInTheDocument()
+        expect(screen.queryByText('District (level 2)')).not.toBeInTheDocument()
+    })
+
+    it('does not offer drilling on the deepest available row level', async () => {
+        // A scope rooted at the Chiefdom level (3) leaves only Facility (4)
+        // in the fixture's level list -- the row level seeds there, at
+        // scopeLevel + 1, with nothing below it to drill into.
+        mockScope.rootId = 'chiefdom-deep-in-the-tree'
+        mockScope.rootLevel = 3
+        mockEngine.client = {
+            call: async (method: string) => {
+                if (method === 'matrixFor') {
+                    return {
+                        groups: [
+                            { id: 'g1', displayName: 'G1', canWrite: true },
+                        ],
+                        rows: [
+                            {
+                                object: 1,
+                                row: {
+                                    index: 1,
+                                    id: 'ou-facility',
+                                    displayName: 'Some Facility',
+                                    level: 4,
+                                    parentId: 'chiefdom-deep-in-the-tree',
+                                },
+                                perGroup: [5],
+                                missing: 0,
+                                unassigned: 0,
+                                conflict: 0,
+                                total: 5,
+                            },
+                        ],
+                    }
+                }
+                return null
+            },
+        }
+        renderDetail({ objectType: 'organisationUnit' })
+
+        expect(
+            await screen.findByText('Facility (level 4)')
+        ).toBeInTheDocument()
+        expect(await screen.findByText('Some Facility')).toBeInTheDocument()
+        expect(
+            screen.queryByRole('button', { name: 'Some Facility' })
+        ).not.toBeInTheDocument()
+    })
+
+    it('does not offer drilling for a non-hierarchical object type', async () => {
+        mockScope.rootLevel = 1
+        mockEngine.client = {
+            call: async (method: string) => {
+                if (method === 'matrixFor') {
+                    return {
+                        groups: [
+                            { id: 'g1', displayName: 'G1', canWrite: true },
+                        ],
+                        rows: [
+                            {
+                                object: -1,
+                                row: null,
+                                perGroup: [5],
+                                missing: 0,
+                                unassigned: 0,
+                                conflict: 0,
+                                total: 5,
+                            },
+                        ],
+                    }
+                }
+                return null
+            },
+        }
+        renderDetail({ objectType: 'dataElement' })
+        expect(await screen.findByText('All objects')).toBeInTheDocument()
+        expect(
+            screen.queryByRole('button', { name: 'All objects' })
+        ).not.toBeInTheDocument()
     })
 })

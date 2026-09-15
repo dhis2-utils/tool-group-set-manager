@@ -61,6 +61,47 @@ it('renders group columns, rows, totals and fires onCell', async () => {
     expect(onCell).toHaveBeenCalledWith(result.rows[0].row, { kind: 'missing' })
 })
 
+it('leaves the row label as plain text when onDrillDown is not given', () => {
+    render(<SummaryMatrix result={result} onCell={jest.fn()} />)
+    expect(
+        screen.queryByRole('button', { name: 'Abaji' })
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Abaji')).toBeInTheDocument()
+})
+
+// Task 6: the review's complaint was that a row label did nothing --
+// numeric cells already opened the Objects tab, but going a level deeper
+// from the row itself was not possible.
+it('renders the row label as a button and calls onDrillDown with the row when given', async () => {
+    const onDrillDown = jest.fn()
+    render(
+        <SummaryMatrix
+            result={result}
+            onCell={jest.fn()}
+            onDrillDown={onDrillDown}
+        />
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Abaji' }))
+    expect(onDrillDown).toHaveBeenCalledWith(result.rows[0].row)
+})
+
+// The "above the row level" pseudo-row stands for objects with no single
+// ancestor -- there is nothing there to drill into, exactly as there is
+// nothing there to filter by (see the cell-click test below it).
+it('does not turn the "above the row level" pseudo-row into a button even when onDrillDown is given', () => {
+    render(
+        <SummaryMatrix
+            result={result}
+            onCell={jest.fn()}
+            onDrillDown={jest.fn()}
+        />
+    )
+    expect(screen.getByText(/Above the row level/)).toBeInTheDocument()
+    expect(
+        screen.queryByRole('button', { name: /Above the row level/ })
+    ).not.toBeInTheDocument()
+})
+
 it('labels the sole row of a flat (non-hierarchical) object type as the whole population, not as an above-the-row-level leftover', () => {
     const flatResult = {
         groups: [{ id: 'g', displayName: 'Group', canWrite: true }],
@@ -76,8 +117,21 @@ it('labels the sole row of a flat (non-hierarchical) object type as the whole po
             },
         ],
     }
-    render(<SummaryMatrix result={flatResult} onCell={jest.fn()} flat />)
+    render(
+        <SummaryMatrix
+            result={flatResult}
+            onCell={jest.fn()}
+            onDrillDown={jest.fn()}
+            flat
+        />
+    )
     expect(screen.getByText('All objects')).toBeInTheDocument()
+    // A flat type's sole row has `row: null` -- there is no row object to
+    // hand `onDrillDown`, so it stays plain text even when the caller
+    // offers drilling (organisation unit sets only, in practice).
+    expect(
+        screen.queryByRole('button', { name: 'All objects' })
+    ).not.toBeInTheDocument()
     expect(screen.queryByText(/Above the row level/)).not.toBeInTheDocument()
     expect(
         screen.queryByText(/compulsory group set is checked/)

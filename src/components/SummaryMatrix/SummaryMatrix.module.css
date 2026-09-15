@@ -19,6 +19,18 @@
 .zero {
     color: var(--colors-grey500);
 }
+.rowLabel {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+}
+.rowLabel:hover {
+    text-decoration: underline;
+}
 .hint {
     font-size: var(--gsi-font-size-xs, 11px);
     color: var(--colors-grey600);

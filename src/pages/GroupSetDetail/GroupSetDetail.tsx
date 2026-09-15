@@ -55,7 +55,7 @@ const VIOLATION_STATUSES = [
 export const GroupSetDetail = () => {
     const { setId = '' } = useParams()
     const { groupSets, reload, status } = useEngine()
-    const { rootId, rootLevel } = useScope()
+    const { rootId, rootLevel, setRoot } = useScope()
     const integrity = useIntegrity()
     const { roots } = useUserScope()
     const set = groupSets.find((s) => s.id === setId)
@@ -131,13 +131,13 @@ export const GroupSetDetail = () => {
     // value at all. Left uncorrected, `rowLevel` would then point at a
     // level `SingleSelectField` has no matching option for, which
     // `@dhis2/ui` treats as a hard render error rather than a no-op -- the
-    // same crash the empty-list gate in OverviewTab guards against, just
+    // same crash the empty-list gate in the bar above guards against, just
     // reached a different way.
     //
     // Correcting this from a `useEffect` alone is one render too late: the
     // render that first sees the new, narrower `levels` also passes the
-    // still-stale `rowLevel` straight into `OverviewTab`/`SingleSelectField`
-    // in that same pass, and `SingleSelectField` throws synchronously
+    // still-stale `rowLevel` straight into `SingleSelectField` in the bar
+    // above in that same pass, and `SingleSelectField` throws synchronously
     // during that render -- before any effect from this render has had a
     // chance to run and fix `rowLevel` up. So the value actually handed to
     // children is a synchronously-derived, always-valid one computed right
@@ -217,6 +217,30 @@ export const GroupSetDetail = () => {
         setFilter(next)
         setTab('objects')
     }
+
+    // Task 6: a row's own level is always `effectiveRowLevel` -- every row
+    // in the matrix sits there by construction (matrix rows carry no path
+    // of their own to re-derive it from). Drilling only makes sense when a
+    // level exists below it; `levels` is already sorted ascending and
+    // filtered to what lies below the scope, so its first entry past the
+    // row's own level is the next one down. When there is none -- the
+    // chosen row level is already the deepest the hierarchy offers --
+    // `onDrillDown` stays undefined and SummaryMatrix leaves row labels as
+    // plain text, the same treatment it already gives a flat object type.
+    const nextRowLevel = levels.find(
+        (l) => l.level > effectiveRowLevel
+    )?.level
+    const onDrillDown =
+        set.objectType === 'organisationUnit' && nextRowLevel !== undefined
+            ? (row: ObjectRef) => {
+                  setRoot(
+                      row.id,
+                      row.displayName ?? row.id,
+                      effectiveRowLevel
+                  )
+                  setRowLevel(nextRowLevel)
+              }
+            : undefined
 
     return (
         <div className={styles.page}>
@@ -327,6 +351,7 @@ export const GroupSetDetail = () => {
                     rowLevel={effectiveRowLevel}
                     aboveLevelCaption={aboveLevelCaption}
                     onCell={onCell}
+                    onDrillDown={onDrillDown}
                 />
             ) : tab === 'integrity' && integrity.available ? (
                 <IntegrityTab set={set} scope={scope} />

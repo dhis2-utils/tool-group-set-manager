@@ -32,6 +32,17 @@ interface Props {
     result: MatrixResult
     onCell: (row: ObjectRef | null, column: MatrixColumn) => void
     /**
+     * Drills one level deeper into the row clicked. Absent for a flat
+     * object type (data element, indicator, category option) -- there is
+     * no hierarchy to descend, and (per `flat`'s own doc) that type's sole
+     * row has `row: null` anyway, so it could never be handed a row to
+     * drill into. When present, only a row with a real `row` (never the
+     * "above the row level" pseudo-row, which stands for objects with no
+     * single ancestor and is equally not clickable for filtering) renders
+     * its label as a control.
+     */
+    onDrillDown?: (row: ObjectRef) => void
+    /**
      * True for object types with no hierarchy (data element, indicator,
      * category option). The engine always represents "no row" as `row:
      * null` (see `MatrixRow.object === -1` in `src/engine/queries.ts`), but
@@ -81,6 +92,7 @@ const ABOVE_LEVEL_CLICK_TITLE = () =>
 export const SummaryMatrix = ({
     result,
     onCell,
+    onDrillDown,
     flat = false,
     aboveLevelCaption,
     showUnassigned = false,
@@ -272,7 +284,21 @@ export const SummaryMatrix = ({
                             <DataTableRow key={r.object}>
                                 <DataTableCell>
                                     {r.row ? (
-                                        (r.row.displayName ?? r.row.id)
+                                        onDrillDown ? (
+                                            <button
+                                                type="button"
+                                                className={styles.rowLabel}
+                                                onClick={() =>
+                                                    onDrillDown(
+                                                        r.row as ObjectRef
+                                                    )
+                                                }
+                                            >
+                                                {r.row.displayName ?? r.row.id}
+                                            </button>
+                                        ) : (
+                                            r.row.displayName ?? r.row.id
+                                        )
                                     ) : flat ? (
                                         i18n.t('All objects')
                                     ) : (
