@@ -11,6 +11,22 @@ jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://localhost:8080', apiVersion: 41 }),
 }))
 
+// Settings depends on @/hooks/useUsage only to reach `usage.refresh()` after
+// a successful install/remove (so the Dashboard/UsageTab's own, separately
+// mounted `useUsage()` stops reading their stale TanStack Query cache) --
+// mocked at module level the same way GroupSetDetail.test.tsx mocks it,
+// since the real hook needs a DataProvider/QueryClient this file's shallow
+// render tree doesn't have.
+const mockUsageRefresh = jest.fn()
+jest.mock('@/hooks/useUsage', () => ({
+    useUsage: () => ({
+        status: 'absent',
+        error: null,
+        forSet: () => null,
+        refresh: mockUsageRefresh,
+    }),
+}))
+
 const mockGroupSets = [
     {
         id: 'own',
@@ -131,6 +147,7 @@ beforeEach(() => {
     mockCheckUsage.mockReset()
     mockInstallUsage.mockReset()
     mockRemoveUsage.mockReset()
+    mockUsageRefresh.mockClear()
     mockGsiConfig.config = {
         catchAllGroup: {},
         includeTracker: false,
@@ -441,6 +458,23 @@ describe('Settings — group set usage', () => {
         ).toBeInTheDocument()
     })
 
+    // A successful install changes what every other reader of `useUsage()`
+    // (Dashboard, GroupSetCard, UsageTab) sees, but each of those mounts its
+    // own instance of the hook, subject to the lookup query's own
+    // `staleTime: Infinity` -- so nothing tells them the view they thought
+    // was absent now exists until this call refetches the shared cache
+    // entry. Was a real gap: `useUsage()` has always exposed `refresh`, but
+    // nothing called it until this fix.
+    it('tells the shared usage cache to refresh after a successful install', async () => {
+        renderSettings({ canManage: true })
+        fireEvent.click(
+            await screen.findByRole('button', {
+                name: 'Install usage SQL view',
+            })
+        )
+        await waitFor(() => expect(mockUsageRefresh).toHaveBeenCalled())
+    })
+
     it('names every candidate that failed when none could be installed', async () => {
         mockInstallUsage.mockResolvedValue({
             installed: false,
@@ -459,6 +493,9 @@ describe('Settings — group set usage', () => {
                 'The eventvisualization query variant could not be installed — HTTP 409'
             )
         ).toBeInTheDocument()
+        // Nothing changed on the server, so nothing tells other readers to
+        // refetch -- see the success-path test above for what this guards.
+        expect(mockUsageRefresh).not.toHaveBeenCalled()
     })
 
     it('offers removal once the view is usable, and removes it', async () => {
@@ -478,6 +515,9 @@ describe('Settings — group set usage', () => {
                 'v1'
             )
         )
+        // Same reasoning as the install-success test above, in the other
+        // direction: other readers must stop reporting the view as usable.
+        await waitFor(() => expect(mockUsageRefresh).toHaveBeenCalled())
     })
 
     // Review fix 1 (Important): `usageCheck` starts `null`, so before the
@@ -532,6 +572,9 @@ describe('Settings — group set usage', () => {
             screen.getByRole('button', { name: 'Remove usage SQL view' })
         ).toBeInTheDocument()
         expect(screen.getByText('Group set usage view')).toBeInTheDocument()
+        // Nothing changed on the server -- see the two success-path tests
+        // above for what this guards against not happening instead.
+        expect(mockUsageRefresh).not.toHaveBeenCalled()
     })
 
     // Review fix 2 (Important), status-check half: a failing status check
