@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-15T15:50:36.400Z\n"
-"PO-Revision-Date: 2026-09-15T15:50:36.400Z\n"
+"POT-Creation-Date: 2026-09-15T16:04:43.560Z\n"
+"PO-Revision-Date: 2026-09-15T16:04:43.561Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -574,8 +574,11 @@ msgstr "Group set not found or not loaded yet."
 msgid "Dashboard"
 msgstr "Dashboard"
 
-msgid "Scope ({name})"
-msgstr "Scope ({name})"
+msgid "Rows"
+msgstr "Rows"
+
+msgid "{name} (level {level})"
+msgstr "{name} (level {level})"
 
 msgid "You do not have permission to change this group set"
 msgstr "You do not have permission to change this group set"
@@ -689,14 +692,8 @@ msgstr "Clear area filter"
 msgid "Bulk fix…"
 msgstr "Bulk fix…"
 
-msgid "Includes organisation units above the {level} level"
-msgstr "Includes organisation units above the {level} level"
-
-msgid "Rows"
-msgstr "Rows"
-
-msgid "{name} (level {level})"
-msgstr "{name} (level {level})"
+msgid "Includes organisation units above level {level}"
+msgstr "Includes organisation units above level {level}"
 
 msgid "Moved to a group"
 msgstr "Moved to a group"

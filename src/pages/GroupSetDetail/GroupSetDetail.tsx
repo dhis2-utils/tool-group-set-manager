@@ -1,5 +1,12 @@
 import i18n from '@dhis2/d2-i18n'
-import { Button, Tab, TabBar, Tag } from '@dhis2/ui'
+import {
+    Button,
+    SingleSelectField,
+    SingleSelectOption,
+    Tab,
+    TabBar,
+    Tag,
+} from '@dhis2/ui'
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import styles from './GroupSetDetail.module.css'
@@ -7,6 +14,8 @@ import { IntegrityTab } from './IntegrityTab'
 import { ObjectsTab } from './ObjectsTab'
 import { OverviewTab } from './OverviewTab'
 import { BulkFixDialog } from '@/components/BulkFixDialog/BulkFixDialog'
+import { FilterBar, FilterBarField } from '@/components/FilterBar/FilterBar'
+import { OrgUnitField } from '@/components/FilterBar/OrgUnitField'
 import { LoadProgress } from '@/components/LoadProgress/LoadProgress'
 import { SetPropertiesDialog } from '@/components/SetPropertiesDialog/SetPropertiesDialog'
 import { MatrixColumn } from '@/components/SummaryMatrix/SummaryMatrix'
@@ -45,7 +54,7 @@ const VIOLATION_STATUSES = [
 export const GroupSetDetail = () => {
     const { setId = '' } = useParams()
     const { groupSets, reload, status } = useEngine()
-    const { rootId, rootName, rootLevel } = useScope()
+    const { rootId, rootLevel } = useScope()
     const integrity = useIntegrity()
     const { roots } = useUserScope()
     const set = groupSets.find((s) => s.id === setId)
@@ -181,6 +190,44 @@ export const GroupSetDetail = () => {
     return (
         <div className={styles.page}>
             <Link to="/">{i18n.t('Dashboard')}</Link>
+            <FilterBar>
+                {set.objectType === 'organisationUnit' && <OrgUnitField />}
+                {set.objectType === 'organisationUnit' &&
+                    tab === 'overview' &&
+                    levels.length > 0 && (
+                        <FilterBarField label={i18n.t('Rows')}>
+                            <SingleSelectField
+                                dense
+                                selected={String(effectiveRowLevel)}
+                                onChange={({ selected }) =>
+                                    setRowLevel(Number(selected))
+                                }
+                                inputWidth="240px"
+                            >
+                                {levels.map((l) => (
+                                    <SingleSelectOption
+                                        key={l.level}
+                                        value={String(l.level)}
+                                        // One complete string with
+                                        // placeholders rather than
+                                        // translated fragments joined in
+                                        // English word order -- see
+                                        // src/utils/interpolate.ts for why
+                                        // the call itself takes no second
+                                        // argument.
+                                        label={interpolate(
+                                            i18n.t('{name} (level {level})'),
+                                            {
+                                                name: l.displayName,
+                                                level: l.level,
+                                            }
+                                        )}
+                                    />
+                                ))}
+                            </SingleSelectField>
+                        </FilterBarField>
+                    )}
+            </FilterBar>
             <div className={styles.header}>
                 <div>
                     <h1 className={styles.title}>{set.displayName}</h1>
@@ -194,13 +241,6 @@ export const GroupSetDetail = () => {
                         <Tag neutral>
                             {set.groups.map((g) => g.displayName).join(' · ')}
                         </Tag>
-                        {set.objectType === 'organisationUnit' && (
-                            <Tag neutral>
-                                {interpolate(i18n.t('Scope ({name})'), {
-                                    name: rootName,
-                                })}
-                            </Tag>
-                        )}
                     </div>
                 </div>
                 <div className={styles.actions}>
@@ -256,8 +296,6 @@ export const GroupSetDetail = () => {
                     set={set}
                     scope={scope}
                     rowLevel={effectiveRowLevel}
-                    levels={levels}
-                    onRowLevel={setRowLevel}
                     onCell={onCell}
                 />
             ) : tab === 'integrity' && integrity.available ? (

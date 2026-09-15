@@ -1,10 +1,5 @@
 import i18n from '@dhis2/d2-i18n'
-import {
-    CircularLoader,
-    NoticeBox,
-    SingleSelectField,
-    SingleSelectOption,
-} from '@dhis2/ui'
+import { CircularLoader, NoticeBox } from '@dhis2/ui'
 import React from 'react'
 import styles from './GroupSetDetail.module.css'
 import {
@@ -20,32 +15,20 @@ interface Props {
     set: GroupSetMeta
     scope: ScopeRef
     rowLevel: number
-    levels: { level: number; displayName: string }[]
-    onRowLevel: (level: number) => void
     onCell: (row: ObjectRef | null, column: MatrixColumn) => void
 }
 
-export const OverviewTab = ({
-    set,
-    scope,
-    rowLevel,
-    levels,
-    onRowLevel,
-    onCell,
-}: Props) => {
+export const OverviewTab = ({ set, scope, rowLevel, onCell }: Props) => {
     const { data, isLoading, error } = useEngineQuery<MatrixResult>(
         'matrixFor',
         [set.id, scope, rowLevel]
     )
     const isHierarchical = set.objectType === 'organisationUnit'
-    // `levels` only has entries once the organisationUnitLevels query
-    // resolves; until then it is `[]`. @dhis2/ui's SingleSelect throws a
-    // hard runtime error (not just a visual blank) if `selected` doesn't
-    // match the value of any currently-rendered SingleSelectOption, so the
-    // selector must not render at all while there is nothing for the
-    // current `rowLevel` to match -- rather than rendering it with a
-    // `selected` value that has no corresponding option yet.
-    const canShowRowLevelSelector = isHierarchical && levels.length > 0
+    // The row level selector (and the level list it needs to render, incl.
+    // display names) now lives in the bar above the tabs -- see
+    // GroupSetDetail.tsx. All that is left here is the chosen level itself,
+    // needed to run the query and to name it in the caption below.
+    //
     // Every organisation unit group set -- compulsory or not -- evaluates
     // every organisation unit at every level (`populationFor` in
     // `src/engine/population.ts` never restricts an org unit set's
@@ -54,44 +37,21 @@ export const OverviewTab = ({
     // where the non-compulsory "Area" set still has a non-empty one. What
     // *is* true, and known here rather than inside SummaryMatrix, is which
     // row level was actually chosen -- so that is what the caption names.
-    const rowLevelLabel = levels.find((l) => l.level === rowLevel)?.displayName
+    // Without the level list (moved out with the selector) there is no
+    // display name to put in it any more, so the caption now names the
+    // level number itself rather than falling all the way back to
+    // SummaryMatrix's generic default.
+    //
     // One whole translated sentence with a placeholder filled in afterwards,
     // never a join of separately translated fragments -- see
     // src/utils/interpolate.ts.
-    const aboveLevelCaption = rowLevelLabel
-        ? interpolate(
-              i18n.t('Includes organisation units above the {level} level'),
-              { level: rowLevelLabel }
-          )
+    const aboveLevelCaption = isHierarchical
+        ? interpolate(i18n.t('Includes organisation units above level {level}'), {
+              level: rowLevel,
+          })
         : undefined
     return (
         <div className={styles.overview}>
-            {canShowRowLevelSelector && (
-                <SingleSelectField
-                    label={i18n.t('Rows')}
-                    selected={String(rowLevel)}
-                    onChange={({ selected }) => onRowLevel(Number(selected))}
-                    inputWidth="280px"
-                >
-                    {levels.map((l) => (
-                        <SingleSelectOption
-                            key={l.level}
-                            value={String(l.level)}
-                            // One complete string with placeholders rather
-                            // than translated fragments joined in English
-                            // word order -- see src/utils/interpolate.ts for
-                            // why the call itself takes no second argument.
-                            label={interpolate(
-                                i18n.t('{name} (level {level})'),
-                                {
-                                    name: l.displayName,
-                                    level: l.level,
-                                }
-                            )}
-                        />
-                    ))}
-                </SingleSelectField>
-            )}
             {/* Data first, loader only when there is none. `useEngineQuery`
                 clears its data the moment the arguments change, so whenever
                 `data` is present it belongs to the scope and row level

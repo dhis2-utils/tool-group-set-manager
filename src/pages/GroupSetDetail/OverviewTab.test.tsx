@@ -20,10 +20,6 @@ const set = {
     groups: [{ id: 'a', displayName: 'Public', canWrite: true }],
 }
 const scope = { objectType: 'organisationUnit' as const, rootId: 'r' }
-const levels = [
-    { level: 2, displayName: 'District' },
-    { level: 3, displayName: 'Chiefdom' },
-]
 const result = {
     groups: [{ id: 'a', displayName: 'Public', canWrite: true }],
     rows: [
@@ -51,8 +47,6 @@ const renderTab = () =>
             set={set}
             scope={scope}
             rowLevel={2}
-            levels={levels}
-            onRowLevel={() => undefined}
             onCell={() => undefined}
         />
     )

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { GroupSetDetail } from './GroupSetDetail'
+import { ObjectType } from '@/engine/types'
 
 // A lightweight stand-in for the real dialog (which has its own heavy set
 // of dependencies, exercised in BulkFixDialog.test.tsx) -- this file only
@@ -42,11 +43,19 @@ jest.mock('@/components/SetPropertiesDialog/SetPropertiesDialog', () => ({
 // babel-plugin-jest-hoist only allows a jest.mock() factory to reference
 // out-of-scope variables whose names start with "mock" (see the matching
 // comment in Dashboard.test.tsx and useEngineQuery.test.tsx).
-const mockGroupSets = [
+const mockGroupSets: {
+    id: string
+    displayName: string
+    objectType: ObjectType
+    compulsory: boolean
+    dataDimension: boolean
+    canWrite: boolean
+    groups: { id: string; displayName: string; canWrite: boolean }[]
+}[] = [
     {
         id: 'own',
         displayName: 'Ownership',
-        objectType: 'organisationUnit' as const,
+        objectType: 'organisationUnit',
         compulsory: true,
         dataDimension: true,
         canWrite: true,
@@ -142,18 +151,40 @@ jest.mock('@/utils/useApiDataQuery', () => ({
 // a prop change -- resolves to a root three levels deep. `levels` then
 // recomputes to only contain level 4, which no longer contains the
 // `rowLevel` (2) seeded before the roots arrived.
+//
+// The bar now renders `OrgUnitField`, which calls this same hook, so
+// `useUserScope` runs more than once per render of the page (once for
+// `GroupSetDetail` itself, once for `OrgUnitField`). Keeping "resolved" in
+// a plain per-call `useState` would let whichever instance rendered last
+// own `mockResolveRoots`, silently detaching it from the other -- so the
+// resolved flag lives here, outside React, with every mounted instance
+// subscribed to force its own re-render when it flips.
+let mockResolvedRoots = false
+const mockRootsSubscribers = new Set<() => void>()
 let mockResolveRoots: (() => void) | null = null
 jest.mock('@/hooks/useUserScope', () => {
     const ReactActual = jest.requireActual('react')
     return {
         useUserScope: () => {
-            const [resolved, setResolved] = ReactActual.useState(false)
-            mockResolveRoots = () => setResolved(true)
-            const roots = resolved
+            const [, forceRender] = ReactActual.useReducer(
+                (c: number) => c + 1,
+                0
+            )
+            ReactActual.useEffect(() => {
+                mockRootsSubscribers.add(forceRender)
+                return () => {
+                    mockRootsSubscribers.delete(forceRender)
+                }
+            }, [forceRender])
+            mockResolveRoots = () => {
+                mockResolvedRoots = true
+                mockRootsSubscribers.forEach((fn) => fn())
+            }
+            const roots = mockResolvedRoots
                 ? [{ id: 'root1', displayName: 'Root', level: 3 }]
                 : []
             return {
-                isLoading: !resolved,
+                isLoading: !mockResolvedRoots,
                 roots,
                 authorities: new Set(),
                 hasAuthority: () => false,
@@ -164,7 +195,10 @@ jest.mock('@/hooks/useUserScope', () => {
 
 afterEach(() => {
     mockGroupSets[0].canWrite = true
+    mockGroupSets[0].objectType = 'organisationUnit'
     mockResolveRoots = null
+    mockResolvedRoots = false
+    mockRootsSubscribers.clear()
     mockEngine.client = null
     mockScope.rootId = 'root1'
     mockScope.rootName = 'Root'
@@ -175,14 +209,39 @@ afterEach(() => {
     mockEngine.status = null
 })
 
-const renderDetail = () =>
-    render(
+const renderDetail = (overrides: Partial<(typeof mockGroupSets)[0]> = {}) => {
+    Object.assign(mockGroupSets[0], overrides)
+    return render(
         <MemoryRouter initialEntries={['/sets/own']}>
             <Routes>
                 <Route path="/sets/:setId" element={<GroupSetDetail />} />
             </Routes>
         </MemoryRouter>
     )
+}
+
+// Spec 2026-09-15 §4.1: the organisation unit is reachable without leaving
+// the group set you are working in -- that was the review's complaint.
+it('shows the organisation unit field on the group set page', async () => {
+    renderDetail({ objectType: 'organisationUnit' })
+    expect(await screen.findByText('Organisation unit')).toBeInTheDocument()
+})
+
+// A data element group set has no organisation unit scope, and a control
+// that changes nothing on screen is worse than no control.
+it('hides the organisation unit field for a non-hierarchical type', async () => {
+    renderDetail({ objectType: 'dataElement' })
+    await screen.findByText('Overview')
+    expect(screen.queryByText('Organisation unit')).not.toBeInTheDocument()
+})
+
+// The bar shows the organisation unit, so the header tag that repeated it
+// is gone.
+it('does not repeat the organisation unit as a header tag', async () => {
+    renderDetail({ objectType: 'organisationUnit' })
+    await screen.findByText('Overview')
+    expect(screen.queryByText(/^Scope \(/)).not.toBeInTheDocument()
+})
 
 it('keeps the row level in sync when late-arriving roots change the available levels, instead of crashing', async () => {
     render(
