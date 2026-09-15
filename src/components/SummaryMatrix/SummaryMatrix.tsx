@@ -130,22 +130,38 @@ export const SummaryMatrix = ({
                             {i18n.t('Organisation unit')}
                         </DataTableColumnHeader>
                         {result.groups.map((g) => (
-                            <DataTableColumnHeader key={g.id} align="right">
+                            <DataTableColumnHeader
+                                key={g.id}
+                                align="right"
+                                className={styles.numericHeader}
+                            >
                                 {g.displayName}
                             </DataTableColumnHeader>
                         ))}
                         {showUnassigned && (
-                            <DataTableColumnHeader align="right">
+                            <DataTableColumnHeader
+                                align="right"
+                                className={styles.numericHeader}
+                            >
                                 {i18n.t('No group (not required)')}
                             </DataTableColumnHeader>
                         )}
-                        <DataTableColumnHeader align="right">
+                        <DataTableColumnHeader
+                            align="right"
+                            className={styles.numericHeader}
+                        >
                             {i18n.t('Missing')}
                         </DataTableColumnHeader>
-                        <DataTableColumnHeader align="right">
+                        <DataTableColumnHeader
+                            align="right"
+                            className={styles.numericHeader}
+                        >
                             {i18n.t('Conflict')}
                         </DataTableColumnHeader>
-                        <DataTableColumnHeader align="right">
+                        <DataTableColumnHeader
+                            align="right"
+                            className={styles.numericHeader}
+                        >
                             {i18n.t('Total')}
                         </DataTableColumnHeader>
                     </DataTableRow>

@@ -3,6 +3,19 @@ import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { SummaryMatrix } from './SummaryMatrix'
 
+// This project's Jest config maps every `.css` import (module or not) to
+// jest.identity.mock.js, which exports a plain `{}`. Unlike the project's
+// real (Vite) build -- which hashes `.numericHeader` to something like
+// `_numericHeader_1l7ml_39`, still containing the substring -- Jest gives
+// every class name `undefined`, so `styles.numericHeader` would never reach
+// the DOM here at all and no test could observe it. Supply the one class
+// this file's tests need to see, matching its own name the way the real
+// build's hashed name still would.
+jest.mock('./SummaryMatrix.module.css', () => ({
+    __esModule: true,
+    default: { numericHeader: 'numericHeader' },
+}))
+
 const result = {
     groups: [
         { id: 'pub', displayName: 'Public', canWrite: true },
@@ -168,4 +181,17 @@ it('lets the caller say why the aggregate row exists instead of assuming a compu
     expect(
         screen.queryByText(/compulsory group set is checked/)
     ).not.toBeInTheDocument()
+})
+
+// @dhis2/ui 10.17.0's DataTableColumnHeader `align` prop is a no-op: it
+// emits a rule for a `.label` class the component never renders. Our own
+// class on the header is what actually right-aligns it, so the test pins
+// the class rather than a computed style jsdom would not resolve anyway.
+it('marks every numeric column header as numeric', () => {
+    render(<SummaryMatrix result={result} onCell={jest.fn()} />)
+    const headers = screen.getAllByRole('columnheader')
+    // first column is the row label; every other header is a number
+    const [rowLabel, ...numeric] = headers
+    expect(rowLabel).not.toHaveClass('numericHeader')
+    numeric.forEach((h) => expect(h.className).toMatch(/numericHeader/))
 })

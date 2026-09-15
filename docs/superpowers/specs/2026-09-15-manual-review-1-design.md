@@ -200,9 +200,14 @@ nothing on screen is worse than no control.
 
 ### 4.2 The matrix
 
-- Numeric `DataTableColumnHeader`s take `align="right"`. Headers currently
-  sit left over right-aligned numbers, so a header is nowhere near its own
-  column once a group name is long.
+- Numeric `DataTableColumnHeader`s already take `align="right"`; that was
+  never the fault. `@dhis2/ui` 10.17.0 ignores the prop -- it emits a rule
+  for a `.label` class the component never renders, while the header's real
+  content sits in `span.top` -- so headers stayed left over right-aligned
+  numbers and a header was nowhere near its own column once a group name was
+  long. The app overrides `span.top` itself (`SummaryMatrix.module.css`),
+  keeping the `align="right"` props in place for when the library fixes its
+  own rule.
 - Group columns are capped at the **eight largest by total membership within
   the current scope** — the `MatrixResult`'s own per-group totals, so the
   ranking is recomputed whenever the scope or row level changes and never

@@ -28,3 +28,14 @@
     font-weight: 500;
     background: var(--colors-grey100);
 }
+/* @dhis2/ui 10.17.0's DataTableColumnHeader ignores its own `align` prop:
+   it emits `.label { justify-content: … }` for a class the component never
+   renders (see data-table-column-header.js). `span.top` is the real flex
+   row around the header's content, so that is what has to be pushed to the
+   end. `:global` because the class comes from the library, not this
+   module, and CSS modules would otherwise rewrite it. Remove this rule if
+   @dhis2/ui ever fixes `align`; the `align="right"` props are already in
+   place and would take over. */
+.numericHeader :global(span.top) {
+    justify-content: flex-end;
+}
