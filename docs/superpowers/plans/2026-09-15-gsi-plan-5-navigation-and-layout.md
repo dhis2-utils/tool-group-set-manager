@@ -742,15 +742,25 @@ A `Modal` owned by `SummaryMatrix`, listing every group from `plan.ranked` with 
 
 ```tsx
 // Spec §4.2: an explicit choice persists while the user stays on that set
-// and is dropped on leaving it. `result.groups` changes identity when the
-// engine returns a different set's matrix, which is exactly that boundary.
+// and is dropped on leaving it.
+//
+// The reset key must be the group IDENTITIES, not the `result.groups`
+// array's object identity. `MatrixResult` crosses the Web Worker boundary
+// through postMessage, so it is structured-cloned: every response carries a
+// brand-new `groups` array even for an identical repeat query. And
+// `useEngineQuery` re-issues its call on every `status.phase`/`status.type`
+// change, which fires several times during the app's normal per-type
+// progressive load and again on an explicit reload. Keying on the array
+// object would therefore wipe the user's pinned columns mid-load, or on a
+// reload, rather than only when they leave the set.
+const groupKey = result.groups.map((g) => g.id).join(',')
 const [pinnedGroups, setPinnedGroups] = useState<number[] | undefined>(
     undefined
 )
 const [pickerOpen, setPickerOpen] = useState(false)
 useEffect(() => {
     setPinnedGroups(undefined)
-}, [result.groups])
+}, [groupKey])
 ```
 
 - [ ] **Step 6: Test the matrix's own behaviour**
