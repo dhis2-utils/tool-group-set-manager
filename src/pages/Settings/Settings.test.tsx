@@ -1,6 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { Settings } from './Settings'
+import {
+    checkUsageView,
+    installUsageView,
+    removeUsageView,
+} from '@/data/sources/usageAdmin'
 
 jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://localhost:8080', apiVersion: 41 }),
@@ -63,6 +68,22 @@ jest.mock('@/data/sources/sqlViewAdmin', () => ({
         mockCreateOrRepairSqlViews(...args),
 }))
 
+jest.mock('@/data/sources/usageAdmin', () => ({
+    checkUsageView: jest.fn(),
+    installUsageView: jest.fn(),
+    removeUsageView: jest.fn(),
+}))
+
+const mockCheckUsage = checkUsageView as jest.MockedFunction<
+    typeof checkUsageView
+>
+const mockInstallUsage = installUsageView as jest.MockedFunction<
+    typeof installUsageView
+>
+const mockRemoveUsage = removeUsageView as jest.MockedFunction<
+    typeof removeUsageView
+>
+
 const usableCheck = (code: string, name: string) => ({
     code,
     name,
@@ -97,6 +118,11 @@ beforeEach(() => {
     mockSetIncludeTracker.mockClear()
     mockClearCache.mockClear()
     mockCheckSqlViews.mockReset()
+    // A default so a test that only cares about the usage section (and
+    // never sets this itself) does not leave `checks` as a bare `undefined`
+    // -- `allUsable`/`anyUnusable` distinguish "not yet known" (null) from
+    // "checked, nothing there" ([]), and `undefined` satisfies neither.
+    mockCheckSqlViews.mockResolvedValue([])
     mockCanCreateSqlViews.mockReset()
     mockCreateOrRepairSqlViews.mockReset()
     mockGsiConfig.config = {
@@ -105,11 +131,20 @@ beforeEach(() => {
     }
 })
 
+/**
+ * `canManage` drives `canCreateSqlViews` -- the same authority governs
+ * creating the three GSI_* views and creating the usage view, so one flag
+ * covers both sections' create/repair buttons.
+ */
+const renderSettings = ({ canManage }: { canManage: boolean | null }) => {
+    mockCanCreateSqlViews.mockResolvedValue(canManage)
+    return render(<Settings />)
+}
+
 describe('SQL view status', () => {
     it('shows each view and whether it is usable', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
-        mockCanCreateSqlViews.mockResolvedValue(true)
-        render(<Settings />)
+        renderSettings({ canManage: true })
         await waitFor(() =>
             expect(
                 screen.getByText('GSI org unit hierarchy')
@@ -127,7 +162,6 @@ describe('SQL view status', () => {
 
     it('offers to create the missing views when the user has the authority, reports what was created, and reloads onto the new source (I2)', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_MISSING)
-        mockCanCreateSqlViews.mockResolvedValue(true)
         mockCreateOrRepairSqlViews.mockResolvedValue({
             created: [
                 'GSI_ORGUNITS',
@@ -137,7 +171,7 @@ describe('SQL view status', () => {
             repaired: [],
             failed: [],
         })
-        render(<Settings />)
+        renderSettings({ canManage: true })
         const button = await screen.findByRole('button', {
             name: /create sql views/i,
         })
@@ -160,7 +194,6 @@ describe('SQL view status', () => {
 
     it('reports which view failed and why, not just a count (M2)', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_MISSING)
-        mockCanCreateSqlViews.mockResolvedValue(true)
         mockCreateOrRepairSqlViews.mockResolvedValue({
             created: ['GSI_ORGUNITS', 'GSI_ORGUNIT_NAMES'],
             repaired: [],
@@ -171,7 +204,7 @@ describe('SQL view status', () => {
                 },
             ],
         })
-        render(<Settings />)
+        renderSettings({ canManage: true })
         const button = await screen.findByRole('button', {
             name: /create sql views/i,
         })
@@ -187,7 +220,6 @@ describe('SQL view status', () => {
 
     it('does not reload when nothing was created or repaired', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_MISSING)
-        mockCanCreateSqlViews.mockResolvedValue(true)
         mockCreateOrRepairSqlViews.mockResolvedValue({
             created: [],
             repaired: [],
@@ -197,7 +229,7 @@ describe('SQL view status', () => {
                 { code: 'GSI_ORGUNIT_MEMBERSHIPS', message: 'boom' },
             ],
         })
-        render(<Settings />)
+        renderSettings({ canManage: true })
         const button = await screen.findByRole('button', {
             name: /create sql views/i,
         })
@@ -209,8 +241,7 @@ describe('SQL view status', () => {
 
     it('shows the status and an explanation, never a create button, for a user without the authority', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_MISSING)
-        mockCanCreateSqlViews.mockResolvedValue(false)
-        render(<Settings />)
+        renderSettings({ canManage: false })
         await waitFor(() =>
             expect(
                 screen.getByText('GSI org unit hierarchy')
@@ -227,8 +258,7 @@ describe('SQL view status', () => {
     // M1
     it('shows an explanation, never a create button, when it could not determine authority', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_MISSING)
-        mockCanCreateSqlViews.mockResolvedValue(null)
-        render(<Settings />)
+        renderSettings({ canManage: null })
         await waitFor(() =>
             expect(
                 screen.getByText('GSI org unit hierarchy')
@@ -245,8 +275,7 @@ describe('SQL view status', () => {
     // I1
     it('shows an explicit error and a retry option, never an endless spinner, when the status check itself fails', async () => {
         mockCheckSqlViews.mockRejectedValue(new Error('HTTP 500'))
-        mockCanCreateSqlViews.mockResolvedValue(true)
-        render(<Settings />)
+        renderSettings({ canManage: true })
         await waitFor(() =>
             expect(
                 screen.getByText(/could not check sql view status/i)
@@ -273,8 +302,7 @@ describe('required levels', () => {
     // it configured must not find a control that silently does nothing.
     it('has no required organisation unit levels control', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
-        mockCanCreateSqlViews.mockResolvedValue(true)
-        render(<Settings />)
+        renderSettings({ canManage: true })
         await waitFor(() =>
             expect(
                 screen.getByText('GSI org unit hierarchy')
@@ -289,8 +317,7 @@ describe('required levels', () => {
 describe('catch-all mapping', () => {
     it('can be set to any group of the set', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
-        mockCanCreateSqlViews.mockResolvedValue(true)
-        render(<Settings />)
+        renderSettings({ canManage: true })
         const placeholder = await screen.findByText('Choose catch-all group')
         await act(async () => {
             fireEvent.click(placeholder)
@@ -307,9 +334,8 @@ describe('catch-all mapping', () => {
     // I3
     it('reports a save failure rather than discarding it silently', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
-        mockCanCreateSqlViews.mockResolvedValue(true)
         mockSetCatchAllGroup.mockRejectedValueOnce(new Error('HTTP 403'))
-        render(<Settings />)
+        renderSettings({ canManage: true })
         const placeholder = await screen.findByText('Choose catch-all group')
         await act(async () => {
             fireEvent.click(placeholder)
@@ -330,9 +356,8 @@ describe('tracker toggle', () => {
     // I3
     it('reports a save failure rather than discarding it silently', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
-        mockCanCreateSqlViews.mockResolvedValue(true)
         mockSetIncludeTracker.mockRejectedValueOnce(new Error('HTTP 403'))
-        render(<Settings />)
+        renderSettings({ canManage: true })
         const checkbox = await screen.findByLabelText(
             /include tracker attributes/i
         )
@@ -350,8 +375,7 @@ describe('tracker toggle', () => {
 describe('clear cache', () => {
     it('clears the cache and reloads', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
-        mockCanCreateSqlViews.mockResolvedValue(true)
-        render(<Settings />)
+        renderSettings({ canManage: true })
         const button = await screen.findByRole('button', {
             name: /clear cache/i,
         })
@@ -360,5 +384,93 @@ describe('clear cache', () => {
         })
         expect(mockClearCache).toHaveBeenCalledTimes(1)
         expect(mockReload).toHaveBeenCalledWith(true)
+    })
+})
+
+describe('Settings — group set usage', () => {
+    beforeEach(() => {
+        mockCheckUsage.mockResolvedValue({
+            id: null,
+            type: undefined,
+            readable: false,
+            usable: false,
+        })
+        mockInstallUsage.mockResolvedValue({
+            installed: true,
+            variant: 'eventvisualization',
+            id: 'new1',
+            failures: [],
+        })
+        mockRemoveUsage.mockResolvedValue(undefined)
+    })
+
+    it('offers to install the view when it is missing and the user may create SQL views', async () => {
+        renderSettings({ canManage: true })
+        expect(
+            await screen.findByRole('button', {
+                name: 'Install usage SQL view',
+            })
+        ).toBeInTheDocument()
+    })
+
+    it('does not offer the button to a user who cannot create SQL views', async () => {
+        renderSettings({ canManage: false })
+        expect(await screen.findByText('Group set usage')).toBeInTheDocument()
+        expect(
+            screen.queryByRole('button', { name: 'Install usage SQL view' })
+        ).not.toBeInTheDocument()
+    })
+
+    it('says which query variant took', async () => {
+        renderSettings({ canManage: true })
+        fireEvent.click(
+            await screen.findByRole('button', {
+                name: 'Install usage SQL view',
+            })
+        )
+        expect(
+            await screen.findByText(
+                'Installed using the eventvisualization query variant'
+            )
+        ).toBeInTheDocument()
+    })
+
+    it('names every candidate that failed when none could be installed', async () => {
+        mockInstallUsage.mockResolvedValue({
+            installed: false,
+            variant: null,
+            id: null,
+            failures: [
+                { variant: 'eventvisualization', message: 'HTTP 409' },
+            ],
+        })
+        renderSettings({ canManage: true })
+        fireEvent.click(
+            await screen.findByRole('button', {
+                name: 'Install usage SQL view',
+            })
+        )
+        expect(
+            await screen.findByText(
+                'The eventvisualization query variant could not be installed — HTTP 409'
+            )
+        ).toBeInTheDocument()
+    })
+
+    it('offers removal once the view is usable, and removes it', async () => {
+        mockCheckUsage.mockResolvedValue({
+            id: 'v1',
+            type: 'VIEW',
+            readable: true,
+            usable: true,
+        })
+        renderSettings({ canManage: true })
+        fireEvent.click(
+            await screen.findByRole('button', { name: 'Remove usage SQL view' })
+        )
+        await waitFor(() => expect(mockRemoveUsage).toHaveBeenCalledWith(
+            expect.anything(),
+            'v1'
+        ))
     })
 })

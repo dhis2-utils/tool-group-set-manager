@@ -18,6 +18,13 @@ import {
     createOrRepairSqlViews,
     SqlViewCheck,
 } from '@/data/sources/sqlViewAdmin'
+import {
+    checkUsageView,
+    installUsageView,
+    removeUsageView,
+    InstallUsageResult,
+    UsageViewCheck,
+} from '@/data/sources/usageAdmin'
 import { useEngine } from '@/hooks/useEngine'
 import { useGsiConfig } from '@/hooks/useGsiConfig'
 import { interpolate } from '@/utils/interpolate'
@@ -85,6 +92,27 @@ export const Settings = () => {
     // it or be mistaken for a different one's.
     const [catchAllError, setCatchAllError] = useState<string | null>(null)
     const [trackerError, setTrackerError] = useState<string | null>(null)
+
+    const [usageCheck, setUsageCheck] = useState<UsageViewCheck | null>(null)
+    const [usageBusy, setUsageBusy] = useState(false)
+    const [usageResult, setUsageResult] = useState<InstallUsageResult | null>(
+        null
+    )
+    const [usageError, setUsageError] = useState<string | null>(null)
+
+    const refreshUsage = useCallback(async () => {
+        try {
+            setUsageCheck(await checkUsageView(fetcher))
+            setUsageError(null)
+        } catch (e) {
+            setUsageCheck(null)
+            setUsageError(e instanceof Error ? e.message : String(e))
+        }
+    }, [fetcher])
+
+    useEffect(() => {
+        void refreshUsage()
+    }, [refreshUsage])
 
     const refreshStatus = useCallback(async () => {
         setChecking(true)
@@ -156,6 +184,41 @@ export const Settings = () => {
             await reload(true)
         } finally {
             setClearingCache(false)
+        }
+    }
+
+    const handleInstallUsage = async () => {
+        if (!usageCheck) {
+            return
+        }
+        setUsageBusy(true)
+        setUsageError(null)
+        try {
+            const result = await installUsageView(fetcher, usageCheck)
+            setUsageResult(result)
+            await refreshUsage()
+        } catch (e) {
+            setUsageError(e instanceof Error ? e.message : String(e))
+        } finally {
+            setUsageBusy(false)
+        }
+    }
+
+    const handleRemoveUsage = async () => {
+        if (!usageCheck?.id) {
+            return
+        }
+        setUsageBusy(true)
+        setUsageError(null)
+        try {
+            await removeUsageView(fetcher, usageCheck.id)
+            // The install report belongs to a view that no longer exists.
+            setUsageResult(null)
+            await refreshUsage()
+        } catch (e) {
+            setUsageError(e instanceof Error ? e.message : String(e))
+        } finally {
+            setUsageBusy(false)
         }
     }
 
@@ -260,6 +323,101 @@ export const Settings = () => {
                                 title={i18n.t('SQL view update failed')}
                             >
                                 {createError}
+                            </NoticeBox>
+                        )}
+                    </>
+                )}
+            </div>
+
+            <div className={styles.section}>
+                <h2 className={styles.heading}>{i18n.t('Group set usage')}</h2>
+                <p className={styles.note}>
+                    {i18n.t(
+                        'An optional SQL view that counts the saved favourites referencing each group set, and how often they were viewed in the last 12 months. Without it the app works exactly as before, only with no usage figures.'
+                    )}
+                </p>
+                {usageError ? (
+                    <NoticeBox
+                        error
+                        title={i18n.t('Could not check the usage SQL view')}
+                    >
+                        {usageError}
+                    </NoticeBox>
+                ) : (
+                    <>
+                        <div className={styles.viewRow}>
+                            <span className={styles.viewName}>
+                                {i18n.t('Group set usage view')}
+                            </span>
+                            {usageCheck?.usable ? (
+                                <Tag positive>{i18n.t('Usable')}</Tag>
+                            ) : usageCheck?.id ? (
+                                <Tag neutral>{i18n.t('Not usable yet')}</Tag>
+                            ) : (
+                                <Tag negative>{i18n.t('Missing')}</Tag>
+                            )}
+                        </div>
+                        {usageCheck && !usageCheck.usable && canManage === true && (
+                            <Button
+                                onClick={handleInstallUsage}
+                                disabled={usageBusy}
+                                loading={usageBusy}
+                            >
+                                {i18n.t('Install usage SQL view')}
+                            </Button>
+                        )}
+                        {usageCheck?.usable && canManage === true && (
+                            <Button
+                                secondary
+                                onClick={handleRemoveUsage}
+                                disabled={usageBusy}
+                                loading={usageBusy}
+                            >
+                                {i18n.t('Remove usage SQL view')}
+                            </Button>
+                        )}
+                        {usageResult?.installed && (
+                            <NoticeBox
+                                valid
+                                title={i18n.t('Usage data is installed')}
+                            >
+                                {/* `variant` is null when an existing view
+                                    was repaired rather than created -- there
+                                    is no candidate body to name in that
+                                    case, but the install still succeeded
+                                    and must say so. */}
+                                {usageResult.variant
+                                    ? interpolate(
+                                          i18n.t(
+                                              'Installed using the {variant} query variant'
+                                          ),
+                                          { variant: usageResult.variant }
+                                      )
+                                    : i18n.t(
+                                          'The existing usage SQL view was repaired and can now be read.'
+                                      )}
+                            </NoticeBox>
+                        )}
+                        {usageResult && !usageResult.installed && (
+                            <NoticeBox
+                                error
+                                title={i18n.t(
+                                    'The usage SQL view could not be installed'
+                                )}
+                            >
+                                {usageResult.failures.map((f) => (
+                                    <div key={f.variant}>
+                                        {interpolate(
+                                            i18n.t(
+                                                'The {variant} query variant could not be installed — {message}'
+                                            ),
+                                            {
+                                                variant: f.variant,
+                                                message: f.message,
+                                            }
+                                        )}
+                                    </div>
+                                ))}
                             </NoticeBox>
                         )}
                     </>

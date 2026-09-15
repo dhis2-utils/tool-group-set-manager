@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-15T17:15:10.190Z\n"
-"PO-Revision-Date: 2026-09-15T17:15:10.190Z\n"
+"POT-Creation-Date: 2026-09-15T21:06:27.182Z\n"
+"PO-Revision-Date: 2026-09-15T21:06:27.182Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -887,6 +887,45 @@ msgstr "SQL view update complete"
 
 msgid "SQL view update failed"
 msgstr "SQL view update failed"
+
+msgid "Group set usage"
+msgstr "Group set usage"
+
+msgid ""
+"An optional SQL view that counts the saved favourites referencing each "
+"group set, and how often they were viewed in the last 12 months. Without it "
+"the app works exactly as before, only with no usage figures."
+msgstr ""
+"An optional SQL view that counts the saved favourites referencing each "
+"group set, and how often they were viewed in the last 12 months. Without it "
+"the app works exactly as before, only with no usage figures."
+
+msgid "Could not check the usage SQL view"
+msgstr "Could not check the usage SQL view"
+
+msgid "Group set usage view"
+msgstr "Group set usage view"
+
+msgid "Install usage SQL view"
+msgstr "Install usage SQL view"
+
+msgid "Remove usage SQL view"
+msgstr "Remove usage SQL view"
+
+msgid "Usage data is installed"
+msgstr "Usage data is installed"
+
+msgid "Installed using the {variant} query variant"
+msgstr "Installed using the {variant} query variant"
+
+msgid "The existing usage SQL view was repaired and can now be read."
+msgstr "The existing usage SQL view was repaired and can now be read."
+
+msgid "The usage SQL view could not be installed"
+msgstr "The usage SQL view could not be installed"
+
+msgid "The {variant} query variant could not be installed — {message}"
+msgstr "The {variant} query variant could not be installed — {message}"
 
 msgid "Choose catch-all group"
 msgstr "Choose catch-all group"

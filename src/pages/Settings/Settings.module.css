@@ -38,3 +38,8 @@
 .viewName {
     flex: 1;
 }
+.note {
+    font-size: 13px;
+    color: var(--colors-grey700);
+    margin: 0 0 var(--spacers-dp8) 0;
+}
