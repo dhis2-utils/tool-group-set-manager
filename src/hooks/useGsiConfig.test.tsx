@@ -16,9 +16,6 @@ jest.mock('@/hooks/useEngine', () => {
 })
 
 const mockLoadConfig = jest.fn<Promise<unknown>, unknown[]>()
-const mockSaveRequiredLevels = jest.fn<Promise<void>, unknown[]>(
-    async () => undefined
-)
 const mockSaveCatchAllGroup = jest.fn<Promise<void>, unknown[]>(
     async () => undefined
 )
@@ -27,7 +24,6 @@ const mockSaveIncludeTracker = jest.fn<Promise<void>, unknown[]>(
 )
 jest.mock('@/data/datastore', () => ({
     loadConfig: (...args: unknown[]) => mockLoadConfig(...args),
-    saveRequiredLevels: (...args: unknown[]) => mockSaveRequiredLevels(...args),
     saveCatchAllGroup: (...args: unknown[]) => mockSaveCatchAllGroup(...args),
     saveIncludeTracker: (...args: unknown[]) => mockSaveIncludeTracker(...args),
 }))
@@ -37,7 +33,6 @@ const Wrapper = ({ children }: { children: React.ReactNode }) => (
 )
 
 const defaultConfig = {
-    requiredLevels: { setA: [2] },
     catchAllGroup: { setA: 'g1' },
     includeTracker: false,
 }
@@ -46,7 +41,6 @@ beforeEach(() => {
     mockClientCall.mockClear()
     mockLoadConfig.mockReset()
     mockLoadConfig.mockResolvedValue(defaultConfig)
-    mockSaveRequiredLevels.mockClear()
     mockSaveCatchAllGroup.mockClear()
     mockSaveIncludeTracker.mockClear()
 })
@@ -56,35 +50,7 @@ it('loads the config on mount and pushes it into the engine as setConfig', async
     await waitFor(() => expect(result.current.isLoaded).toBe(true))
     expect(result.current.config).toEqual(defaultConfig)
     expect(mockClientCall).toHaveBeenCalledWith('setConfig', {
-        requiredLevels: { setA: [2] },
         includeTracker: false,
-    })
-})
-
-it('setRequiredLevels saves to the dataStore and pushes the change into the engine, without any caller having to reload', async () => {
-    const { result } = renderHook(() => useGsiConfig(), { wrapper: Wrapper })
-    await waitFor(() => expect(result.current.isLoaded).toBe(true))
-    mockClientCall.mockClear()
-
-    await act(async () => {
-        await result.current.setRequiredLevels('setB', [3, 4])
-    })
-
-    expect(mockSaveRequiredLevels).toHaveBeenCalledWith(
-        expect.anything(),
-        'setB',
-        [3, 4]
-    )
-    // The whole point of this hook (D1): required levels take effect
-    // immediately, not on the next reload -- so the engine must see the
-    // *merged* config (setA untouched, setB added) right after the save.
-    expect(mockClientCall).toHaveBeenCalledWith('setConfig', {
-        requiredLevels: { setA: [2], setB: [3, 4] },
-        includeTracker: false,
-    })
-    expect(result.current.config.requiredLevels).toEqual({
-        setA: [2],
-        setB: [3, 4],
     })
 })
 
@@ -99,7 +65,6 @@ it('setIncludeTracker saves and pushes the new value into the engine', async () 
 
     expect(mockSaveIncludeTracker).toHaveBeenCalledWith(expect.anything(), true)
     expect(mockClientCall).toHaveBeenCalledWith('setConfig', {
-        requiredLevels: { setA: [2] },
         includeTracker: true,
     })
 })

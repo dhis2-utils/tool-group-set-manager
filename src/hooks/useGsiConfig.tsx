@@ -13,7 +13,6 @@ import {
     loadConfig,
     saveCatchAllGroup,
     saveIncludeTracker,
-    saveRequiredLevels,
 } from '@/data/datastore'
 import { createFetcher } from '@/data/fetcher'
 import { EngineConfig } from '@/engine/types'
@@ -21,13 +20,11 @@ import { EngineConfig } from '@/engine/types'
 interface GsiConfigContextValue {
     config: GsiConfig
     isLoaded: boolean
-    setRequiredLevels: (setId: string, levels: number[]) => Promise<void>
     setCatchAllGroup: (setId: string, groupId: string) => Promise<void>
     setIncludeTracker: (value: boolean) => Promise<void>
 }
 
 const DEFAULT_CONFIG: GsiConfig = {
-    requiredLevels: {},
     catchAllGroup: {},
     includeTracker: false,
 }
@@ -36,16 +33,16 @@ const GsiConfigContext = createContext<GsiConfigContextValue | null>(null)
 
 /**
  * D1: this provider closes the gap the brief's own plan left open --
- * nothing else in the app ever called the engine's `setConfig`, so required
- * levels and the tracker toggle were saved to the dataStore and then
- * silently ignored by every evaluation. It holds the loaded `GsiConfig`,
- * pushes the engine-relevant half (`requiredLevels`, `includeTracker`) into
- * the worker with `setConfig` (which re-evaluates on its own -- see
- * EngineStore.setConfig) whenever either changes, and exposes savers that
- * write to the dataStore and update local state so a caller never has to
- * reload to see its own change take effect. `catchAllGroup` is not part of
- * `EngineConfig` -- it never influences evaluation, only which group a bulk
- * fix defaults to -- so setting it never touches the engine.
+ * nothing else in the app ever called the engine's `setConfig`, so the
+ * tracker toggle was saved to the dataStore and then silently ignored by
+ * every evaluation. It holds the loaded `GsiConfig`, pushes the engine-
+ * relevant half (`includeTracker`) into the worker with `setConfig` (which
+ * re-evaluates on its own -- see EngineStore.setConfig) whenever it
+ * changes, and exposes savers that write to the dataStore and update local
+ * state so a caller never has to reload to see its own change take effect.
+ * `catchAllGroup` is not part of `EngineConfig` -- it never influences
+ * evaluation, only which group a bulk fix defaults to -- so setting it
+ * never touches the engine.
  */
 export const GsiConfigProvider = ({
     children,
@@ -84,31 +81,19 @@ export const GsiConfigProvider = ({
     // touches. It is safe today only because Settings is its own route: a
     // consumer like Dashboard is a different mounted component and remounts
     // (and so re-queries) on navigation back to it. A future control that
-    // changes required levels or the tracker toggle from *within* an
-    // already-mounted Dashboard/GroupSetDetail (an in-place settings panel,
-    // say) would need to invalidate those consumers explicitly, or it would
-    // silently keep showing numbers computed against the old config.
+    // changes the tracker toggle from *within* an already-mounted
+    // Dashboard/GroupSetDetail (an in-place settings panel, say) would need
+    // to invalidate those consumers explicitly, or it would silently keep
+    // showing numbers computed against the old config.
     useEffect(() => {
         if (!client || !isLoaded) {
             return
         }
         const engineConfig: EngineConfig = {
-            requiredLevels: config.requiredLevels,
             includeTracker: config.includeTracker,
         }
         void client.call('setConfig', engineConfig)
-    }, [client, isLoaded, config.requiredLevels, config.includeTracker])
-
-    const setRequiredLevels = useCallback(
-        async (setId: string, levels: number[]) => {
-            await saveRequiredLevels(fetcher, setId, levels)
-            setConfig((c) => ({
-                ...c,
-                requiredLevels: { ...c.requiredLevels, [setId]: levels },
-            }))
-        },
-        [fetcher]
-    )
+    }, [client, isLoaded, config.includeTracker])
 
     const setCatchAllGroup = useCallback(
         async (setId: string, groupId: string) => {
@@ -133,17 +118,10 @@ export const GsiConfigProvider = ({
         () => ({
             config,
             isLoaded,
-            setRequiredLevels,
             setCatchAllGroup,
             setIncludeTracker,
         }),
-        [
-            config,
-            isLoaded,
-            setRequiredLevels,
-            setCatchAllGroup,
-            setIncludeTracker,
-        ]
+        [config, isLoaded, setCatchAllGroup, setIncludeTracker]
     )
 
     return (

@@ -37,12 +37,10 @@ jest.mock('@/hooks/useGsiConfig', () => ({
     ),
     useGsiConfig: () => ({
         config: {
-            requiredLevels: {},
             catchAllGroup: {},
             includeTracker: false,
         },
         isLoaded: true,
-        setRequiredLevels: async () => undefined,
         setCatchAllGroup: async () => undefined,
         setIncludeTracker: async () => undefined,
     }),

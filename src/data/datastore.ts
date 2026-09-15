@@ -4,15 +4,12 @@ import { ChangeSet } from '@/engine/changeSet'
 export const NAMESPACE = 'group-set-integrity'
 
 export interface GsiConfig {
-    /** group set id -> org unit levels at which membership is required */
-    requiredLevels: Record<string, number[]>
     /** group set id -> the group new/unassigned objects are put in on fix */
     catchAllGroup: Record<string, string>
     includeTracker: boolean
 }
 
 const DEFAULT_CONFIG: GsiConfig = {
-    requiredLevels: {},
     catchAllGroup: {},
     includeTracker: false,
 }
@@ -42,7 +39,7 @@ async function readDocument<T>(
 
 /**
  * Reads one document for the read-modify-write path in front of a shared-
- * document save (`saveRequiredLevels`, `saveCatchAllGroup`). Unlike
+ * document save (`saveCatchAllGroup`). Unlike
  * `readDocument`, only a 404 -- the document genuinely does not exist yet
  * -- is treated as absent here. A transient 403, a 500, or a dropped
  * connection must not be read the same way: the write that follows would
@@ -104,22 +101,17 @@ async function listKeys(fetcher: Fetcher): Promise<string[]> {
 }
 
 /**
- * Reads the three config documents, merging each over its default. Never
- * throws: a document that is absent, unreadable, or unreachable reads as
- * "not configured yet" rather than a load failure, because a fresh
- * instance has no namespace at all until something is first saved to it.
+ * Reads the config documents, merging each over its default. Never throws:
+ * a document that is absent, unreadable, or unreachable reads as "not
+ * configured yet" rather than a load failure, because a fresh instance has
+ * no namespace at all until something is first saved to it.
  */
 export async function loadConfig(fetcher: Fetcher): Promise<GsiConfig> {
-    const [requiredLevels, catchAllGroup, general] = await Promise.all([
-        readDocument<Record<string, number[]>>(
-            fetcher,
-            'config-required-levels'
-        ),
+    const [catchAllGroup, general] = await Promise.all([
         readDocument<Record<string, string>>(fetcher, 'config-catch-all'),
         readDocument<{ includeTracker?: boolean }>(fetcher, 'config-general'),
     ])
     return {
-        requiredLevels: requiredLevels ?? DEFAULT_CONFIG.requiredLevels,
         catchAllGroup: catchAllGroup ?? DEFAULT_CONFIG.catchAllGroup,
         includeTracker:
             general?.includeTracker ?? DEFAULT_CONFIG.includeTracker,
@@ -127,27 +119,10 @@ export async function loadConfig(fetcher: Fetcher): Promise<GsiConfig> {
 }
 
 /**
- * config-required-levels holds every group set's levels together, keyed by
- * set id, so saving one set's levels must read the current document first
- * to avoid erasing the others' entries.
+ * config-catch-all holds every group set's catch-all group together, keyed
+ * by set id, so saving one set's choice must read the current document
+ * first to avoid erasing the others' entries.
  */
-export async function saveRequiredLevels(
-    fetcher: Fetcher,
-    setId: string,
-    levels: number[]
-): Promise<void> {
-    const current =
-        (await readCurrentForMerge<Record<string, number[]>>(
-            fetcher,
-            'config-required-levels'
-        )) ?? {}
-    await writeDocument(fetcher, 'config-required-levels', {
-        ...current,
-        [setId]: levels,
-    })
-}
-
-/** config-catch-all is likewise shared across every group set; see saveRequiredLevels. */
 export async function saveCatchAllGroup(
     fetcher: Fetcher,
     setId: string,

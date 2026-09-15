@@ -6,7 +6,6 @@ import {
     saveCatchAllGroup,
     saveChangeSet,
     saveIncludeTracker,
-    saveRequiredLevels,
 } from './datastore'
 import { ChangeSet } from '@/engine/changeSet'
 
@@ -31,7 +30,6 @@ describe('loadConfig', () => {
     it('returns defaults when the namespace does not exist yet', async () => {
         const fetcher = async () => notFound()
         expect(await loadConfig(fetcher)).toEqual({
-            requiredLevels: {},
             catchAllGroup: {},
             includeTracker: false,
         })
@@ -39,8 +37,8 @@ describe('loadConfig', () => {
 
     it('merges a present config document over the defaults', async () => {
         const fetcher = async (path: string) => {
-            if (path.endsWith('config-required-levels')) {
-                return json({ own: [2, 3] })
+            if (path.endsWith('config-catch-all')) {
+                return json({ own: 'catch-all-group' })
             }
             if (path.endsWith('config-general')) {
                 return json({ includeTracker: true })
@@ -48,8 +46,7 @@ describe('loadConfig', () => {
             return notFound()
         }
         expect(await loadConfig(fetcher)).toEqual({
-            requiredLevels: { own: [2, 3] },
-            catchAllGroup: {},
+            catchAllGroup: { own: 'catch-all-group' },
             includeTracker: true,
         })
     })
@@ -59,10 +56,22 @@ describe('loadConfig', () => {
             throw new Error('network down')
         }
         await expect(loadConfig(fetcher)).resolves.toEqual({
-            requiredLevels: {},
             catchAllGroup: {},
             includeTracker: false,
         })
+    })
+
+    // Spec 2026-09-15 §2.3: the dataStore document survives on instances that
+    // already have one, but the app neither reads it nor writes it. Deleting a
+    // user's stored data as a side effect of an upgrade is worse than leaving
+    // orphaned keys, and leaving them keeps a downgrade working.
+    it('never requests the required-levels document', async () => {
+        const fetcher = jest.fn().mockResolvedValue(notFound())
+        await loadConfig(fetcher as never)
+        const requested = fetcher.mock.calls.map((c) => String(c[0]))
+        expect(
+            requested.some((u) => u.includes('config-required-levels'))
+        ).toBe(false)
     })
 })
 
@@ -92,57 +101,8 @@ describe('saveIncludeTracker', () => {
     })
 })
 
-describe('saveRequiredLevels and saveCatchAllGroup', () => {
-    it('reads the shared document first and merges one set into it, preserving other sets', async () => {
-        // The document holds every group set's levels together, so saving
-        // one set's levels must not erase another's -- exercised here by
-        // asserting the written body actually contains both entries.
-        const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
-            const method = init?.method ?? 'GET'
-            if (method === 'GET') {
-                return json({ other: [1] })
-            }
-            writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
-        }
-        await saveRequiredLevels(fetcher, 'own', [2, 3])
-        expect(writes).toEqual([{ other: [1], own: [2, 3] }])
-    })
-
-    it('saveRequiredLevels writes directly when no document exists yet', async () => {
-        const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
-            const method = init?.method ?? 'GET'
-            if (method === 'GET') {
-                return notFound()
-            }
-            writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
-        }
-        await saveRequiredLevels(fetcher, 'own', [2, 3])
-        expect(writes).toEqual([{ own: [2, 3] }])
-    })
-
-    it('saveRequiredLevels rethrows a non-404 failure reading the current document, rather than treating it as absent', async () => {
-        // Swallowing this the way loadConfig does would let the write that
-        // follows erase every other group set's saved levels.
-        const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
-            const method = init?.method ?? 'GET'
-            if (method === 'GET') {
-                return new Response('forbidden', { status: 403 })
-            }
-            writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
-        }
-        await expect(
-            saveRequiredLevels(fetcher, 'own', [2, 3])
-        ).rejects.toThrow()
-        expect(writes).toEqual([])
-    })
-
-    it('saveCatchAllGroup writes the group id under the set id when no document exists yet', async () => {
+describe('saveCatchAllGroup', () => {
+    it('writes the group id under the set id when no document exists yet', async () => {
         const writes: unknown[] = []
         const fetcher = async (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'

@@ -19,7 +19,6 @@ jest.mock('@/hooks/useGsiConfig', () => {
     return {
         useGsiConfig: () => {
             const [config, setConfig] = ReactLib.useState({
-                requiredLevels: {},
                 catchAllGroup: {},
                 includeTracker: false,
             })
@@ -39,7 +38,6 @@ jest.mock('@/hooks/useGsiConfig', () => {
             return {
                 config,
                 isLoaded,
-                setRequiredLevels: async () => undefined,
                 setCatchAllGroup: async () => undefined,
                 setIncludeTracker: async () => undefined,
             }
@@ -124,7 +122,6 @@ beforeEach(() => {
     jest.clearAllMocks()
     mockIsWriting = false
     mockLoadConfig.mockResolvedValue({
-        requiredLevels: {},
         catchAllGroup: {},
         includeTracker: false,
     })
@@ -146,7 +143,6 @@ beforeEach(() => {
 describe('BulkFixDialog action step', () => {
     it('preselects the catch-all target from the recorded configuration', async () => {
         mockLoadConfig.mockResolvedValue({
-            requiredLevels: {},
             catchAllGroup: { own: 'g2' },
             includeTracker: false,
         })
@@ -251,7 +247,6 @@ describe('BulkFixDialog action step', () => {
 
     it('choosing "assign all to one group" changes the computed plan accordingly', async () => {
         mockLoadConfig.mockResolvedValue({
-            requiredLevels: {},
             catchAllGroup: { own: 'g2' },
             includeTracker: false,
         })
@@ -302,7 +297,6 @@ describe('BulkFixDialog action step', () => {
 describe('BulkFixDialog preview step', () => {
     async function goToPreview(targetLabel: string, selection?: string[]) {
         mockLoadConfig.mockResolvedValue({
-            requiredLevels: {},
             catchAllGroup: { own: 'g2' },
             includeTracker: false,
         })
@@ -418,7 +412,6 @@ describe('BulkFixDialog preview step', () => {
     // what "this view" means.
     it('names the active search term in the move-to-catch-all notice when a text filter is in play', async () => {
         mockLoadConfig.mockResolvedValue({
-            requiredLevels: {},
             catchAllGroup: { own: 'g2' },
             includeTracker: false,
         })
@@ -966,7 +959,6 @@ describe('BulkFixDialog apply step', () => {
         planChanges: typeof changes = changes
     ) {
         mockLoadConfig.mockResolvedValue({
-            requiredLevels: {},
             catchAllGroup: { own: 'g2' },
             includeTracker: false,
         })
@@ -1048,7 +1040,6 @@ describe('BulkFixDialog apply step', () => {
         const changesB = [{ groupId: 'g1', additions: ['zzz'], deletions: [] }]
         let currentChanges: typeof changesA | typeof changesB = changesA
         mockLoadConfig.mockResolvedValue({
-            requiredLevels: {},
             catchAllGroup: { own: 'g2' },
             includeTracker: false,
         })
@@ -1316,7 +1307,6 @@ describe('BulkFixDialog apply step', () => {
             displayName: 'Other/unknown Ownership',
         })
         mockLoadConfig.mockResolvedValue({
-            requiredLevels: {},
             catchAllGroup: {},
             includeTracker: false,
         })
@@ -1422,7 +1412,6 @@ describe('BulkFixDialog apply step', () => {
             }
         })
         mockLoadConfig.mockResolvedValue({
-            requiredLevels: {},
             catchAllGroup: { own: 'g2' },
             includeTracker: false,
         })
@@ -1454,7 +1443,6 @@ describe('BulkFixDialog apply step', () => {
     it('cannot be dismissed mid-write in a way that loses the result (D4)', async () => {
         const onClose = jest.fn()
         mockLoadConfig.mockResolvedValue({
-            requiredLevels: {},
             catchAllGroup: { own: 'g2' },
             includeTracker: false,
         })
