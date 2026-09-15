@@ -1,6 +1,7 @@
 import i18n from '@dhis2/d2-i18n'
 import { CircularLoader, NoticeBox } from '@dhis2/ui'
 import React from 'react'
+import { Link } from 'react-router-dom'
 import styles from './GroupSetDetail.module.css'
 import { usageApplies } from '@/data/sources/usageSqlView'
 import { GroupSetMeta } from '@/engine/types'
@@ -59,17 +60,9 @@ export const UsageTab = ({ set }: { set: GroupSetMeta }) => {
                         'Usage counts come from an optional SQL view that an administrator installs once.'
                     )}
                 </p>
-                {/*
-                    A plain hash-router anchor, not react-router's `Link`:
-                    this app is a `createHashRouter` (App.tsx), so `#/settings`
-                    navigates correctly, and it does so without requiring a
-                    Router context around every render of this tab -- `Link`
-                    throws when rendered outside one (confirmed against
-                    UsageTab.test.tsx's unwrapped `render`).
-                */}
-                <a href="#/settings">
+                <Link to="/settings">
                     {i18n.t('Go to Settings to install it')}
-                </a>
+                </Link>
             </NoticeBox>
         )
     }

@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import React from 'react'
+import { MemoryRouter } from 'react-router-dom'
 import { UsageTab } from './UsageTab'
 import { GroupSetMeta } from '@/engine/types'
 
@@ -37,7 +38,11 @@ describe('UsageTab', () => {
                 ],
             })
         )
-        render(<UsageTab set={set()} />)
+        render(
+            <MemoryRouter>
+                <UsageTab set={set()} />
+            </MemoryRouter>
+        )
         expect(
             screen.getByText('42 favourites reference this group set')
         ).toBeInTheDocument()
@@ -57,7 +62,11 @@ describe('UsageTab', () => {
                 ],
             })
         )
-        render(<UsageTab set={set()} />)
+        render(
+            <MemoryRouter>
+                <UsageTab set={set()} />
+            </MemoryRouter>
+        )
         expect(screen.getByText('Charts and pivot tables')).toBeInTheDocument()
         expect(screen.getByText('Maps')).toBeInTheDocument()
     })
@@ -66,7 +75,11 @@ describe('UsageTab', () => {
         mockUsage.mockReturnValue(
             ready({ favourites: 0, views12m: 0, byFavouriteType: [] })
         )
-        render(<UsageTab set={set()} />)
+        render(
+            <MemoryRouter>
+                <UsageTab set={set()} />
+            </MemoryRouter>
+        )
         expect(
             screen.getByText(/leaves no favourite behind/)
         ).toBeInTheDocument()
@@ -76,7 +89,11 @@ describe('UsageTab', () => {
         mockUsage.mockReturnValue(
             ready({ favourites: 0, views12m: 0, byFavouriteType: [] })
         )
-        render(<UsageTab set={set()} />)
+        render(
+            <MemoryRouter>
+                <UsageTab set={set()} />
+            </MemoryRouter>
+        )
         expect(
             screen.getByText('No saved favourite references this group set')
         ).toBeInTheDocument()
@@ -86,7 +103,11 @@ describe('UsageTab', () => {
         mockUsage.mockReturnValue(
             ready({ favourites: 0, views12m: 0, byFavouriteType: [] })
         )
-        render(<UsageTab set={set({ objectType: 'indicator' })} />)
+        render(
+            <MemoryRouter>
+                <UsageTab set={set({ objectType: 'indicator' })} />
+            </MemoryRouter>
+        )
         expect(
             screen.getByText(
                 'Indicator group sets are not analytics dimensions, so there is no usage data for them.'
@@ -104,10 +125,20 @@ describe('UsageTab', () => {
             forSet: () => null,
             refresh: jest.fn(),
         })
-        render(<UsageTab set={set()} />)
+        render(
+            <MemoryRouter>
+                <UsageTab set={set()} />
+            </MemoryRouter>
+        )
         expect(
             screen.getByText('Usage data is not installed on this instance')
         ).toBeInTheDocument()
+        // Pins the actual link target, not just its text -- a plain anchor
+        // or a Link pointed at the wrong path would still satisfy the text
+        // assertion above.
+        expect(
+            screen.getByRole('link', { name: 'Go to Settings to install it' })
+        ).toHaveAttribute('href', '/settings')
     })
 
     it('shows the error rather than an empty page when the view cannot be read', () => {
@@ -117,7 +148,11 @@ describe('UsageTab', () => {
             forSet: () => null,
             refresh: jest.fn(),
         })
-        render(<UsageTab set={set()} />)
+        render(
+            <MemoryRouter>
+                <UsageTab set={set()} />
+            </MemoryRouter>
+        )
         expect(screen.getByText('HTTP 500')).toBeInTheDocument()
     })
 })
