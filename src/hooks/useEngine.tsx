@@ -20,6 +20,15 @@ interface EngineContextValue {
     client: EngineClient | null
     status: LoadStatus | null
     groupSets: GroupSetMeta[]
+    /**
+     * False until the first load has actually set `groupSets` (even to an
+     * empty array), true from then on. Set together with `groupSets` in the
+     * same `isCurrent()` block, never derived from `status.phase` -- `loadAll`
+     * emits `phase: 'done'` one render before `setGroupSets` runs, so a
+     * status-based signal would still have a window where "no longer exists"
+     * gets claimed on an array that just hasn't been filled yet.
+     */
+    groupSetsLoaded: boolean
     sourceKind: 'sqlView' | 'metadata' | null
     /**
      * P3-R2: true only when the most recent load actually fell back from a
@@ -71,6 +80,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
     const generationRef = useRef(0)
     const [status, setStatus] = useState<LoadStatus | null>(null)
     const [groupSets, setGroupSets] = useState<GroupSetMeta[]>([])
+    const [groupSetsLoaded, setGroupSetsLoaded] = useState(false)
     const [sourceKind, setSourceKind] = useState<'sqlView' | 'metadata' | null>(
         null
     )
@@ -133,6 +143,11 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
                 })
                 if (isCurrent()) {
                     setGroupSets(result.groupSets)
+                    // Set together with the array itself, never derived from
+                    // status.phase: loadAll emits 'done' before this line
+                    // runs, so there is a render in between where the phase
+                    // says loaded and the array is still empty.
+                    setGroupSetsLoaded(true)
                     // D4: `result.sourceKind` is the source actually used,
                     // which can differ from the one selected above if
                     // loadAll fell back from a broken SQL view source to
@@ -199,6 +214,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
             client,
             status,
             groupSets,
+            groupSetsLoaded,
             sourceKind,
             fellBack,
             error,
@@ -210,6 +226,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
             client,
             status,
             groupSets,
+            groupSetsLoaded,
             sourceKind,
             fellBack,
             error,

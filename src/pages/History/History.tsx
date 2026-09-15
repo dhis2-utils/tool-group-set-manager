@@ -122,9 +122,12 @@ interface RevertDialogProps {
  * user clicks Close.
  */
 const RevertDialog = ({ changeSet, onClose, onApplied }: RevertDialogProps) => {
-    const { client, groupSets } = useEngine()
+    const { client, groupSets, groupSetsLoaded } = useEngine()
     const { write, isWriting } = useMembershipWrite()
     const set = groupSets.find((s) => s.id === changeSet.groupSetId)
+    // Group sets not loaded yet is a third state, not "missing" -- see the
+    // tri-state comment in the History component below.
+    const setMissing = groupSetsLoaded && !set
 
     const [step, setStep] = useState<'preview' | 'apply'>('preview')
     const [plan, setPlan] = useState<AssignmentPlan | null>(null)
@@ -313,7 +316,7 @@ const RevertDialog = ({ changeSet, onClose, onApplied }: RevertDialogProps) => {
             <ModalContent>
                 {step === 'preview' && (
                     <>
-                        {!set && (
+                        {setMissing && (
                             <NoticeBox
                                 error
                                 title={i18n.t('This change cannot be reverted')}
@@ -470,7 +473,7 @@ const RevertDialog = ({ changeSet, onClose, onApplied }: RevertDialogProps) => {
 }
 
 export const History = () => {
-    const { client, groupSets } = useEngine()
+    const { client, groupSets, groupSetsLoaded } = useEngine()
     const {
         changeSets,
         isLoading,
@@ -625,10 +628,17 @@ export const History = () => {
                         {changeSets.map((cs) => {
                             // D4: a change set whose group set no longer
                             // exists is still listed (never hidden), just
-                            // without a working Revert.
-                            const setExists = groupSets.some(
+                            // without a working Revert. Until group sets
+                            // have loaded, nothing is known either way --
+                            // so Revert waits rather than accusing.
+                            const setPresent = groupSets.some(
                                 (gs) => gs.id === cs.groupSetId
                             )
+                            const setExists = groupSetsLoaded && setPresent
+                            const setMissing = groupSetsLoaded && !setPresent
+                            // setExists === false && setMissing === false is
+                            // the still-loading case, and it renders neither
+                            // the note nor the tooltip.
                             return (
                                 <DataTableRow key={cs.id}>
                                     <DataTableCell>
@@ -642,7 +652,7 @@ export const History = () => {
                                     </DataTableCell>
                                     <DataTableCell>
                                         {cs.groupSetName}
-                                        {!setExists && (
+                                        {setMissing && (
                                             <div className={styles.note}>
                                                 {missingGroupSetTooltip()}
                                             </div>
@@ -666,7 +676,7 @@ export const History = () => {
                                             >
                                                 {i18n.t('Export')}
                                             </Button>
-                                            {setExists ? (
+                                            {setExists && (
                                                 <Button
                                                     small
                                                     onClick={() =>
@@ -675,7 +685,8 @@ export const History = () => {
                                                 >
                                                     {i18n.t('Revert')}
                                                 </Button>
-                                            ) : (
+                                            )}
+                                            {setMissing && (
                                                 <Tooltip
                                                     content={missingGroupSetTooltip()}
                                                 >
@@ -704,6 +715,16 @@ export const History = () => {
                                                         </span>
                                                     )}
                                                 </Tooltip>
+                                            )}
+                                            {!setExists && !setMissing && (
+                                                // Still loading: nothing is
+                                                // known yet either way, so
+                                                // Revert waits (disabled,
+                                                // no tooltip, no note)
+                                                // rather than accusing.
+                                                <Button small disabled>
+                                                    {i18n.t('Revert')}
+                                                </Button>
                                             )}
                                         </ButtonStrip>
                                     </DataTableCell>

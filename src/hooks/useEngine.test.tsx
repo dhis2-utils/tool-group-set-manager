@@ -113,12 +113,13 @@ const { EngineClient: FakeEngineClientClass } = jest.requireMock(
 ) as { EngineClient: FakeEngineClientStatics }
 
 const Probe = () => {
-    const { status, groupSets, sourceKind } = useEngine()
+    const { status, groupSets, groupSetsLoaded, sourceKind } = useEngine()
     return (
         <div>
             <span>{status?.phase ?? 'none'}</span>
             <span>{groupSets.length}</span>
             <span>{sourceKind ?? 'unknown'}</span>
+            <span>{groupSetsLoaded ? 'loaded' : 'not-loaded'}</span>
         </div>
     )
 }
@@ -195,7 +196,37 @@ it('loads on mount and exposes status, group sets and source kind', async () => 
     await waitFor(() => expect(screen.getByText('done')).toBeInTheDocument())
     expect(screen.getByText('1')).toBeInTheDocument()
     expect(screen.getByText('metadata')).toBeInTheDocument()
+    expect(screen.getByText('loaded')).toBeInTheDocument()
     expect(mockLoadAll).toHaveBeenCalledTimes(1)
+})
+
+// D4 (History task): groupSetsLoaded must be set together with the array
+// itself, not derived from status.phase -- loadAll emits 'done' one render
+// before setGroupSets runs, and it must stay true even when the array it
+// was set alongside is empty.
+it('groupSetsLoaded stays false until the first load actually sets groupSets, then true even for an empty array', async () => {
+    let resolveLoad: (() => void) | undefined
+    mockLoadAll.mockImplementationOnce(async ({ onStatus }) => {
+        await new Promise<void>((resolve) => {
+            resolveLoad = resolve
+        })
+        onStatus(doneStatus)
+        return { groupSets: [] }
+    })
+    const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
+
+    await waitFor(() => expect(mockLoadAll).toHaveBeenCalledTimes(1))
+    expect(result.current.groupSetsLoaded).toBe(false)
+
+    await act(async () => {
+        resolveLoad?.()
+        for (let i = 0; i < 5; i++) {
+            await Promise.resolve()
+        }
+    })
+
+    expect(result.current.groupSetsLoaded).toBe(true)
+    expect(result.current.groupSets).toEqual([])
 })
 
 it('D4: reflects a sourceKind loadAll fell back to, not just the one selectSource initially picked', async () => {

@@ -43,6 +43,10 @@ const ownershipSet: GroupSetMeta = {
 }
 
 let mockGroupSets: GroupSetMeta[] = [ownershipSet]
+// True in every test but the two that specifically exercise the
+// still-loading tri-state: most of this file's tests set up `mockGroupSets`
+// as if the engine has already finished its first load.
+let mockGroupSetsLoaded = true
 const mockClientCall = jest.fn()
 // Stable reference across renders -- like the real EngineProvider's
 // memoised context value, and unlike a fresh object literal, which would
@@ -53,6 +57,7 @@ jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => ({
         client: mockClient,
         groupSets: mockGroupSets,
+        groupSetsLoaded: mockGroupSetsLoaded,
     }),
 }))
 
@@ -123,6 +128,7 @@ beforeEach(() => {
     jest.clearAllMocks()
     mockIsWriting = false
     mockGroupSets = [ownershipSet]
+    mockGroupSetsLoaded = true
     mockChangeSets.changeSets = []
     mockChangeSets.isLoading = false
     mockChangeSets.isLoadingMore = false
@@ -162,10 +168,51 @@ describe('History', () => {
 
     it('a change set whose group set no longer exists is listed but its revert is disabled', () => {
         mockGroupSets = [] // the group set has been deleted since
+        mockGroupSetsLoaded = true // ...and group sets have finished loading
         mockChangeSets.changeSets = [changeSet({ groupSetId: 'gone' })]
         render(<History />)
         expect(screen.getByText('Ownership')).toBeInTheDocument()
         expect(screen.getByRole('button', { name: 'Revert' })).toBeDisabled()
+        expect(
+            screen.getByText(
+                'This group set no longer exists, so this change cannot be reverted from here'
+            )
+        ).toBeInTheDocument()
+    })
+
+    // The engine has not finished loading, so nothing is known about which
+    // group sets exist. "No longer exists" is a claim, and it must not be
+    // made on the strength of an array that is empty only because it is
+    // unfilled.
+    it('does not claim a group set is missing while group sets are still loading', async () => {
+        mockGroupSets = []
+        mockGroupSetsLoaded = false
+        mockChangeSets.changeSets = [changeSet({ groupSetId: 'own' })]
+        render(<History />)
+
+        await waitFor(() =>
+            expect(screen.getByText('Ownership')).toBeInTheDocument()
+        )
+        expect(
+            screen.queryByText(
+                'This group set no longer exists, so this change cannot be reverted from here'
+            )
+        ).not.toBeInTheDocument()
+        // Still waits rather than offering a working Revert.
+        expect(screen.getByRole('button', { name: 'Revert' })).toBeDisabled()
+    })
+
+    it('claims it once group sets have loaded and it is genuinely absent', async () => {
+        mockGroupSets = []
+        mockGroupSetsLoaded = true
+        mockChangeSets.changeSets = [changeSet({ groupSetId: 'own' })]
+        render(<History />)
+
+        expect(
+            await screen.findByText(
+                'This group set no longer exists, so this change cannot be reverted from here'
+            )
+        ).toBeInTheDocument()
     })
 
     it('C1: applies exactly the plan it previewed, never a plan recomputed at apply time', async () => {
