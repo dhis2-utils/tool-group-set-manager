@@ -37,12 +37,9 @@ export enum Status {
 }
 
 export interface EngineConfig {
-    /** group set id -> org unit levels at which membership is required */
-    requiredLevels: Record<string, number[]>
     includeTracker: boolean
 }
 
 export const DEFAULT_CONFIG: EngineConfig = {
-    requiredLevels: {},
     includeTracker: false,
 }

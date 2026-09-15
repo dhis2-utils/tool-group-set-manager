@@ -226,12 +226,12 @@ export class EngineStore {
     }
 
     /**
-     * Re-evaluates immediately. Plan 2 introduces two callers that change
-     * config and could easily forget to follow up with an explicit
-     * evaluate(): the Settings page writing required levels, and the
-     * tracker toggle. A caller that forgets would serve numbers computed
-     * against the old rules with nothing on screen to say so, so the store
-     * does not leave that door open.
+     * Re-evaluates immediately. The tracker toggle is the only caller that
+     * changes config, and it changes which data elements are in the
+     * population, so a caller that forgot to follow up with an explicit
+     * evaluate() would serve numbers computed against the old population
+     * with nothing on screen to say so. The store does not leave that door
+     * open.
      */
     setConfig(config: EngineConfig): void {
         this.config = config
@@ -322,14 +322,7 @@ export class EngineStore {
             t.attrs,
             this.config
         )
-        const level = t.hierarchy ? t.hierarchy.level : null
-        const status = evaluateSet(
-            set,
-            membership,
-            population,
-            level,
-            this.config
-        )
+        const status = evaluateSet(set, membership, population)
         this.sets.set(set.id, { set, membership, status })
     }
 

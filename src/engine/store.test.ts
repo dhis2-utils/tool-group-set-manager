@@ -609,60 +609,6 @@ describe('EngineStore', () => {
         ).toThrow(/Unknown or unevaluated group set/)
     })
 
-    it('re-evaluates when the config changes, without being asked twice', () => {
-        // A non-compulsory, data-dimension set: with no required levels,
-        // every missing object is a warning. Configuring a required level
-        // must be visible immediately, without a caller having to remember
-        // to call evaluate() itself -- that caller is exactly what Plan 2
-        // introduces (the Settings page, the tracker toggle).
-        const nonCompulsory: GroupSetMeta = {
-            id: 'nc',
-            displayName: 'Non-compulsory dimension',
-            objectType: 'organisationUnit',
-            compulsory: false,
-            dataDimension: true,
-            canWrite: true,
-            groups: [{ id: 'pub', displayName: 'Public', canWrite: true }],
-        }
-        const store = new EngineStore()
-        store.loadObjects({
-            objectType: 'organisationUnit',
-            ids: ['root', 'a1'],
-            names: ['Root', 'A1'],
-            level: Uint8Array.from([1, 2]),
-            parentIds: [null, 'root'],
-            domainType: null,
-            categoryIdsOfOption: null,
-        })
-        store.setGroupSets([nonCompulsory])
-        store.loadMemberships({
-            objectType: 'organisationUnit',
-            groups: [{ groupId: 'pub', memberIds: [] }],
-        })
-        store.evaluate()
-
-        const before = store.dashboard({
-            objectType: 'organisationUnit',
-            rootId: null,
-        })
-        expect(before[0].summary).toEqual({
-            population: 2,
-            ok: 0,
-            unassigned: 0,
-            missingError: 0,
-            missingWarning: 2,
-            conflict: 0,
-        })
-
-        store.setConfig({ requiredLevels: { nc: [2] }, includeTracker: false })
-
-        const after = store.dashboard({
-            objectType: 'organisationUnit',
-            rootId: null,
-        })
-        expect(after[0].summary).not.toEqual(before[0].summary)
-    })
-
     it('resolveParents resolves the parent ref of each given object', () => {
         const store = loadedStore()
         const a1 = store.indexOf('organisationUnit', 'a1')
