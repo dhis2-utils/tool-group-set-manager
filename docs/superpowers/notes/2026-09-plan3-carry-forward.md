@@ -59,3 +59,28 @@ pass:
   regression net around Plan 3's two headline features that a future plan
   touching either area should close before relying on the suite to catch a
   regression there.
+
+## Resolved in Plan 4
+
+- **`@types/node`**: `grep -rln "@types/node\|NodeJS\.\|process\.env" src e2e
+  types` matches only `e2e/fixtures/session.ts` and
+  `e2e/playwright.config.ts` (both just `process.env.*`); nothing under
+  `src/` or `types/` references Node types. The root `tsconfig.json`
+  (`include: ["src", "types"]`) does not set `compilerOptions.types` at all,
+  so TypeScript's default behaviour auto-includes every `@types/*` package —
+  including `@types/node` — as ambient globals for the app build; in
+  practice this is inert because no file under `src/` uses a Node global, so
+  `tsc --noEmit` is unaffected by `@types/node`'s version either way. `e2e/`
+  has its own `e2e/tsconfig.json` with an explicit `"types": ["node"]` and
+  `"include": ["."]`, which is what actually scopes Node-type usage to the
+  e2e suite; because this is a single pnpm package (no workspaces), the
+  dependency itself still has to live in the one shared `devDependencies`
+  list, but its only real consumer is `e2e/`. The installed Node is
+  `v22.23.2`, and `pnpm why @types/node` resolves every one of the ~500
+  entries in the dependency tree to the identical `22.20.2` — nothing
+  requires 25.x. The version constraint is therefore left at
+  `"@types/node": "^22.20.2"`, unchanged: it already matches the installed
+  Node's major version, nothing in the tree pulls in 25.x that would need a
+  wider range, and widening to `^22 || ^25` would add flexibility for a
+  version nothing currently needs at the cost of an untested resolution
+  path. No dependency or lockfile change was made.
