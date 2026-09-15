@@ -68,13 +68,19 @@ export async function appRoot(page: Page): Promise<AppRoot> {
 
 /**
  * A locator that only the authenticated app renders (never the login
- * screen, and never a blank shell) -- the dashboard's scope selector,
- * which reads "Scope: <org unit>". Used to gate the fixture itself: if the
- * session cookie did not take, this never appears and the fixture fails
- * loudly instead of handing every later test a page that looks like the
- * app but is actually a login form.
+ * screen, and never a blank shell) -- the dashboard's filter bar, which
+ * always renders an "Organisation unit" field label (`OrgUnitField.tsx`).
+ * Used to gate the fixture itself: if the session cookie did not take,
+ * this never appears and the fixture fails loudly instead of handing every
+ * later test a page that looks like the app but is actually a login form.
+ *
+ * Was "Scope:" (`ScopeSelector`'s old label) until this plan renamed the
+ * control to "Organisation unit" and moved it into `FilterBar` -- the old
+ * text is gone from the app entirely (`grep -rn "Scope (" src` finds
+ * nothing), so the gate is updated to match rather than left pointing at
+ * text the app no longer renders.
  */
-export const SCOPE_LABEL = 'Scope:'
+export const SCOPE_LABEL = 'Organisation unit'
 
 export interface AuthedApp {
     page: Page
@@ -125,8 +131,15 @@ export const test = base.extend<{ authedApp: AuthedApp }>({
         // basic-auth failure that silently degraded to an anonymous
         // session would otherwise leave every later assertion looking at a
         // login screen while still reporting green.
+        //
+        // `exact: true`: a substring match against "Organisation unit"
+        // also resolves the OrgUnitField's own button ("Choose an
+        // organisation unit"), which Playwright's `getByText` matches
+        // case-insensitively -- confirmed live, `exact: false` here is
+        // ambiguous (strict-mode violation) the instant the field has no
+        // organisation unit chosen yet.
         const scopeLabel: Locator = (await root()).getByText(SCOPE_LABEL, {
-            exact: false,
+            exact: true,
         })
         await expect(scopeLabel).toBeVisible({ timeout: 30_000 })
 

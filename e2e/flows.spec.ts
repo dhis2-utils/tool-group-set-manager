@@ -1,5 +1,11 @@
 import type { Page } from '@playwright/test'
-import { appRoot, APP_PATH, expect, test } from './fixtures/session'
+import {
+    appRoot,
+    APP_PATH,
+    expect,
+    SCOPE_LABEL,
+    test,
+} from './fixtures/session'
 import type { AppRoot } from './fixtures/session'
 
 /**
@@ -46,6 +52,24 @@ const SINGLE_FACILITY = 'Sembehun CHC'
 // pinning this number is what ties the flow to Area specifically).
 const BULK_CHIEFDOM = 'Badjia'
 const BULK_POPULATION_COUNT = 3
+
+/**
+ * Task 8: a term whose one match sits well past `ObjectsTable`'s own page
+ * size (`PAGE = 200` in ObjectsTable.tsx) in the unfiltered Area
+ * population's load order -- confirmed live on both instances (see the
+ * report) at load position 1315 of 1332, reached only once the table has
+ * paged in seven more 200-row pages than the first. A component-level
+ * filter over just the rows paged in so far would never find this object;
+ * only a predicate over the engine's own whole population (spec 5.2) can --
+ * which is the entire point of this flow, so this term is deliberately not
+ * relaxed to something closer to the front of the list.
+ */
+const SEARCH_BEYOND_FIRST_PAGE_TERM = 'Mitchener'
+const SEARCH_BEYOND_FIRST_PAGE_OBJECT =
+    'UMC Mitchener Memorial Maternity & Health Centre'
+
+/** Matches no organisation unit, group or group name on either instance. */
+const SEARCH_NO_MATCH_TERM = 'zzz-no-such-object-in-this-instance-zzz'
 
 async function goto(page: Page, hash: string): Promise<AppRoot> {
     await page.goto(`${APP_PATH}#${hash}`)
@@ -121,9 +145,49 @@ async function chooseOption(
         .click()
 }
 
-/** Switches the Overview matrix's row level to "Chiefdom (level 3)". */
+/**
+ * A `SingleSelectField` hosted in the shared `FilterBar` (Task 8's plan --
+ * "Show the same filter bar on the group set page"). `FilterBarField`
+ * (FilterBar.tsx) renders the label as a `<span>` *sibling* of the widget,
+ * never passing it as the widget's own `label` prop -- confirmed live: the
+ * "Rows" field's DOM is
+ * `<div class="field"><span>Rows</span><div data-test="dhis2-uiwidgets-singleselectfield">…</div></div>`.
+ * `singleSelectField` above only matches a widget that contains its own
+ * label text, which this deliberately does not, so a FilterBar-hosted field
+ * needs its own locator: find the exact label text, then the widget that is
+ * its next sibling under their shared `.field` wrapper.
+ */
+function filterBarField(root: AppRoot, labelText: string) {
+    return root
+        .getByText(labelText, { exact: true })
+        .locator('xpath=..')
+        .locator('[data-test="dhis2-uiwidgets-singleselectfield"]')
+}
+
+async function chooseFilterBarOption(
+    root: AppRoot,
+    fieldLabel: string,
+    optionLabel: string
+): Promise<void> {
+    await filterBarField(root, fieldLabel)
+        .locator('[data-test="dhis2-uicore-select-input"]')
+        .click()
+    await root
+        .locator(
+            `[data-test="dhis2-uicore-singleselectoption"][data-label="${optionLabel}"]`
+        )
+        .click()
+}
+
+/**
+ * Switches the Overview matrix's row level to "Chiefdom (level 3)". "Rows"
+ * moved into the group set page's own `FilterBar` in this plan (it used to
+ * live inside `OverviewTab` itself, where `SingleSelectField` was given the
+ * label directly) -- see `chooseFilterBarOption`'s doc comment for why that
+ * move broke the generic `chooseOption` helper for this one field.
+ */
 async function showChiefdomRows(root: AppRoot): Promise<void> {
-    await chooseOption(root, 'Rows', 'Chiefdom (level 3)')
+    await chooseFilterBarOption(root, 'Rows', 'Chiefdom (level 3)')
 }
 
 /** Objects tab's own "Search" filter -- an engine-side predicate (spec
@@ -268,7 +332,12 @@ test.describe('Group Set Integrity Tool', () => {
         authedApp,
     }) => {
         const root = await authedApp.root()
-        await expect(root.getByText('Scope:', { exact: false })).toBeVisible()
+        // The Organisation unit field (formerly "Scope:") -- see
+        // fixtures/session.ts's SCOPE_LABEL doc comment for why `exact`
+        // matters here.
+        await expect(
+            root.getByText(SCOPE_LABEL, { exact: true })
+        ).toBeVisible()
         const areaCard = root
             .locator('[role="button"]')
             .filter({ has: root.getByText(AREA_SET_NAME, { exact: true }) })
@@ -534,5 +603,137 @@ test.describe('Group Set Integrity Tool', () => {
         await expect(
             root.getByRole('button', { name: SOUTHERN_AREA })
         ).toHaveAttribute('data-state', 'none', { timeout: 20_000 })
+    })
+
+    /**
+     * Task 8: search as a feature in its own right, not merely a way to
+     * locate a row inside another flow (every other use of `searchObjects`
+     * above locates a row it already knows exists on-screen, which a
+     * component-level filter over loaded rows would also pass). This test
+     * asserts the three things those incidental uses never do -- see the
+     * three steps below, and `SEARCH_BEYOND_FIRST_PAGE_TERM`'s own comment
+     * for why the first is the one that actually distinguishes an
+     * engine-level predicate from a component-level one.
+     *
+     * Read-only throughout: nothing here writes a membership change, so
+     * there is nothing for this test to revert through History.
+     */
+    test('search: reaches an object beyond the first loaded page, clears back to the full count, and empties rather than staling on no match', async ({
+        authedApp,
+    }) => {
+        const { page } = authedApp
+        const root = await openGroupSet(page, AREA_SET_NAME)
+        await openObjectsTab(root)
+
+        // The unfiltered count, captured before any search narrows it --
+        // this is what "clearing restores the unfiltered count" is
+        // actually checked against, rather than a hardcoded population
+        // number that would also have to be kept in sync with the seed.
+        const countText = root.getByText(/^[\d,]+ objects?$/)
+        await expect(countText).toBeVisible({ timeout: 20_000 })
+        const unfilteredCount = await countText.textContent()
+
+        // 1) A term matching an object beyond ObjectsTable's own first
+        // loaded page (PAGE = 200) still finds it -- the property a
+        // component-level filter over only the rows paged in so far could
+        // never satisfy, since this object is never among them until far
+        // more scrolling than this test does. `searchObjects` itself
+        // already waits out the 300ms debounce (see its own doc comment);
+        // the row text assertion below additionally confirms the one
+        // result really is the object this term names, not merely that
+        // the count happens to read 1.
+        await searchObjects(root, SEARCH_BEYOND_FIRST_PAGE_TERM)
+        await expect(
+            root.getByText(SEARCH_BEYOND_FIRST_PAGE_OBJECT, { exact: true })
+        ).toBeVisible()
+
+        // 2) Clearing the term restores the unfiltered count -- the exact
+        // text captured above, not just "some larger number".
+        await inputField(root, 'Search').fill('')
+        await expect(countText).toHaveText(unfilteredCount ?? '', {
+            timeout: 5_000,
+        })
+
+        // 3) A term matching nothing shows the empty state -- zero rows and
+        // "0 objects" -- rather than a stale list left over from the
+        // previous, matching query.
+        await inputField(root, 'Search').fill(SEARCH_NO_MATCH_TERM)
+        await expect(root.getByText('0 objects', { exact: true })).toBeVisible(
+            { timeout: 5_000 }
+        )
+        await expect(
+            root.locator('[data-test="objects-table-scroll"] [class*="row"]')
+        ).toHaveCount(0)
+    })
+
+    /**
+     * Task 8: the header's "Run DHIS2 integrity checks" button (Task 7),
+     * gated on the same maintenance authority the tab itself is gated on
+     * (useIntegrity.tsx's REQUIRED_AUTHORITIES). `local_admin` carries `ALL`
+     * on both broker instances, so this is expected to run rather than
+     * skip in practice -- the skip exists for a session run under a
+     * different, unprivileged user, per the brief.
+     *
+     * Never asserts on a check's name or code: `data/integrity.ts`
+     * resolves checks by name at runtime precisely because neither is
+     * stable across 2.40 to 2.43 (the same code, `OUVEGS`, names a
+     * different check on the two versions). The result assertion below
+     * matches `IntegrityLine`'s own wording for whichever check the app
+     * itself resolved, confirmed live to read, e.g., "DHIS2 check Orgunits
+     * that are not in all compulsory orgunit group sets found 272 objects
+     * across all group sets on this instance as of ..." on 2.43.1 and the
+     * same check under 2.40.12's own different display name.
+     *
+     * Read-only: the overlay only ever reads DHIS2's own integrity
+     * results and asks it to recompute them (spec: "the app never writes
+     * anything as a result of it"), so there is nothing here to revert
+     * through History.
+     */
+    test('DHIS2 integrity: the header button opens the tab and a resolved check renders a result', async ({
+        authedApp,
+    }) => {
+        const { page } = authedApp
+        const root = await openGroupSet(page, AREA_SET_NAME)
+
+        const headerButton = root.getByRole('button', {
+            name: 'Run DHIS2 integrity checks',
+        })
+        // GroupSetDetail only renders this button once `useIntegrity`'s
+        // authority probe (and its own check-resolution call) has come
+        // back positive -- gate on it rather than asserting the button
+        // outright, and skip with a reason instead of failing when this
+        // session's user does not have the feature.
+        const available = await headerButton
+            .isVisible({ timeout: 15_000 })
+            .catch(() => false)
+        test.skip(
+            !available,
+            "DHIS2 integrity checks are not available for this session's user (no ALL/F_PERFORM_MAINTENANCE authority, or the server refused)"
+        )
+
+        await headerButton.click()
+        await expect(
+            root.getByRole('tab', { name: 'DHIS2 integrity' })
+        ).toHaveAttribute('aria-selected', 'true')
+
+        // At least one check the app itself resolved is titled here --
+        // never a hardcoded name (IntegrityTab.tsx renders one heading per
+        // relevant, resolved check).
+        await expect(
+            root.getByRole('heading', { level: 3 }).first()
+        ).toBeVisible({ timeout: 20_000 })
+
+        await root.getByRole('button', { name: 'Run now' }).click()
+
+        // A rendered result for whichever check the app resolved --
+        // IntegrityLine's own wording (resultLabel in IntegrityLine.tsx),
+        // matched by pattern rather than by naming the check.
+        await expect(
+            root
+                .getByText(
+                    /found .* (object|objects) across all group sets on this instance as of/
+                )
+                .first()
+        ).toBeVisible({ timeout: 35_000 })
     })
 })
