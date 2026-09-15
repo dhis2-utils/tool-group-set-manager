@@ -6,10 +6,14 @@ import styles from './GroupSetDetail.module.css'
 import { usageApplies } from '@/data/sources/usageSqlView'
 import { GroupSetMeta } from '@/engine/types'
 import { useUsage } from '@/hooks/useUsage'
+import { favouritesLabel } from '@/utils/favouritesLabel'
 import { favouriteTypeLabel } from '@/utils/favouriteTypeLabels'
 import { interpolate } from '@/utils/interpolate'
 
-const favouritesLabel = (count: number) =>
+// Distinct from the shared favouritesLabel (imported above, "N favourites")
+// used per favourite type below: this is the tab's own headline sentence,
+// naming the group set explicitly, so it stays a local helper.
+const headlineFavouritesLabel = (count: number) =>
     count === 1
         ? i18n.t('1 favourite references this group set')
         : interpolate(i18n.t('{count} favourites reference this group set'), {
@@ -20,13 +24,6 @@ const viewsLabel = (count: number) =>
     count === 1
         ? i18n.t('1 view in the last 12 months')
         : interpolate(i18n.t('{count} views in the last 12 months'), {
-              count: count.toLocaleString(),
-          })
-
-const typeFavouritesLabel = (count: number) =>
-    count === 1
-        ? i18n.t('1 favourite')
-        : interpolate(i18n.t('{count} favourites'), {
               count: count.toLocaleString(),
           })
 
@@ -85,7 +82,7 @@ export const UsageTab = ({ set }: { set: GroupSetMeta }) => {
             <p className={styles.usageHeadline}>
                 {setUsage.favourites === 0
                     ? i18n.t('No saved favourite references this group set')
-                    : favouritesLabel(setUsage.favourites)}
+                    : headlineFavouritesLabel(setUsage.favourites)}
             </p>
             <p>{viewsLabel(setUsage.views12m)}</p>
             {setUsage.byFavouriteType.length > 0 && (
@@ -93,7 +90,7 @@ export const UsageTab = ({ set }: { set: GroupSetMeta }) => {
                     {setUsage.byFavouriteType.map((row) => (
                         <li key={row.favouriteType}>
                             <span>{favouriteTypeLabel(row.favouriteType)}</span>
-                            <span>{typeFavouritesLabel(row.favourites)}</span>
+                            <span>{favouritesLabel(row.favourites)}</span>
                         </li>
                     ))}
                 </ul>

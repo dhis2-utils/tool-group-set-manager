@@ -9,6 +9,7 @@ import { DashboardEntry } from '@/engine/store'
 import { ObjectType } from '@/engine/types'
 import { useIntegrity } from '@/hooks/useIntegrity'
 import { useUsage } from '@/hooks/useUsage'
+import { favouritesLabel } from '@/utils/favouritesLabel'
 import { groupsLabel } from '@/utils/groupsLabel'
 import { interpolate } from '@/utils/interpolate'
 
@@ -22,13 +23,6 @@ const readOnlyLabel = (count: number) =>
     count === 1
         ? i18n.t('1 group read-only for you')
         : interpolate(i18n.t('{count} groups read-only for you'), {
-              count: count.toLocaleString(),
-          })
-
-const cardFavouritesLabel = (count: number) =>
-    count === 1
-        ? i18n.t('1 favourite')
-        : interpolate(i18n.t('{count} favourites'), {
               count: count.toLocaleString(),
           })
 
@@ -185,7 +179,7 @@ export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
                 </div>
                 {setUsage && (
                     <div className={styles.usage}>
-                        <span>{cardFavouritesLabel(setUsage.favourites)}</span>
+                        <span>{favouritesLabel(setUsage.favourites)}</span>
                         {setUsage.favourites === 0 && (
                             <button
                                 type="button"
