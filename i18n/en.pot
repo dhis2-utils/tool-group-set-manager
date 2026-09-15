@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-15T21:16:35.722Z\n"
-"PO-Revision-Date: 2026-09-15T21:16:35.722Z\n"
+"POT-Creation-Date: 2026-09-15T21:34:23.784Z\n"
+"PO-Revision-Date: 2026-09-15T21:34:23.784Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -726,6 +726,61 @@ msgstr "Clear area filter"
 msgid "Bulk fix…"
 msgstr "Bulk fix…"
 
+msgid "1 favourite references this group set"
+msgstr "1 favourite references this group set"
+
+msgid "{count} favourites reference this group set"
+msgstr "{count} favourites reference this group set"
+
+msgid "1 view in the last 12 months"
+msgstr "1 view in the last 12 months"
+
+msgid "{count} views in the last 12 months"
+msgstr "{count} views in the last 12 months"
+
+msgid "1 favourite"
+msgstr "1 favourite"
+
+msgid "{count} favourites"
+msgstr "{count} favourites"
+
+msgid ""
+"Indicator group sets are not analytics dimensions, so there is no usage "
+"data for them."
+msgstr ""
+"Indicator group sets are not analytics dimensions, so there is no usage "
+"data for them."
+
+msgid ""
+"Usage counts come from an optional SQL view that an administrator installs "
+"once."
+msgstr ""
+"Usage counts come from an optional SQL view that an administrator installs "
+"once."
+
+msgid "Go to Settings to install it"
+msgstr "Go to Settings to install it"
+
+msgid "Usage data could not be read"
+msgstr "Usage data could not be read"
+
+msgid "No saved favourite references this group set"
+msgstr "No saved favourite references this group set"
+
+msgid "These counts are indicative"
+msgstr "These counts are indicative"
+
+msgid ""
+"They cover saved favourites and their recorded views. An ad-hoc analytics "
+"request, an external client or an API consumer leaves no favourite behind, "
+"so a count of zero means nothing on this instance references the group set "
+"— not that nothing uses it."
+msgstr ""
+"They cover saved favourites and their recorded views. An ad-hoc analytics "
+"request, an external client or an API consumer leaves no favourite behind, "
+"so a count of zero means nothing on this instance references the group set "
+"— not that nothing uses it."
+
 msgid "Moved to a group"
 msgstr "Moved to a group"
 
@@ -956,6 +1011,15 @@ msgstr "Clear cache"
 
 msgid "Settings"
 msgstr "Settings"
+
+msgid "Charts and pivot tables"
+msgstr "Charts and pivot tables"
+
+msgid "Maps"
+msgstr "Maps"
+
+msgid "Event reports and line lists"
+msgstr "Event reports and line lists"
 
 msgid "1 group"
 msgstr "1 group"

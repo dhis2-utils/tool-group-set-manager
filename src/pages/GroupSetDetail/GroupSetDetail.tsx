@@ -8,11 +8,12 @@ import {
     Tag,
 } from '@dhis2/ui'
 import React, { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import styles from './GroupSetDetail.module.css'
 import { IntegrityTab } from './IntegrityTab'
 import { ObjectsTab } from './ObjectsTab'
 import { OverviewTab } from './OverviewTab'
+import { UsageTab } from './UsageTab'
 import { BulkFixDialog } from '@/components/BulkFixDialog/BulkFixDialog'
 import { FilterBar, FilterBarField } from '@/components/FilterBar/FilterBar'
 import { OrgUnitField } from '@/components/FilterBar/OrgUnitField'
@@ -35,7 +36,7 @@ interface LevelsResponse {
     organisationUnitLevels: { level: number; displayName: string }[]
 }
 
-type DetailTab = 'overview' | 'objects' | 'integrity'
+type DetailTab = 'overview' | 'objects' | 'usage' | 'integrity'
 
 /** Used only while nothing at all is known about the scope's level yet. */
 const DEFAULT_LEVEL = 1
@@ -54,12 +55,16 @@ const VIOLATION_STATUSES = [
 
 export const GroupSetDetail = () => {
     const { setId = '' } = useParams()
+    const location = useLocation()
     const { groupSets, reload, status } = useEngine()
     const { rootId, rootLevel, setRoot } = useScope()
     const integrity = useIntegrity()
     const { roots } = useUserScope()
     const set = groupSets.find((s) => s.id === setId)
-    const [tab, setTab] = useState<DetailTab>('overview')
+    // Lets a card link straight into this tab, e.g.
+    // navigate('/sets/<id>', { state: { tab: 'usage' } }) -- see Task 5/6.
+    const initialTab = (location.state as { tab?: DetailTab } | null)?.tab
+    const [tab, setTab] = useState<DetailTab>(initialTab ?? 'overview')
     // m6 (Task 4 review round 1): the Tab button is hidden the moment
     // `integrity.available` goes false (a 403 mid-session, most often), but
     // without this the `tab` state itself stayed `'integrity'` -- the body
@@ -351,6 +356,9 @@ export const GroupSetDetail = () => {
                 >
                     {i18n.t('Objects')}
                 </Tab>
+                <Tab selected={tab === 'usage'} onClick={() => setTab('usage')}>
+                    {i18n.t('Usage')}
+                </Tab>
                 {integrity.available && (
                     <Tab
                         selected={tab === 'integrity'}
@@ -371,6 +379,11 @@ export const GroupSetDetail = () => {
                 />
             ) : tab === 'integrity' && integrity.available ? (
                 <IntegrityTab set={set} scope={scope} />
+            ) : tab === 'usage' ? (
+                // Shown for every set, including indicator group sets -- the
+                // tab's own body is what explains there is nothing to show
+                // there (spec 3.5), so no extra gate is needed here.
+                <UsageTab set={set} />
             ) : (
                 <ObjectsTab
                     set={set}

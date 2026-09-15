@@ -109,6 +109,27 @@ jest.mock('./IntegrityTab', () => ({
     IntegrityTab: () => <div>mock-integrity-tab</div>,
 }))
 
+// Same treatment this file already gives IntegrityTab: this test is about
+// which tab GroupSetDetail opens on, and UsageTab.test.tsx pins the tab's
+// own content.
+jest.mock('./UsageTab', () => ({
+    UsageTab: () => <div>mock-usage-tab</div>,
+}))
+
+// R6: GroupSetDetail depends on @/hooks/useUsage (through UsageTab in the
+// real tree, and potentially directly), so it is mocked at module level
+// here the same way useIntegrity is above -- mocking only
+// @/utils/useApiDataQuery would leave this file's tests coupled to
+// useUsage's internal implementation instead of its actual dependency.
+jest.mock('@/hooks/useUsage', () => ({
+    useUsage: () => ({
+        status: 'ready',
+        error: null,
+        forSet: () => ({ favourites: 0, views12m: 0, byFavouriteType: [] }),
+        refresh: jest.fn(),
+    }),
+}))
+
 const mockScope: {
     rootId: string
     rootName: string
@@ -215,10 +236,21 @@ afterEach(() => {
     mockEngine.status = null
 })
 
-const renderDetail = (overrides: Partial<(typeof mockGroupSets)[0]> = {}) => {
+// Second parameter is router options, not group set overrides -- kept
+// separate so a test that only wants a different starting route (Task 5's
+// router-seeded initial tab) doesn't collide with the group-set overrides
+// every other call site already passes as the first argument.
+const renderDetail = (
+    overrides: Partial<(typeof mockGroupSets)[0]> = {},
+    routerOptions: {
+        initialEntries?: (string | { pathname: string; state?: unknown })[]
+    } = {}
+) => {
     Object.assign(mockGroupSets[0], overrides)
     return render(
-        <MemoryRouter initialEntries={['/sets/own']}>
+        <MemoryRouter
+            initialEntries={routerOptions.initialEntries ?? ['/sets/own']}
+        >
             <Routes>
                 <Route path="/sets/:setId" element={<GroupSetDetail />} />
             </Routes>
@@ -691,5 +723,28 @@ describe('drilling into a matrix row (Task 6)', () => {
         expect(
             screen.queryByRole('button', { name: 'All objects' })
         ).not.toBeInTheDocument()
+    })
+})
+
+describe('usage tab (Task 5)', () => {
+    // The route uses this file's own fixture id ('own'), not the brief's
+    // '/sets/a' -- GroupSetDetail must resolve a real set before it has a
+    // tab bar to seed a tab on at all.
+    it('opens on the Usage tab when the router state asks for it', async () => {
+        renderDetail(
+            {},
+            {
+                initialEntries: [
+                    { pathname: '/sets/own', state: { tab: 'usage' } },
+                ],
+            }
+        )
+        expect(await screen.findByText('mock-usage-tab')).toBeInTheDocument()
+    })
+
+    it('still opens on Overview when there is no router state', async () => {
+        renderDetail()
+        await screen.findByText('Overview')
+        expect(screen.queryByText('mock-usage-tab')).not.toBeInTheDocument()
     })
 })
