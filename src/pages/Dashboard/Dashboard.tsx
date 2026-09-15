@@ -140,71 +140,74 @@ export const Dashboard = () => {
         <div className={styles.page}>
             <FilterBar>
                 <OrgUnitField />
-                <SingleSelectField
-                    dense
-                    label={i18n.t('Object type')}
-                    selected={typeFilter}
-                    onChange={({ selected }) =>
-                        setTypeFilter(selected as ObjectType | 'all')
-                    }
-                >
-                    <SingleSelectOption
-                        value="all"
-                        label={i18n.t('All object types')}
-                    />
-                    {OBJECT_TYPES.map((type) => (
+                <FilterBarField label={i18n.t('Object type')}>
+                    <SingleSelectField
+                        dense
+                        selected={typeFilter}
+                        onChange={({ selected }) =>
+                            setTypeFilter(selected as ObjectType | 'all')
+                        }
+                    >
                         <SingleSelectOption
-                            key={type}
-                            value={type}
-                            label={typeLabel(type)}
+                            value="all"
+                            label={i18n.t('All object types')}
                         />
-                    ))}
-                </SingleSelectField>
-                <SingleSelectField
-                    dense
-                    label={i18n.t('Show')}
-                    selected={onlyIssues ? 'onlyIssues' : 'all'}
-                    onChange={({ selected }) =>
-                        setOnlyIssues(selected === 'onlyIssues')
-                    }
-                >
-                    <SingleSelectOption
-                        value="onlyIssues"
-                        label={i18n.t('Only sets with issues')}
-                    />
-                    <SingleSelectOption value="all" label={i18n.t('All sets')} />
-                </SingleSelectField>
-                {/* Usage data does not exist until Plan 6 -- the option is
-                    shown, not hidden, so the sort a user will eventually
-                    want is visible now, but disabled with a title
-                    explaining why rather than silently doing nothing. */}
-                <SingleSelectField
-                    dense
-                    label={i18n.t('Sort by')}
-                    selected="issues"
-                >
-                    <SingleSelectOption
-                        value="issues"
-                        label={i18n.t('Issues')}
-                    />
-                    <span
-                        title={i18n.t(
+                        {OBJECT_TYPES.map((type) => (
+                            <SingleSelectOption
+                                key={type}
+                                value={type}
+                                label={typeLabel(type)}
+                            />
+                        ))}
+                    </SingleSelectField>
+                </FilterBarField>
+                <FilterBarField label={i18n.t('Show')}>
+                    <SingleSelectField
+                        dense
+                        selected={onlyIssues ? 'onlyIssues' : 'all'}
+                        onChange={({ selected }) =>
+                            setOnlyIssues(selected === 'onlyIssues')
+                        }
+                    >
+                        <SingleSelectOption
+                            value="onlyIssues"
+                            label={i18n.t('Only sets with issues')}
+                        />
+                        <SingleSelectOption
+                            value="all"
+                            label={i18n.t('All sets')}
+                        />
+                    </SingleSelectField>
+                </FilterBarField>
+                <FilterBarField label={i18n.t('Sort by')}>
+                    {/* Usage data does not exist until Plan 6 -- the option
+                        is shown, not hidden, so the sort a user will
+                        eventually want is visible now, but disabled with a
+                        documented `helpText` explaining why, rather than
+                        silently doing nothing. */}
+                    <SingleSelectField
+                        dense
+                        selected="issues"
+                        helpText={i18n.t(
                             'Usage data is not installed on this instance'
                         )}
                     >
                         <SingleSelectOption
+                            value="issues"
+                            label={i18n.t('Issues')}
+                        />
+                        <SingleSelectOption
                             value="usage"
                             label={i18n.t('Usage')}
                             disabled
-                            onClick={() => undefined}
                         />
-                    </span>
-                </SingleSelectField>
+                    </SingleSelectField>
+                </FilterBarField>
                 {/* The cache is reused across restarts, so a user who has
                     just fixed data elsewhere needs a way to say "look
                     again" without clearing browser storage. */}
                 <FilterBarField label={i18n.t('Data')}>
-                    <Button small onClick={() => void reload(true)}>
+                    <Button onClick={() => void reload(true)}>
                         {i18n.t('Reload data')}
                     </Button>
                 </FilterBarField>

@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-15T15:35:44.130Z\n"
-"PO-Revision-Date: 2026-09-15T15:35:44.130Z\n"
+"POT-Creation-Date: 2026-09-15T15:50:36.400Z\n"
+"PO-Revision-Date: 2026-09-15T15:50:36.400Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -523,11 +523,11 @@ msgstr "All sets"
 msgid "Sort by"
 msgstr "Sort by"
 
-msgid "Issues"
-msgstr "Issues"
-
 msgid "Usage data is not installed on this instance"
 msgstr "Usage data is not installed on this instance"
+
+msgid "Issues"
+msgstr "Issues"
 
 msgid "Usage"
 msgstr "Usage"

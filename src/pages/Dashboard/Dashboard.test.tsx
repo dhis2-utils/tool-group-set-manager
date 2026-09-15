@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { MemoryRouter } from 'react-router-dom'
@@ -464,4 +464,75 @@ it('renders its filter fields in the fixed order', () => {
         'Sort by',
         'Data',
     ])
+})
+
+// Fix round 1, Important 1: every field's label goes through FilterBarField
+// now, and none of the three SingleSelectFields is passed its own `label`
+// prop any more -- so each label string must appear exactly once, not
+// twice (once from FilterBarField's span, once from @dhis2-ui/field's own
+// Label, which is what reintroduced a second, differently-sized label
+// typography into the row last round).
+it('gives every field one label, not a second one from its own library control', () => {
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    ;['Organisation unit', 'Object type', 'Show', 'Sort by', 'Data'].forEach(
+        (label) => {
+            expect(screen.getAllByText(label)).toHaveLength(1)
+        }
+    )
+})
+
+// Fix round 1, Important 1: jsdom cannot measure the resulting pixel
+// height, but it can pin the size-prop convention the CSS comment in
+// FilterBar.module.css depends on -- every Button in the bar carries no
+// size prop (so FilterBar.module.css's `.field > button { height: 32px }`
+// is the only thing setting its height) and every SingleSelectField
+// carries `dense`. A `small` or `large` Button, or a non-dense select,
+// would silently reopen the two-height row this fix closes.
+it('keeps one height convention across the bar: no button size prop, every select dense', () => {
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    const bar = screen.getByTestId('filter-bar')
+    within(bar)
+        .getAllByRole('button')
+        .forEach((button) => {
+            expect(button).not.toHaveClass('small')
+            expect(button).not.toHaveClass('large')
+        })
+    expect(bar.querySelectorAll('.dense')).toHaveLength(3)
+})
+
+// Fix round 1, Important 2: helpText (a documented @dhis2-ui/field prop)
+// replaces the earlier <span title> wrapper around the disabled option,
+// which depended on undocumented Menu internals. helpText is always
+// visible, unlike a hover-only title, and doesn't need the option itself
+// wrapped in anything.
+it('disables the not-yet-available usage sort, with help text explaining why', async () => {
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+    expect(
+        screen.getByText('Usage data is not installed on this instance')
+    ).toBeInTheDocument()
+
+    // The option list isn't mounted until the field is opened (matching
+    // this file's existing "filters the sections by object type" test,
+    // which opens Object type's select before querying its options the
+    // same way).
+    await userEvent.click(screen.getByText('Issues'))
+    const usageOption = document.querySelector(
+        '[data-value="usage"]'
+    ) as HTMLElement
+    expect(usageOption).toHaveClass('disabled')
 })

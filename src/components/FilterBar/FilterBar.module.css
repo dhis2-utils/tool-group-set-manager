@@ -19,8 +19,27 @@
     gap: var(--spacers-dp4);
     min-width: 0;
 }
+/* Every field's label goes through this span -- every library control in
+   the bar is passed without its own `label` prop (see Dashboard.tsx),
+   specifically so there is one label typography here instead of this
+   12px/grey700/500 span next to @dhis2-ui/label's 14px/grey900/normal
+   `Label`, which is what a `SingleSelectField`'s own `label` prop renders. */
 .label {
     font-size: var(--gsi-font-size-sm, 12px);
     color: var(--colors-grey700);
     font-weight: 500;
+}
+/* Height convention for this row: 32px, the height a `dense`
+   SingleSelectField measures at (@dhis2-ui/select's input-wrapper.js:
+   `.root.dense { min-height: 32px }`), because three of this bar's five
+   fields are `dense` SingleSelectField`s and none of that library's own
+   size props can be told to match. A `Button` with no size prop is 36px
+   and its `small` variant is 28px (@dhis2-ui/button's button.styles.js) --
+   neither matches 32px, and no prop combination lands all five fields on
+   one number by itself, so the two Button-backed fields (Organisation
+   unit, Data) are pinned to the select fields' 32px here instead. Scoped to
+   a direct child, not every descendant button, so a Button nested deeper
+   -- OrgUnitField's own modal actions, for instance -- is unaffected. */
+.field > button {
+    height: 32px;
 }

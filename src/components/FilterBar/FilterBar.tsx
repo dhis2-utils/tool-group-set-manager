@@ -10,7 +10,7 @@ import styles from './FilterBar.module.css'
  * `align-items: center`, which is the misalignment the review reports.
  */
 export const FilterBar = ({ children }: { children: React.ReactNode }) => (
-    <div className={styles.bar}>
+    <div className={styles.bar} data-test="filter-bar">
         <div className={styles.row}>{children}</div>
     </div>
 )
