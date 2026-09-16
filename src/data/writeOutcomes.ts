@@ -1,24 +1,30 @@
 import i18n from '@dhis2/d2-i18n'
-import { BatchOutcome, UNPARSEABLE_RESPONSE } from './writes'
+import { BatchOutcome, IMPORT_NOT_OK, UNPARSEABLE_RESPONSE } from './writes'
 import { interpolate } from '@/utils/interpolate'
 
 /**
  * Every other value `BatchOutcome.error` takes (`HTTP 403`, a caught
  * exception's `message`) is a locale-neutral token safe to splice into a
- * translated sentence as-is. `UNPARSEABLE_RESPONSE` is the one sentinel
- * value, standing in for a JSON parser's own English message -- writes.ts
- * has no `i18n.t` and could not translate it even if it tried, so this is
- * the one place that recognises the sentinel and produces the translated
- * sentence in its place, rather than ever letting the raw fragment reach
- * `outcomeText`'s `{error}` placeholder untranslated.
+ * translated sentence as-is. `UNPARSEABLE_RESPONSE` and `IMPORT_NOT_OK` are
+ * the two sentinel values -- one standing in for a JSON parser's own
+ * English message, the other for a real but untranslated server report
+ * (typeReports) -- writes.ts has no `i18n.t` and could not translate
+ * either even if it tried, so this is the one place that recognises each
+ * sentinel and produces its own translated sentence in its place, rather
+ * than ever letting the raw fragment reach `outcomeText`'s `{error}`
+ * placeholder untranslated.
  */
 function splitErrors(errors: string[]): {
     tokens: string[]
     anyUnreadable: boolean
+    anyImportRejected: boolean
 } {
     return {
-        tokens: errors.filter((e) => e !== UNPARSEABLE_RESPONSE),
+        tokens: errors.filter(
+            (e) => e !== UNPARSEABLE_RESPONSE && e !== IMPORT_NOT_OK
+        ),
         anyUnreadable: errors.some((e) => e === UNPARSEABLE_RESPONSE),
+        anyImportRejected: errors.some((e) => e === IMPORT_NOT_OK),
     }
 }
 
@@ -131,7 +137,7 @@ export function outcomeText(
         // message is a locale-neutral token and stays a {placeholder}; the
         // sentinel is not, so it gets its own sentence. A group whose
         // batches failed both ways gets both sentences.
-        const { tokens, anyUnreadable } = splitErrors(errors)
+        const { tokens, anyUnreadable, anyImportRejected } = splitErrors(errors)
         const sentences: string[] = []
         if (tokens.length > 0) {
             sentences.push(
@@ -148,6 +154,16 @@ export function outcomeText(
                 interpolate(
                     i18n.t(
                         '{name} failed because the server returned a response the app could not read -- the affected objects need to be re-read from the server'
+                    ),
+                    { name: groupName }
+                )
+            )
+        }
+        if (anyImportRejected) {
+            sentences.push(
+                interpolate(
+                    i18n.t(
+                        '{name} failed because the server rejected the import -- the affected objects need to be re-read from the server'
                     ),
                     { name: groupName }
                 )

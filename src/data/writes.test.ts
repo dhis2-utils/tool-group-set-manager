@@ -1,6 +1,7 @@
 import { ENDPOINTS } from './endpoints'
 import {
     DEFAULT_BATCH_SIZE,
+    IMPORT_NOT_OK,
     UNPARSEABLE_RESPONSE,
     writeMemberships,
 } from './writes'
@@ -528,6 +529,23 @@ describe('writeMemberships', () => {
             deletions: [] as string[],
         })
 
+        const fieldsPath = (groupId: string) =>
+            `organisationUnitGroups/${groupId}?fields=id,name,shortName,code`
+
+        // Task 8 fix round 1, C1: an import writes with mergeMode=REPLACE,
+        // so the group's own fields (name, shortName -- name is required)
+        // must be read fresh and spread into the payload, mirroring
+        // scripts/perf/write-shapes.js's proven shape. A GET fetcher call
+        // never carries `init.body`, which is what distinguishes it from
+        // the POST in these mocks.
+        const okFields = (groupId: string, extra: object = {}) =>
+            json({
+                id: groupId,
+                name: 'Group one',
+                shortName: 'Group 1',
+                ...extra,
+            })
+
         it('uses the collection endpoint for a change at the threshold', async () => {
             const calls: string[] = []
             const fetcher = async (path: string, init?: RequestInit) => {
@@ -545,14 +563,19 @@ describe('writeMemberships', () => {
                 DEFAULT_BATCH_SIZE,
                 new Map([['g1', []]])
             )
-            expect(calls).toEqual(['organisationUnitGroups/g1/organisationUnits'])
+            expect(calls).toEqual([
+                'organisationUnitGroups/g1/organisationUnits',
+            ])
         })
 
         it('uses a metadata import for a change above the threshold', async () => {
-            const calls: { path: string; body: unknown }[] = []
+            const calls: string[] = []
             const fetcher = async (path: string, init?: RequestInit) => {
-                calls.push({ path, body: JSON.parse(String(init?.body)) })
-                return json({ status: 'OK', stats: { updated: 1 } })
+                calls.push(path)
+                if (init?.method === 'POST') {
+                    return json({ status: 'OK', stats: { updated: 1 } })
+                }
+                return okFields('g1')
             }
             await writeMemberships(
                 fetcher,
@@ -562,8 +585,12 @@ describe('writeMemberships', () => {
                 DEFAULT_BATCH_SIZE,
                 new Map([['g1', ['existing1']]])
             )
-            expect(calls).toHaveLength(1)
-            expect(calls[0].path).toBe('metadata?importStrategy=UPDATE')
+            // The group's fields are read once (a GET, no method on the
+            // mock's init), then exactly one import POST is sent.
+            expect(calls).toEqual([
+                fieldsPath('g1'),
+                'metadata?importStrategy=UPDATE',
+            ])
         })
 
         it('sends the complete intended membership, not a delta', async () => {
@@ -575,8 +602,11 @@ describe('writeMemberships', () => {
                   }
                 | undefined
             const fetcher = async (_path: string, init?: RequestInit) => {
-                body = JSON.parse(String(init?.body))
-                return json({ status: 'OK', stats: { updated: 1 } })
+                if (init?.method === 'POST') {
+                    body = JSON.parse(String(init.body))
+                    return json({ status: 'OK', stats: { updated: 1 } })
+                }
+                return okFields('g1')
             }
             await writeMemberships(
                 fetcher,
@@ -604,6 +634,92 @@ describe('writeMemberships', () => {
             expect(sent).toHaveLength(DEFAULT_BATCH_SIZE + 2)
         })
 
+        // Task 8 fix round 1, C1: the payload must carry the group's own
+        // identifying fields, not just its id -- otherwise mergeMode=REPLACE
+        // nulls out a required field (name) on every import.
+        it("carries the group's own name and shortName in the import payload, not just its id", async () => {
+            let body:
+                | {
+                      organisationUnitGroups: {
+                          id: string
+                          name?: string
+                          shortName?: string
+                      }[]
+                  }
+                | undefined
+            const fetcher = async (_path: string, init?: RequestInit) => {
+                if (init?.method === 'POST') {
+                    body = JSON.parse(String(init.body))
+                    return json({ status: 'OK', stats: { updated: 1 } })
+                }
+                return okFields('g1', { name: 'Chiefdoms', shortName: 'CD' })
+            }
+            await writeMemberships(
+                fetcher,
+                'organisationUnit',
+                [bigChange(DEFAULT_BATCH_SIZE + 1)],
+                () => undefined,
+                DEFAULT_BATCH_SIZE,
+                new Map([['g1', []]])
+            )
+            expect(body!.organisationUnitGroups[0]).toMatchObject({
+                id: 'g1',
+                name: 'Chiefdoms',
+                shortName: 'CD',
+            })
+        })
+
+        // Task 8 fix round 1, C1: if the fresh field read fails, the group
+        // must fail cleanly -- no import attempted with a partial payload,
+        // and nothing added to `applied`.
+        it('fails the group cleanly, without attempting an import, when the field read fails', async () => {
+            const calls: string[] = []
+            const fetcher = async (path: string) => {
+                calls.push(path)
+                return new Response('not found', { status: 404 })
+            }
+            const result = await writeMemberships(
+                fetcher,
+                'organisationUnit',
+                [bigChange(DEFAULT_BATCH_SIZE + 1)],
+                () => undefined,
+                DEFAULT_BATCH_SIZE,
+                new Map([['g1', []]])
+            )
+            expect(calls).toEqual([fieldsPath('g1')])
+            expect(result.applied).toHaveLength(0)
+            expect(result.unaccounted).toHaveLength(1)
+            expect(result.outcomes[0].error).toBeTruthy()
+        })
+
+        // Task 8 fix round 1, I1: a non-OK import status is a real server
+        // report (typeReports naming the actual conflict), not a parse
+        // failure -- it must not be folded into UNPARSEABLE_RESPONSE.
+        it('reports a non-OK import status as IMPORT_NOT_OK, distinct from UNPARSEABLE_RESPONSE, and keeps the report on rawError', async () => {
+            const fetcher = async (_path: string, init?: RequestInit) => {
+                if (init?.method === 'POST') {
+                    return json({
+                        status: 'ERROR',
+                        typeReports: [{ klass: 'OrganisationUnitGroup' }],
+                    })
+                }
+                return okFields('g1')
+            }
+            const result = await writeMemberships(
+                fetcher,
+                'organisationUnit',
+                [bigChange(DEFAULT_BATCH_SIZE + 1)],
+                () => undefined,
+                DEFAULT_BATCH_SIZE,
+                new Map([['g1', []]])
+            )
+            expect(result.outcomes[0].error).toBe(IMPORT_NOT_OK)
+            expect(result.outcomes[0].error).not.toBe(UNPARSEABLE_RESPONSE)
+            expect(result.outcomes[0].rawError).toContain('ERROR')
+            expect(result.applied).toHaveLength(0)
+            expect(result.unaccounted).toHaveLength(1)
+        })
+
         // The structural safety property: no fresh membership, no replace-all.
         it('falls back to batched above the threshold when no complete membership is given', async () => {
             const calls: string[] = []
@@ -625,8 +741,12 @@ describe('writeMemberships', () => {
         })
 
         it('reports an import group in WriteResult exactly as a batched one', async () => {
-            const fetcher = async () =>
-                json({ status: 'OK', stats: { updated: 1 } })
+            const fetcher = async (_path: string, init?: RequestInit) => {
+                if (init?.method === 'POST') {
+                    return json({ status: 'OK', stats: { updated: 1 } })
+                }
+                return okFields('g1')
+            }
             const result = await writeMemberships(
                 fetcher,
                 'organisationUnit',

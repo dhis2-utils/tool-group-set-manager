@@ -1,5 +1,5 @@
 import { ENDPOINTS } from './endpoints'
-import { Fetcher } from './sources/DataSource'
+import { Fetcher, fetchJson } from './sources/DataSource'
 import { GroupChange } from '@/engine/changeSet'
 import { ObjectType } from '@/engine/types'
 
@@ -31,11 +31,12 @@ export interface BatchOutcome {
      */
     error?: string
     /**
-     * The raw parse error behind an `UNPARSEABLE_RESPONSE` `error`, kept
-     * for developer diagnostics only -- never shown to a user. Logged via
+     * The raw text behind an `UNPARSEABLE_RESPONSE` or `IMPORT_NOT_OK`
+     * `error`, kept for developer diagnostics only -- never shown to a
+     * user. `UNPARSEABLE_RESPONSE`'s raw text is also logged via
      * `console.warn` at the point of capture (below); if a future caller
-     * wants to attach it to a bug report or a persisted write log, it is
-     * also carried here rather than only in that one console line.
+     * wants to attach either to a bug report or a persisted write log, it
+     * is also carried here rather than only in that one console line.
      */
     rawError?: string
 }
@@ -54,6 +55,22 @@ export interface BatchOutcome {
  * sentence in its place.
  */
 export const UNPARSEABLE_RESPONSE = 'unparseable-response'
+
+/**
+ * Sentinel `error` value for a metadata import whose response parsed as
+ * JSON just fine but reported a `status` other than `OK`/`SUCCESS` -- a
+ * request DHIS2 accepted at the HTTP level but itself refused (a
+ * validation failure, a conflict; the real reason lives in the report's
+ * `typeReports`). Distinct from `UNPARSEABLE_RESPONSE`, which means the
+ * response was not JSON at all: this one has a real server report, just
+ * not one this module can translate (no `i18n.t` here -- same reasoning
+ * as `UNPARSEABLE_RESPONSE`'s own doc comment). `outcomeText`
+ * (writeOutcomes.ts) recognises this exact value and renders its own
+ * translated sentence for it, the same way it does for
+ * `UNPARSEABLE_RESPONSE`; the server's own report text is kept on
+ * `rawError` for diagnostics, never shown to the user directly.
+ */
+export const IMPORT_NOT_OK = 'import-not-ok'
 
 /**
  * What `writeMemberships` actually achieved, as distinct from what it was
@@ -156,12 +173,35 @@ function splitChange(change: GroupChange, batchSize: number): GroupChange[] {
     return batches
 }
 
+/** The group's own fields an import must carry, read fresh -- see the note
+ * on `importChange` below. */
+interface GroupFields {
+    id: string
+    name?: string
+    shortName?: string
+    code?: string
+}
+
 /**
  * Builds one group's complete intended membership -- the current list plus
  * this change's additions, minus its deletions -- and sends it as a single
  * metadata import replacing that group's whole collection. Reports back as
  * exactly one `BatchOutcome`, so `WriteResult` cannot be told apart from the
  * batched route by a caller.
+ *
+ * `POST /api/metadata` defaults to `mergeMode=REPLACE`: any of the group's
+ * own fields left out of the payload -- `name`, `shortName` -- would be
+ * nulled rather than left alone, and a group requires a `name`. So the
+ * group's own fields are read immediately before the import and spread
+ * into the payload alongside the members, mirroring the shape measured in
+ * scripts/perf/write-shapes.js (`{ ...group, organisationUnits }`, `group`
+ * read as `id,name,shortName,code`). They are read fresh rather than
+ * carried in `completeMembers` from an earlier snapshot: a name someone
+ * changed since that snapshot would otherwise be clobbered by this write,
+ * which is exactly the class of bug this whole task exists to prevent. If
+ * that read fails, the import must not be attempted at all -- a partial
+ * payload (members but no name) is not a safer fallback, it is a
+ * different way to corrupt the group.
  */
 async function importChange(
     fetcher: Fetcher,
@@ -171,10 +211,30 @@ async function importChange(
 ): Promise<{ outcome: BatchOutcome; ok: boolean }> {
     const endpoint = ENDPOINTS[objectType]
     const requested = change.additions.length + change.deletions.length
+
+    let group: GroupFields
+    try {
+        group = await fetchJson<GroupFields>(
+            fetcher,
+            `${endpoint.groups}/${change.groupId}?fields=id,name,shortName,code`
+        )
+    } catch (error) {
+        return {
+            outcome: {
+                groupId: change.groupId,
+                requested,
+                accepted: 0,
+                error: error instanceof Error ? error.message : String(error),
+            },
+            ok: false,
+        }
+    }
+
+    const currentIds = new Set(current)
     const deletions = new Set(change.deletions)
     const intended = [
         ...current.filter((id) => !deletions.has(id)),
-        ...change.additions.filter((id) => !current.includes(id)),
+        ...change.additions.filter((id) => !currentIds.has(id)),
     ]
     try {
         const response = await fetcher('metadata?importStrategy=UPDATE', {
@@ -183,7 +243,7 @@ async function importChange(
             body: JSON.stringify({
                 [endpoint.groups]: [
                     {
-                        id: change.groupId,
+                        ...group,
                         [endpoint.members]: intended.map((id) => ({ id })),
                     },
                 ],
@@ -200,19 +260,50 @@ async function importChange(
                 ok: false,
             }
         }
-        const body = (await response.json()) as { status?: string }
+        let body: { status?: string }
+        try {
+            body = (await response.json()) as { status?: string }
+        } catch (parseError) {
+            // Same conclusion as the batched path's own JSON-parse guard
+            // below: the raw parser message is never something a user
+            // should see, so the sentinel is recorded and the raw text
+            // kept on rawError for diagnostics only.
+            const rawMessage =
+                parseError instanceof Error
+                    ? parseError.message
+                    : String(parseError)
+            console.warn(
+                `writeMemberships: import for group ${change.groupId} returned a response that could not be parsed as JSON`,
+                rawMessage
+            )
+            return {
+                outcome: {
+                    groupId: change.groupId,
+                    requested,
+                    accepted: 0,
+                    error: UNPARSEABLE_RESPONSE,
+                    rawError: rawMessage,
+                },
+                ok: false,
+            }
+        }
         // An import reports objects touched, never memberships, so its
         // stats cannot be reconciled against `requested` the way a
         // collection response is. A non-OK status is the only failure
         // signal available, so that is what is trusted -- and the caller
         // re-reads this group before the next write anyway (section 5).
+        // A non-OK status is a real report from the server (typeReports
+        // naming the actual conflict), not a parse failure, so it gets its
+        // own sentinel (`IMPORT_NOT_OK`) rather than `UNPARSEABLE_RESPONSE`
+        // -- the raw report is kept on `rawError` for diagnostics.
         const ok = body.status === 'OK' || body.status === 'SUCCESS'
         return {
             outcome: {
                 groupId: change.groupId,
                 requested,
                 accepted: ok ? requested : 0,
-                error: ok ? undefined : UNPARSEABLE_RESPONSE,
+                error: ok ? undefined : IMPORT_NOT_OK,
+                rawError: ok ? undefined : JSON.stringify(body),
             },
             ok,
         }
