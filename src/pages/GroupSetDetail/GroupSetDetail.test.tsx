@@ -562,6 +562,7 @@ describe('background reload indicator (Task 7, carried forward from Plan 1)', ()
             type: 'organisationUnit',
             progress: null,
             fromCache: {},
+            loadedAt: {},
             errors: {},
             namesErrors: {},
         }
@@ -578,6 +579,7 @@ describe('background reload indicator (Task 7, carried forward from Plan 1)', ()
             type: null,
             progress: null,
             fromCache: {},
+            loadedAt: {},
             errors: {},
             namesErrors: {},
         }
@@ -598,6 +600,7 @@ describe('background reload indicator (Task 7, carried forward from Plan 1)', ()
             type: 'organisationUnit',
             progress: null,
             fromCache: {},
+            loadedAt: {},
             errors: {},
             namesErrors: {},
         }

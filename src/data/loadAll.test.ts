@@ -246,6 +246,52 @@ describe('loadAll', () => {
         expect(status[status.length - 1].fromCache.organisationUnit).toBeFalsy()
     })
 
+    it('reports loadedAt as the time of the server read on a fresh load', async () => {
+        const before = Date.now()
+        const status: LoadStatus[] = []
+        await loadAll({
+            source: fakeSource(),
+            fetcher,
+            cache: createMemoryCache(),
+            engine: inlineEngine(),
+            onStatus: (s) => status.push(s),
+        })
+        expect(
+            status[status.length - 1].loadedAt.organisationUnit
+        ).toBeGreaterThanOrEqual(before)
+    })
+
+    it('reports the cached savedAt, not now, when a type is served from cache', async () => {
+        // The age the user is shown must be the age of the data, not of the
+        // page load -- a cache hit reporting `now` would claim a freshness it
+        // does not have, which is the whole defect this feature exists to fix.
+        const cache = createMemoryCache()
+        await loadAll({
+            source: fakeSource(),
+            fetcher,
+            cache,
+            engine: inlineEngine(),
+            onStatus: () => undefined,
+        })
+        // Inside the TTL, so the entry is still reused, but old enough that
+        // `now` and `savedAt` cannot be confused.
+        const savedAt = Date.now() - 60_000
+        const entry = await cache.get('organisationUnit')
+        await cache.put('organisationUnit', { ...entry!, savedAt })
+
+        const status: LoadStatus[] = []
+        await loadAll({
+            source: fakeSource(),
+            fetcher,
+            cache,
+            engine: inlineEngine(),
+            onStatus: (s) => status.push(s),
+        })
+        const last = status[status.length - 1]
+        expect(last.fromCache.organisationUnit).toBe(true)
+        expect(last.loadedAt.organisationUnit).toBe(savedAt)
+    })
+
     it('bypasses a populated cache when forceRefresh is set', async () => {
         const source = fakeSource()
         const cache = createMemoryCache()

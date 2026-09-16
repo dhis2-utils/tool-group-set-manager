@@ -25,6 +25,13 @@ export interface LoadStatus {
     type: ObjectType | null
     progress: Progress | null
     fromCache: Partial<Record<ObjectType, boolean>>
+    /**
+     * When each type's payload was actually read from the server, epoch ms.
+     * A cache hit carries the stored `savedAt` forward unchanged, so this is
+     * always the age of the *data* and never of the page load -- a cache hit
+     * reporting `now` would claim a freshness it does not have.
+     */
+    loadedAt: Partial<Record<ObjectType, number>>
     errors: Partial<Record<ObjectType, string>>
     /**
      * A names load/setNames failure, kept apart from `errors`. It always
@@ -202,6 +209,7 @@ export async function loadAll(deps: Deps): Promise<{
         type: null,
         progress: null,
         fromCache: {},
+        loadedAt: {},
         errors: {},
         namesErrors: {},
     }
@@ -210,6 +218,7 @@ export async function loadAll(deps: Deps): Promise<{
         deps.onStatus({
             ...status,
             fromCache: { ...status.fromCache },
+            loadedAt: { ...status.loadedAt },
             errors: { ...status.errors },
             namesErrors: { ...status.namesErrors },
         })
@@ -262,6 +271,7 @@ export async function loadAll(deps: Deps): Promise<{
                     }
                 })
                 status.fromCache[type] = true
+                status.loadedAt[type] = reused.savedAt
                 // A cache hit is at the same point a freshly loaded type is
                 // right after its memberships land: data is in the engine
                 // and only the (shared, end-of-loop) evaluate() is still to
@@ -344,6 +354,8 @@ export async function loadAll(deps: Deps): Promise<{
             // here means the next load has nothing to reuse for this type
             // and goes back to the source for names, same as this load
             // did.
+            const savedAt = Date.now()
+            status.loadedAt[type] = savedAt
             if (!namesFailed) {
                 const entry: CachedType = {
                     objects,
@@ -352,7 +364,7 @@ export async function loadAll(deps: Deps): Promise<{
                     groupIds,
                     groupLastUpdated: stamps,
                     objectTotal: total,
-                    savedAt: Date.now(),
+                    savedAt,
                 }
                 await deps.cache.put(type, entry)
             }
