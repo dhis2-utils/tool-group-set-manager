@@ -493,6 +493,19 @@ test.describe('Group Set Integrity Tool', () => {
     }) => {
         const { page } = authedApp
         let root = await openGroupSet(page, AREA_SET_NAME)
+
+        // Spec 5.1 (Plan 7 Task 6): the page header's old "Fix issues…"
+        // shortcut is gone, and the Objects tab's own button -- used further
+        // down, against whatever that tab is filtered to -- is the one way
+        // in. Asserted here, at the level where it is user-visible, because
+        // deleting a button is easy to do while also breaking the path that
+        // replaces it: the rest of this flow is what proves the replacement
+        // still works, and this line is what proves the old one is not
+        // quietly still there beside it.
+        await expect(
+            root.getByRole('button', { name: 'Fix issues…' })
+        ).toHaveCount(0)
+
         await openOverviewTab(root)
         await showChiefdomRows(root)
 
