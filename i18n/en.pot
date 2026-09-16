@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-16T05:54:49.761Z\n"
-"PO-Revision-Date: 2026-09-16T05:54:49.761Z\n"
+"POT-Creation-Date: 2026-09-16T06:23:25.099Z\n"
+"PO-Revision-Date: 2026-09-16T06:23:25.100Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -16,6 +16,13 @@ msgstr "{count} objects"
 
 msgid "No group"
 msgstr "No group"
+
+msgid ""
+"A group with this name already belongs to a different group set. Choose "
+"another name — one group must not be shared between two sets."
+msgstr ""
+"A group with this name already belongs to a different group set. Choose "
+"another name — one group must not be shared between two sets."
 
 msgid "Object"
 msgstr "Object"
@@ -44,11 +51,20 @@ msgstr "Target group"
 msgid "Choose target group"
 msgstr "Choose target group"
 
+msgid "Group name"
+msgstr "Group name"
+
+msgid "Short name"
+msgstr "Short name"
+
+msgid "A short name can be at most 50 characters"
+msgstr "A short name can be at most 50 characters"
+
 msgid "Creating…"
 msgstr "Creating…"
 
-msgid "Create Other/unknown {name}"
-msgstr "Create Other/unknown {name}"
+msgid "Create group"
+msgstr "Create group"
 
 msgid "Could not create the group"
 msgstr "Could not create the group"

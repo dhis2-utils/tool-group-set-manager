@@ -26,7 +26,11 @@ import {
 } from '@/components/ChangeSetPreview/ChangeSetPreview'
 import { toCsv } from '@/data/csv'
 import { createFetcher } from '@/data/fetcher'
-import { createCatchAllGroup } from '@/data/metadataWrites'
+import {
+    createCatchAllGroup,
+    generateCatchAllNames,
+    NAME_OWNED_BY_ANOTHER_SET,
+} from '@/data/metadataWrites'
 import {
     aggregateOutcomes,
     mergeOutcomes,
@@ -77,6 +81,15 @@ const SAMPLE_SIZE = 20
 // fill the whole visible sample while the real changes sit further down.
 const SAMPLE_FETCH_SIZE = 100
 const CSV_PAGE_SIZE = 1000
+
+/**
+ * DHIS2's own cap on a group's `shortName`. Duplicated from
+ * metadataWrites.ts deliberately: that module enforces it when generating a
+ * name, this one when validating one the user typed, and the two checks
+ * happen at different moments for different reasons. Exporting it from
+ * there would read as though one check implied the other.
+ */
+const MAX_SHORT_NAME_LENGTH = 50
 
 /** A group whose own name suggests it is the catch-all for its set. */
 const CATCH_ALL_NAME_PATTERN = /other|unknown/i
@@ -168,6 +181,17 @@ export const BulkFixDialog = ({
     const [note, setNote] = useState('')
     const [creating, setCreating] = useState(false)
     const [createError, setCreateError] = useState<string | null>(null)
+    // Spec 5.2: the user names the catch-all group. Seeded with exactly what
+    // the server would otherwise have generated (`generateCatchAllNames` is
+    // the single source of that rule, shared with the data layer rather than
+    // reimplemented here), and re-seeded if the dialog is pointed at a
+    // different set, which would make the previous set's name wrong.
+    const [catchAllNames, setCatchAllNames] = useState(() =>
+        generateCatchAllNames(set)
+    )
+    useEffect(() => {
+        setCatchAllNames(generateCatchAllNames(set))
+    }, [set])
     const [csvBusy, setCsvBusy] = useState(false)
     const [csvError, setCsvError] = useState<string | null>(null)
     // A group `createCatchAllGroup` just created is not yet part of
@@ -274,17 +298,45 @@ export const BulkFixDialog = ({
     // create a catch-all, then bulk-move into it -- dead-ends in the same
     // session it was created. `createdGroup` stays as the belt-and-braces
     // path for a reload that itself fails.
+    // Validated here rather than only on the server: both are required, and
+    // DHIS2 caps shortName at 50 characters. Catching it before the request
+    // turns a 409/400 whose body this module would have to translate into a
+    // field the user can see is wrong while they are still typing.
+    const trimmedNames = {
+        displayName: catchAllNames.displayName.trim(),
+        shortName: catchAllNames.shortName.trim(),
+    }
+    const nameTooLong = trimmedNames.shortName.length > MAX_SHORT_NAME_LENGTH
+    const namesValid =
+        trimmedNames.displayName.length > 0 &&
+        trimmedNames.shortName.length > 0 &&
+        !nameTooLong
+
     const handleCreateCatchAll = async () => {
+        if (!namesValid) {
+            return
+        }
         setCreating(true)
         setCreateError(null)
         try {
-            const created = await createCatchAllGroup(fetcher, set)
+            const created = await createCatchAllGroup(fetcher, set, trimmedNames)
             setCreatedGroup(created)
             setTargetTouched(true)
             setTargetGroupId(created.id)
             await reload(false)
         } catch (e) {
-            setCreateError(e instanceof Error ? e.message : String(e))
+            const message = e instanceof Error ? e.message : String(e)
+            // The data layer has no i18n.t and must not build user-facing
+            // prose, so it throws a locale-neutral sentinel (the same
+            // convention writes.ts's UNPARSEABLE_RESPONSE uses) and this is
+            // where it becomes a sentence.
+            setCreateError(
+                message === NAME_OWNED_BY_ANOTHER_SET
+                    ? i18n.t(
+                          'A group with this name already belongs to a different group set. Choose another name — one group must not be shared between two sets.'
+                      )
+                    : message
+            )
         } finally {
             setCreating(false)
         }
@@ -574,18 +626,60 @@ export const BulkFixDialog = ({
                             </SingleSelectField>
                         </div>
                         {showCreateOffer && (
-                            <Button
-                                small
-                                disabled={creating}
-                                onClick={handleCreateCatchAll}
-                            >
-                                {creating
-                                    ? i18n.t('Creating…')
-                                    : interpolate(
-                                          i18n.t('Create Other/unknown {name}'),
-                                          { name: set.displayName }
-                                      )}
-                            </Button>
+                            <div className={styles.createCatchAll}>
+                                {/* Spec 5.2: the user names the group rather
+                                    than accepting a generated name they
+                                    cannot see until it exists. Prefilled
+                                    with exactly what would have been
+                                    generated, so leaving both alone is the
+                                    old behaviour. */}
+                                <InputField
+                                    dense
+                                    // `name` is what @dhis2/ui uses as the
+                                    // input's id and the label's `for`, so
+                                    // without it the label names nothing --
+                                    // a screen reader announces an unlabelled
+                                    // text box.
+                                    name="catchAllDisplayName"
+                                    label={i18n.t('Group name')}
+                                    value={catchAllNames.displayName}
+                                    onChange={({ value }) =>
+                                        setCatchAllNames((n) => ({
+                                            ...n,
+                                            displayName: value ?? '',
+                                        }))
+                                    }
+                                />
+                                <InputField
+                                    dense
+                                    name="catchAllShortName"
+                                    label={i18n.t('Short name')}
+                                    value={catchAllNames.shortName}
+                                    error={nameTooLong}
+                                    validationText={
+                                        nameTooLong
+                                            ? i18n.t(
+                                                  'A short name can be at most 50 characters'
+                                              )
+                                            : undefined
+                                    }
+                                    onChange={({ value }) =>
+                                        setCatchAllNames((n) => ({
+                                            ...n,
+                                            shortName: value ?? '',
+                                        }))
+                                    }
+                                />
+                                <Button
+                                    small
+                                    disabled={creating || !namesValid}
+                                    onClick={handleCreateCatchAll}
+                                >
+                                    {creating
+                                        ? i18n.t('Creating…')
+                                        : i18n.t('Create group')}
+                                </Button>
+                            </div>
                         )}
                         {createError && (
                             <NoticeBox

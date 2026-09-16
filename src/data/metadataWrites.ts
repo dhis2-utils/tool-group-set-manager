@@ -40,7 +40,10 @@ interface CreateResponse {
 }
 
 /** A DHIS2 list response keys its array by the collection's own resource name. */
-type ListResponse = Record<string, { id: string }[] | undefined>
+type ListResponse = Record<
+    string,
+    { id: string; groupSets?: { id: string }[] }[] | undefined
+>
 
 async function fetchGroupSetCode(
     fetcher: Fetcher,
@@ -67,31 +70,24 @@ async function fetchSiblingSharing(
 }
 
 /**
- * Looks up a group named exactly `displayName` in the collection, so a
- * retry after a failed add-to-set (see the doc comment on
- * `createCatchAllGroup`) finds the group the previous attempt already
- * created instead of creating a duplicate and failing a second time on
- * `shortName`'s server-side uniqueness constraint.
+ * Sentinel `error`, like writes.ts's UNPARSEABLE_RESPONSE: a name the user
+ * typed is already held by a group belonging to a *different* group set, and
+ * reusing it would quietly put one group in two sets -- which spec 5.2
+ * forbids outright. Not English prose, because this module has no i18n.t and
+ * is not where a user-facing sentence should be built; the dialog
+ * recognises this exact value and renders a translated sentence in its
+ * place.
  */
-async function findExistingGroupId(
-    fetcher: Fetcher,
-    groupsEndpoint: string,
-    displayName: string
-): Promise<string | undefined> {
-    const filter = encodeURIComponent(`name:eq:${displayName}`)
-    const body = await fetchJson<ListResponse>(
-        fetcher,
-        `${groupsEndpoint}?filter=${filter}&fields=id&paging=false`
-    )
-    const matches = body[groupsEndpoint]
-    return matches && matches.length > 0 ? matches[0].id : undefined
-}
+export const NAME_OWNED_BY_ANOTHER_SET = 'name-owned-by-another-set'
 
 /**
- * Creates a catch-all group for objects that are unassigned or need
- * reassigning within `set`, and adds it to the set. The name is
- * set-specific ("Other/unknown <set name>") because a single shared
- * "Other/unknown" group would collide across sets.
+ * The names `createCatchAllGroup` uses when the caller supplies none --
+ * exported because the dialog must prefill its editable fields with exactly
+ * what the server would otherwise have generated, and a second
+ * implementation of this rule would drift from this one.
+ *
+ * The name is set-specific ("Other/unknown <set name>") because a single
+ * shared "Other/unknown" group would collide across sets.
  *
  * `shortName` is capped at the 50 characters DHIS2 allows, but a plain
  * truncation is not safe: the server also enforces `shortName` uniqueness,
@@ -104,6 +100,78 @@ async function findExistingGroupId(
  * MAX_SHORT_NAME_LENGTH -- unique by construction, since group set ids are
  * unique, and correct for an id of any length (a standard 11-character uid
  * leaves 38, but nothing here assumes 11).
+ */
+export function generateCatchAllNames(set: GroupSetMeta): {
+    displayName: string
+    shortName: string
+} {
+    const displayName = `Other/unknown ${set.displayName}`
+    // The tail reserved for the id is the id's own length plus one space,
+    // never a hardcoded 38 -- 38 is only correct for the 11-character uid
+    // DHIS2 itself generates, and this function never validates that
+    // set.id actually is one. Deriving it keeps the result exactly
+    // MAX_SHORT_NAME_LENGTH regardless of how long the id turns out to be.
+    const shortName =
+        displayName.length <= MAX_SHORT_NAME_LENGTH
+            ? displayName
+            : `${displayName.slice(0, MAX_SHORT_NAME_LENGTH - set.id.length - 1)} ${set.id}`
+    return { displayName, shortName }
+}
+
+/**
+ * Looks up a group named exactly `displayName` in the collection, so a
+ * retry after a failed add-to-set (see the doc comment on
+ * `createCatchAllGroup`) finds the group the previous attempt already
+ * created instead of creating a duplicate and failing a second time on
+ * `shortName`'s server-side uniqueness constraint.
+ *
+ * Returns the group's group set membership alongside its id, because the
+ * caller cannot decide whether reusing it is safe without that: the lookup
+ * is global (a name is unique across the whole collection, not within a
+ * set), so once the name is user-editable this can just as easily find
+ * *another set's* group as the half-made one it was written to recover.
+ * See `createCatchAllGroup`'s own doc comment for the three cases.
+ */
+async function findExistingGroup(
+    fetcher: Fetcher,
+    groupsEndpoint: string,
+    displayName: string
+): Promise<{ id: string; groupSets?: { id: string }[] } | undefined> {
+    const filter = encodeURIComponent(`name:eq:${displayName}`)
+    const body = await fetchJson<ListResponse>(
+        fetcher,
+        `${groupsEndpoint}?filter=${filter}&fields=id,groupSets%5Bid%5D&paging=false`
+    )
+    const matches = body[groupsEndpoint]
+    return matches && matches.length > 0 ? matches[0] : undefined
+}
+
+/**
+ * Creates a catch-all group for objects that are unassigned or need
+ * reassigning within `set`, and adds it to the set.
+ *
+ * `names` is what the user typed, when they typed anything; omitted, the
+ * pair `generateCatchAllNames` would have produced is used instead, so
+ * every existing caller keeps its previous behaviour exactly.
+ *
+ * **The lookup below is global, and that matters once the name is
+ * editable.** It exists because the create step is not idempotent (see
+ * further down), so a retry after a failed add-to-set must find the group
+ * the previous attempt made rather than 409 forever. While the name was
+ * generated it embedded the set's own name, so anything it found was this
+ * set's. A name the user chose has no such guarantee: two users typing
+ * `Other` on two different sets would otherwise end up sharing one group
+ * between both sets, which spec 5.2 forbids outright. So the three cases
+ * are distinguished rather than collapsed:
+ *
+ * | existing group with this name | meaning              | behaviour |
+ * | ----------------------------- | -------------------- | --------- |
+ * | belongs to no group set       | the retry case       | reuse it  |
+ * | belongs to *this* set         | already done         | reuse it  |
+ * | belongs to *another* set      | the hazard           | refuse    |
+ *
+ * A group that belongs to this set *and* another is refused too: it is
+ * still shared, and adding it here again would not make it less so.
  *
  * Sharing is copied from an existing group in the set so the new group is
  * visible to whoever could already see the others; a set with no groups
@@ -128,28 +196,27 @@ async function findExistingGroupId(
  */
 export async function createCatchAllGroup(
     fetcher: Fetcher,
-    set: GroupSetMeta
+    set: GroupSetMeta,
+    names?: { displayName: string; shortName: string }
 ): Promise<{ id: string; displayName: string }> {
     const endpoint = ENDPOINTS[set.objectType]
-    const displayName = `Other/unknown ${set.displayName}`
-    // The tail reserved for the id is the id's own length plus one space,
-    // never a hardcoded 38 -- 38 is only correct for the 11-character uid
-    // DHIS2 itself generates, and this function never validates that
-    // set.id actually is one. Deriving it keeps the result exactly
-    // MAX_SHORT_NAME_LENGTH regardless of how long the id turns out to be.
-    const shortName =
-        displayName.length <= MAX_SHORT_NAME_LENGTH
-            ? displayName
-            : `${displayName.slice(0, MAX_SHORT_NAME_LENGTH - set.id.length - 1)} ${set.id}`
+    const { displayName, shortName } = names ?? generateCatchAllNames(set)
 
-    const existingId = await findExistingGroupId(
+    const existing = await findExistingGroup(
         fetcher,
         endpoint.groups,
         displayName
     )
+    if (existing) {
+        const owners = existing.groupSets ?? []
+        const ownedElsewhere = owners.some((s) => s.id !== set.id)
+        if (ownedElsewhere) {
+            throw new Error(NAME_OWNED_BY_ANOTHER_SET)
+        }
+    }
 
     const id =
-        existingId ??
+        existing?.id ??
         (await createGroup(fetcher, endpoint, { set, displayName, shortName }))
 
     const addResponse = await fetcher(
@@ -173,7 +240,7 @@ async function createGroup(
     const { set, displayName, shortName } = names
     const sibling = set.groups[0]
     // Fetched only when actually creating: a reused group (found by
-    // findExistingGroupId) needs neither, since it already has both.
+    // findExistingGroup) needs neither, since it already has both.
     const codePromise = fetchGroupSetCode(fetcher, endpoint.groupSets, set.id)
     const sharingPromise = sibling
         ? fetchSiblingSharing(fetcher, endpoint.groups, sibling.id)

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { BulkFixDialog } from './BulkFixDialog'
+import { NAME_OWNED_BY_ANOTHER_SET } from '@/data/metadataWrites'
 import { EngineStore } from '@/engine/store'
 import { GroupSetMeta, Status } from '@/engine/types'
 
@@ -47,6 +48,11 @@ jest.mock('@/hooks/useGsiConfig', () => {
 
 const mockCreateCatchAllGroup = jest.fn()
 jest.mock('@/data/metadataWrites', () => ({
+    // Only the writing half is stubbed. `generateCatchAllNames` is pure and
+    // is the single source of the name rule the dialog must prefill with --
+    // a stub here would let the dialog and the data layer disagree about
+    // what the default name is without any test noticing.
+    ...jest.requireActual('@/data/metadataWrites'),
     createCatchAllGroup: (...args: unknown[]) =>
         mockCreateCatchAllGroup(...args),
 }))
@@ -189,10 +195,135 @@ describe('BulkFixDialog action step', () => {
         )
         await waitFor(() => expect(mockLoadConfig).toHaveBeenCalled())
         expect(
-            await screen.findByRole('button', {
-                name: /create.*other\/unknown/i,
-            })
+            await screen.findByRole('button', { name: 'Create group' })
         ).toBeInTheDocument()
+    })
+
+    // Spec 5.2 (Plan 7 Task 7): the name is the user's to choose, and what
+    // they start from must be exactly what the server would otherwise have
+    // generated -- so leaving the fields alone is the old behaviour.
+    it('prefills both name fields with the generated names', async () => {
+        render(
+            <BulkFixDialog
+                set={set}
+                scope={scope}
+                filter={{}}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        expect(await screen.findByLabelText('Group name')).toHaveValue(
+            'Other/unknown Ownership'
+        )
+        expect(screen.getByLabelText('Short name')).toHaveValue(
+            'Other/unknown Ownership'
+        )
+    })
+
+    it('passes edited names through to the create call', async () => {
+        mockCreateCatchAllGroup.mockResolvedValue({
+            id: 'created-id',
+            displayName: 'Unclassified facilities',
+        })
+        render(
+            <BulkFixDialog
+                set={set}
+                scope={scope}
+                filter={{}}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        fireEvent.change(await screen.findByLabelText('Group name'), {
+            target: { value: 'Unclassified facilities' },
+        })
+        fireEvent.change(screen.getByLabelText('Short name'), {
+            target: { value: 'Unclassified' },
+        })
+        await act(async () => {
+            fireEvent.click(
+                screen.getByRole('button', { name: 'Create group' })
+            )
+        })
+        expect(mockCreateCatchAllGroup).toHaveBeenCalledWith(
+            expect.anything(),
+            set,
+            { displayName: 'Unclassified facilities', shortName: 'Unclassified' }
+        )
+    })
+
+    // Caught before the request, not after a 409 whose body this module
+    // would then have to translate.
+    it('refuses a short name over 50 characters before any request is made', async () => {
+        render(
+            <BulkFixDialog
+                set={set}
+                scope={scope}
+                filter={{}}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        fireEvent.change(await screen.findByLabelText('Short name'), {
+            target: { value: 'x'.repeat(51) },
+        })
+        expect(
+            screen.getByRole('button', { name: 'Create group' })
+        ).toBeDisabled()
+        expect(
+            screen.getByText('A short name can be at most 50 characters')
+        ).toBeInTheDocument()
+        expect(mockCreateCatchAllGroup).not.toHaveBeenCalled()
+    })
+
+    it('refuses an empty name before any request is made', async () => {
+        render(
+            <BulkFixDialog
+                set={set}
+                scope={scope}
+                filter={{}}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        fireEvent.change(await screen.findByLabelText('Group name'), {
+            target: { value: '   ' },
+        })
+        expect(
+            screen.getByRole('button', { name: 'Create group' })
+        ).toBeDisabled()
+        expect(mockCreateCatchAllGroup).not.toHaveBeenCalled()
+    })
+
+    // The data layer throws a locale-neutral sentinel; this dialog is where
+    // it becomes a sentence the user can act on.
+    it('renders the cross-set name conflict as a translated sentence, not the raw token', async () => {
+        mockCreateCatchAllGroup.mockRejectedValue(
+            new Error(NAME_OWNED_BY_ANOTHER_SET)
+        )
+        render(
+            <BulkFixDialog
+                set={set}
+                scope={scope}
+                filter={{}}
+                onClose={jest.fn()}
+                onApplied={jest.fn()}
+            />
+        )
+        const createButton = await screen.findByRole('button', {
+            name: 'Create group',
+        })
+        await act(async () => {
+            fireEvent.click(createButton)
+        })
+        expect(
+            await screen.findByText(
+                'A group with this name already belongs to a different group set. Choose another name — one group must not be shared between two sets.'
+            )
+        ).toBeInTheDocument()
+        expect(
+            screen.queryByText(NAME_OWNED_BY_ANOTHER_SET)
+        ).not.toBeInTheDocument()
     })
 
     it('creating the catch-all group selects it as the target', async () => {
@@ -210,7 +341,7 @@ describe('BulkFixDialog action step', () => {
             />
         )
         const createButton = await screen.findByRole('button', {
-            name: /create.*other\/unknown/i,
+            name: 'Create group',
         })
         await act(async () => {
             fireEvent.click(createButton)
@@ -237,7 +368,7 @@ describe('BulkFixDialog action step', () => {
             />
         )
         const createButton = await screen.findByRole('button', {
-            name: /create.*other\/unknown/i,
+            name: 'Create group',
         })
         await act(async () => {
             fireEvent.click(createButton)
@@ -1351,7 +1482,7 @@ describe('BulkFixDialog apply step', () => {
             />
         )
         const createButton = await screen.findByRole('button', {
-            name: /create.*other\/unknown/i,
+            name: 'Create group',
         })
         await act(async () => {
             fireEvent.click(createButton)

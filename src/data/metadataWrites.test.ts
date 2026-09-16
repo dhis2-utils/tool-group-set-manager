@@ -1,4 +1,9 @@
-import { createCatchAllGroup, setGroupSetProperties } from './metadataWrites'
+import {
+    createCatchAllGroup,
+    generateCatchAllNames,
+    NAME_OWNED_BY_ANOTHER_SET,
+    setGroupSetProperties,
+} from './metadataWrites'
 import { GroupSetMeta } from '@/engine/types'
 
 const json = (body: unknown, status = 200) =>
@@ -37,7 +42,7 @@ interface Call {
 const lookupPath = (displayName: string) =>
     `organisationUnitGroups?filter=${encodeURIComponent(
         `name:eq:${displayName}`
-    )}&fields=id&paging=false`
+    )}&fields=id,groupSets%5Bid%5D&paging=false`
 
 /**
  * A fetcher stub keyed by exact "METHOD path", per ruling P2-R15: every
@@ -271,6 +276,111 @@ describe('createCatchAllGroup', () => {
         await expect(createCatchAllGroup(fetcher, set)).rejects.toThrow()
     })
 
+    // Spec 5.2 (Plan 7 Task 7): the user may name the catch-all group.
+    it('uses caller-supplied names when given them', async () => {
+        const set = buildSet()
+        const { fetcher, calls } = scriptedFetcher({
+            [`GET ${lookupPath('Unclassified facilities')}`]: () =>
+                json({ organisationUnitGroups: [] }),
+            'GET organisationUnitGroupSets/set1abcdefg?fields=code': () =>
+                json({ code: 'OWN' }),
+            'GET organisationUnitGroups/g1?fields=sharing': () =>
+                json({ sharing }),
+            'POST organisationUnitGroups': () =>
+                json({ response: { uid: 'newGroup' } }, 201),
+            'POST organisationUnitGroupSets/set1abcdefg/organisationUnitGroups/newGroup':
+                () => json({ status: 'OK' }, 200),
+        })
+
+        const created = await createCatchAllGroup(fetcher, set, {
+            displayName: 'Unclassified facilities',
+            shortName: 'Unclassified',
+        })
+
+        expect(created).toEqual({
+            id: 'newGroup',
+            displayName: 'Unclassified facilities',
+        })
+        expect(
+            calls.find(
+                (c) =>
+                    c.method === 'POST' && c.path === 'organisationUnitGroups'
+            )?.body
+        ).toMatchObject({
+            name: 'Unclassified facilities',
+            shortName: 'Unclassified',
+        })
+    })
+
+    // The hazard editing the name creates, which did not exist while the
+    // name was generated: the lookup is global, so a name another set's
+    // group already holds would otherwise be silently pulled into this set
+    // -- one group shared between two sets, which spec 5.2 forbids.
+    it('refuses a name owned by a group in a different set', async () => {
+        const set = buildSet()
+        const { fetcher, calls } = scriptedFetcher({
+            [`GET ${lookupPath('Other')}`]: () =>
+                json({
+                    organisationUnitGroups: [
+                        { id: 'g9', groupSets: [{ id: 'someOtherSet' }] },
+                    ],
+                }),
+        })
+
+        await expect(
+            createCatchAllGroup(fetcher, set, {
+                displayName: 'Other',
+                shortName: 'Other',
+            })
+        ).rejects.toThrow(NAME_OWNED_BY_ANOTHER_SET)
+        // Refused before anything is written -- the lookup is the only call.
+        expect(calls.map((c) => c.method)).toEqual(['GET'])
+    })
+
+    it('refuses a name owned by a group in this set AND another', async () => {
+        const set = buildSet()
+        const { fetcher } = scriptedFetcher({
+            [`GET ${lookupPath('Other')}`]: () =>
+                json({
+                    organisationUnitGroups: [
+                        {
+                            id: 'g9',
+                            groupSets: [
+                                { id: 'set1abcdefg' },
+                                { id: 'someOtherSet' },
+                            ],
+                        },
+                    ],
+                }),
+        })
+
+        await expect(
+            createCatchAllGroup(fetcher, set, {
+                displayName: 'Other',
+                shortName: 'Other',
+            })
+        ).rejects.toThrow(NAME_OWNED_BY_ANOTHER_SET)
+    })
+
+    it('reuses a same-named group that already belongs to this set', async () => {
+        const set = buildSet()
+        const displayName = 'Other/unknown Ownership'
+        const { fetcher } = scriptedFetcher({
+            [`GET ${lookupPath(displayName)}`]: () =>
+                json({
+                    organisationUnitGroups: [
+                        { id: 'g9', groupSets: [{ id: 'set1abcdefg' }] },
+                    ],
+                }),
+            'POST organisationUnitGroupSets/set1abcdefg/organisationUnitGroups/g9':
+                () => json({}, 200),
+        })
+
+        await expect(
+            createCatchAllGroup(fetcher, set)
+        ).resolves.toMatchObject({ id: 'g9' })
+    })
+
     it('reuses an existing group with the same name instead of creating a duplicate', async () => {
         const set = buildSet()
         const displayName = 'Other/unknown Ownership'
@@ -332,6 +442,28 @@ describe('createCatchAllGroup', () => {
                     c.method === 'POST' && c.path === 'organisationUnitGroups'
             )
         ).toBe(false)
+    })
+})
+
+describe('generateCatchAllNames', () => {
+    it('produces the name the dialog prefills', () => {
+        expect(generateCatchAllNames(buildSet())).toEqual({
+            displayName: 'Other/unknown Ownership',
+            shortName: 'Other/unknown Ownership',
+        })
+    })
+
+    // The tail is reserved for the set id rather than plainly truncated:
+    // DHIS2 enforces shortName uniqueness, so two sets agreeing in their
+    // first ~40 characters would otherwise collide.
+    it('reserves the tail for the set id when the name is too long', () => {
+        const long = buildSet({
+            displayName: 'x'.repeat(60),
+            id: 'abcdefghijk',
+        })
+        const { shortName } = generateCatchAllNames(long)
+        expect(shortName).toHaveLength(50)
+        expect(shortName.endsWith(' abcdefghijk')).toBe(true)
     })
 })
 

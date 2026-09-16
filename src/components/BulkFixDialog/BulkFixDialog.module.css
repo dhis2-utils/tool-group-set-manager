@@ -40,3 +40,14 @@
     flex-direction: column;
     gap: 8px;
 }
+
+/* The create-catch-all step (spec 5.2): two name fields above the button
+   that uses them, so the name is something the user reads and edits before
+   the group exists rather than after. */
+.createCatchAll {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+    max-width: 420px;
+}
