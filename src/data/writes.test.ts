@@ -1,5 +1,9 @@
 import { ENDPOINTS } from './endpoints'
-import { UNPARSEABLE_RESPONSE, writeMemberships } from './writes'
+import {
+    DEFAULT_BATCH_SIZE,
+    UNPARSEABLE_RESPONSE,
+    writeMemberships,
+} from './writes'
 import { GroupChange } from '@/engine/changeSet'
 import { ObjectType } from '@/engine/types'
 
@@ -42,6 +46,37 @@ describe('writeMemberships', () => {
                 },
             },
         ])
+    })
+
+    // Plan 7 Task 5, Branch A. The number is a measurement, not a
+    // preference: batch 5000 wrote 91,892 memberships in 47.4s against
+    // batch 1000's 192s, and cost 2.9x less server work per object while
+    // doing it (19.5 rows fetched per object against 56.1). See
+    // docs/superpowers/notes/2026-09-plan7-write-shapes.md and spec 6.4.
+    // Pinned here so a future change to it has to be a deliberate one.
+    it('defaults to the batch size measured fastest in Plan 7', async () => {
+        expect(DEFAULT_BATCH_SIZE).toBe(5000)
+
+        const calls: unknown[] = []
+        const fetcher = async (_path: string, init?: RequestInit) => {
+            calls.push(JSON.parse(String(init?.body)))
+            return okStats(
+                (JSON.parse(String(init?.body)) as { additions: unknown[] })
+                    .additions.length
+            )
+        }
+        // One more than a single batch's worth, so the split is observable.
+        const additions = Array.from(
+            { length: DEFAULT_BATCH_SIZE + 1 },
+            (_, i) => `ou${i}`
+        )
+        await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            [{ groupId: 'g1', additions, deletions: [] }],
+            () => undefined
+        )
+        expect(calls).toHaveLength(2)
     })
 
     it('splits a change larger than the batch size and reports progress once per batch', async () => {

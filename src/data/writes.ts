@@ -80,6 +80,38 @@ interface ImportReportBody {
 }
 
 /**
+ * Ids per collection request, and a measured number rather than a chosen one
+ * (spec §6.4, Plan 7 Task 2).
+ *
+ * DHIS2 re-reads a group's whole collection on every collection write, so the
+ * cost of a bulk fix is dominated by how many times that re-read happens --
+ * which is the number of batches, not the number of memberships. Measured
+ * over 91,892 memberships on a 266,396-organisation-unit instance, writing
+ * the same population at three batch sizes:
+ *
+ *   batch   elapsed   requests   rows fetched per object written
+ *     250     823 s        369   397.5
+ *    1000     192 s         93    56.1   <- the previous default
+ *    5000      47 s         20    19.5
+ *
+ * So a bigger batch is better on both axes at once: four times faster than
+ * the old default *and* 2.9x less work asked of the server per object. The
+ * instinct that smaller batches are gentler on a shared instance is exactly
+ * backwards here, and 250 is the measurement that retires it.
+ *
+ * 5000 is where the measurement stopped, not a proven optimum -- the trend
+ * had not turned. It was not raised further because 5000 already meets
+ * §6.1's ~60-second budget (47 s here, ~40 s at the 77,017 objects §6.1
+ * states) and a larger payload buys correspondingly less.
+ *
+ * Full numbers, including why the metadata-import shape was measured, won on
+ * every axis, and was still not adopted (its concurrency guard cannot be
+ * built on 2.41-2.43 -- see 2026-09-plan7-lastupdated-guard.md):
+ * docs/superpowers/notes/2026-09-plan7-write-shapes.md.
+ */
+export const DEFAULT_BATCH_SIZE = 5000
+
+/**
  * Reconciles what a batch asked for against what the server's stats confirm
  * it did. Every bucket counts as a success, including `ignored`: an addition
  * of a member that is already there leaves the member where the caller
@@ -167,7 +199,7 @@ export async function writeMemberships(
     objectType: ObjectType,
     changes: GroupChange[],
     onProgress: (done: number, total: number) => void,
-    batchSize = 1000
+    batchSize = DEFAULT_BATCH_SIZE
 ): Promise<WriteResult> {
     const endpoint = ENDPOINTS[objectType]
     const batches = changes.flatMap((change) => splitChange(change, batchSize))
