@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-16T11:38:35.049Z\n"
-"PO-Revision-Date: 2026-09-16T11:38:35.049Z\n"
+"POT-Creation-Date: 2026-09-16T11:46:50.668Z\n"
+"PO-Revision-Date: 2026-09-16T11:46:50.668Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -329,6 +329,12 @@ msgstr "{group} (read-only for you)"
 
 msgid "Conflict between {groups}"
 msgstr "Conflict between {groups}"
+
+msgid "Reloading metadata…"
+msgstr "Reloading metadata…"
+
+msgid "Refresh"
+msgstr "Refresh"
 
 msgid ""
 "The change was saved to the server and this row now reflects it, but the "

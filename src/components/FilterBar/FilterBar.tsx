@@ -10,9 +10,22 @@ import styles from './FilterBar.module.css'
  * button under `align-items: center`, which is the misalignment this
  * component replaces.)
  */
-export const FilterBar = ({ children }: { children: React.ReactNode }) => (
+export const FilterBar = ({
+    children,
+    status,
+}: {
+    children: React.ReactNode
+    /**
+     * Right-aligned, and deliberately not a `FilterBarField`: everything
+     * else in this row is label-above because it is something you set, and
+     * being the one thing shaped differently is what makes this read as
+     * status rather than as another control (spec 2026-09-16 section 4.1).
+     */
+    status?: React.ReactNode
+}) => (
     <div className={styles.bar} data-test="filter-bar">
         <div className={styles.row}>{children}</div>
+        {status && <div className={styles.status}>{status}</div>}
     </div>
 )
 

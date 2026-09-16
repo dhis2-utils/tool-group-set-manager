@@ -1,0 +1,23 @@
+.freshness {
+    display: flex;
+    align-items: center;
+    gap: var(--spacers-dp8);
+}
+.dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.fresh {
+    background: #4caf50;
+}
+.stale {
+    background: #ff9302;
+}
+.busy {
+    background: #a0adba;
+}
+.staleText {
+    color: #8a5a00;
+}

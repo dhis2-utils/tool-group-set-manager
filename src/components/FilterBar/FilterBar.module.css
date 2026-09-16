@@ -1,8 +1,15 @@
 .bar {
+    display: flex;
+    justify-content: space-between;
     background: var(--colors-white);
     border: 1px solid var(--colors-grey300);
     border-radius: 3px;
     padding: var(--spacers-dp12) var(--spacers-dp16);
+}
+/* Keeps the status slot pinned to the right regardless of how many fields
+   the row has, and even if `.bar` above is ever changed away from flex. */
+.status {
+    margin-left: auto;
 }
 .row {
     display: flex;
