@@ -5,14 +5,20 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-16T13:22:02.198Z\n"
-"PO-Revision-Date: 2026-09-16T13:22:02.199Z\n"
+"POT-Creation-Date: 2026-09-16T14:53:37.538Z\n"
+"PO-Revision-Date: 2026-09-16T14:53:37.539Z\n"
 
 msgid "1 object"
 msgstr "1 object"
 
 msgid "{count} objects"
 msgstr "{count} objects"
+
+msgid "Apply 1 change"
+msgstr "Apply 1 change"
+
+msgid "Apply {count} changes"
+msgstr "Apply {count} changes"
 
 msgid "No group"
 msgstr "No group"
@@ -68,6 +74,27 @@ msgstr "Create group"
 
 msgid "Could not create the group"
 msgstr "Could not create the group"
+
+msgid "Checking the metadata is up to date…"
+msgstr "Checking the metadata is up to date…"
+
+msgid "The metadata changed while you were reviewing"
+msgstr "The metadata changed while you were reviewing"
+
+msgid ""
+"Someone else has changed this group set since the preview was calculated. "
+"The plan below has been recalculated against the current metadata — check "
+"it before applying."
+msgstr ""
+"Someone else has changed this group set since the preview was calculated. "
+"The plan below has been recalculated against the current metadata — check "
+"it before applying."
+
+msgid "Previewed"
+msgstr "Previewed"
+
+msgid "Will now change"
+msgstr "Will now change"
 
 msgid ""
 "Only objects missing from this set or in conflict are moved here -- "
@@ -145,6 +172,9 @@ msgstr "Next"
 
 msgid "Apply…"
 msgstr "Apply…"
+
+msgid "Review changes"
+msgstr "Review changes"
 
 msgid "Retry failed changes"
 msgstr "Retry failed changes"

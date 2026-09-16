@@ -25,6 +25,7 @@ import {
     PreviewRow,
 } from '@/components/ChangeSetPreview/ChangeSetPreview'
 import { toCsv } from '@/data/csv'
+import { ENDPOINTS } from '@/data/endpoints'
 import { createFetcher } from '@/data/fetcher'
 import {
     createCatchAllGroup,
@@ -36,8 +37,8 @@ import {
     mergeOutcomes,
     outcomeText,
 } from '@/data/writeOutcomes'
-import { BatchOutcome } from '@/data/writes'
-import { ChangeSet } from '@/engine/changeSet'
+import { BatchOutcome, DEFAULT_BATCH_SIZE } from '@/data/writes'
+import { ChangeSet, GroupChange } from '@/engine/changeSet'
 import { ObjectFilter } from '@/engine/queries'
 import { AssignmentPlan, ObjectsResult, ScopeRef } from '@/engine/store'
 import { GroupSetMeta, Status } from '@/engine/types'
@@ -112,6 +113,14 @@ const objectsCountLabel = (count: number) =>
     count === 1
         ? i18n.t('1 object')
         : interpolate(i18n.t('{count} objects'), {
+              count: count.toLocaleString(),
+          })
+
+/** Task 9: the re-confirmation button's own count-aware label. */
+const applyChangesLabel = (count: number) =>
+    count === 1
+        ? i18n.t('Apply 1 change')
+        : interpolate(i18n.t('Apply {count} changes'), {
               count: count.toLocaleString(),
           })
 
@@ -238,6 +247,28 @@ export const BulkFixDialog = ({
     // server. Cleared at the start of every write so a stale error from a
     // previous attempt cannot linger over a fresh one.
     const [applyError, setApplyError] = useState<string | null>(null)
+
+    // Task 9 (spec 5.1/5.4): the pre-write freshness check. `checkingFreshness`
+    // is true only while the import-route groups are being re-read and the
+    // plan recomputed -- never for the common case where nothing crosses the
+    // import threshold, which writes straight through with none of this ever
+    // touched. `recheck` holds the previewed count and the recomputed plan
+    // once the two disagree, so the re-confirmation can show both and apply
+    // the recomputed one specifically, never the stale preview. `planOverride`
+    // is what makes "Review changes" carry the recomputed plan back to the
+    // preview step (spec 5.3) without every other reader of `plan` below (the
+    // sample, the CSV export, the summary line) needing its own copy of that
+    // logic -- it is cleared whenever the user leaves the preview step, so a
+    // later, unrelated preview can never be shadowed by a stale recompute.
+    const [checkingFreshness, setCheckingFreshness] = useState(false)
+    const [recheck, setRecheck] = useState<{
+        previewed: number
+        recomputed: AssignmentPlan
+        completeMembers: Map<string, string[]>
+    } | null>(null)
+    const [planOverride, setPlanOverride] = useState<AssignmentPlan | null>(
+        null
+    )
 
     const { config: gsiConfig, isLoaded: gsiConfigLoaded } = useGsiConfig()
 
@@ -366,7 +397,7 @@ export const BulkFixDialog = ({
 
     const previewEnabled = step === 'preview' && targetGroupId !== ''
     const {
-        data: plan,
+        data: rawPlan,
         isLoading: planLoading,
         error: planError,
     } = useEngineQuery<AssignmentPlan>(
@@ -379,6 +410,12 @@ export const BulkFixDialog = ({
         [set.id, scope, populationFilter, targetGroupId],
         previewEnabled
     )
+    // Task 9: every reader below (`displaySample`, the CSV export, the
+    // summary line, `handleApply` itself) reads `plan`, not `rawPlan` -- so
+    // "Review changes" carrying the recomputed plan back to the preview step
+    // (spec 5.3) is one assignment here, not a second copy of this logic at
+    // every call site.
+    const plan = planOverride ?? rawPlan
 
     // D4: the sample pages through the same `objectsFor` the Objects table
     // uses, now with `populationFilter` -- so a `selection` (via the new
@@ -507,13 +544,68 @@ export const BulkFixDialog = ({
             : []),
     ]
 
-    // D5: the plan the preview rendered is the plan applied -- `plan.changes`
-    // is read once here and never recomputed, so a user can never end up
-    // applying something other than what they were shown.
-    const handleApply = () => {
-        if (!plan) {
-            return
+    /**
+     * The membership of the groups this plan will write by metadata import,
+     * read fresh from the server.
+     *
+     * Only those groups. An import replaces a group's whole collection, so a
+     * member someone else added since our snapshot is absent from the list we
+     * send and is silently dropped -- that is the hazard this read exists to
+     * remove. A batched delta touches only the ids it names and cannot do it,
+     * so re-reading a group about to receive a delta buys no safety and costs
+     * 1-2s (docs/superpowers/notes/2026-09-plan8-reread-cost.md).
+     *
+     * Returns an empty map when nothing crosses the threshold, which is the
+     * common case -- the caller then skips the whole check.
+     */
+    const readImportRouteGroups = async (
+        planChanges: GroupChange[]
+    ): Promise<Map<string, string[]>> => {
+        const endpoint = ENDPOINTS[set.objectType]
+        const ids = planChanges
+            .filter(
+                (c) =>
+                    c.additions.length + c.deletions.length >
+                    DEFAULT_BATCH_SIZE
+            )
+            .map((c) => c.groupId)
+        if (ids.length === 0) {
+            return new Map()
         }
+        const entries = await Promise.all(
+            ids.map(async (groupId) => {
+                const response = await fetcher(
+                    `${endpoint.groups}/${groupId}/${endpoint.members}?fields=id&paging=false`,
+                    { cache: 'no-store' }
+                )
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`)
+                }
+                const body = (await response.json()) as Record<
+                    string,
+                    { id: string }[]
+                >
+                return [
+                    groupId,
+                    (body[endpoint.members] ?? []).map((o) => o.id),
+                ] as const
+            })
+        )
+        return new Map(entries)
+    }
+
+    // D5, extended by Task 9: the plan the preview rendered is the plan
+    // applied -- `plan.changes` is read once here and never recomputed from
+    // `useEngineQuery`'s own copy, so a background requery can never smuggle
+    // in something other than what was shown. Task 9 adds one exception, and
+    // only one: when a group in that plan is large enough to take the import
+    // route (spec 5.1), its membership is re-read from the server first, and
+    // if that changes the plan, the recomputed one is what gets applied --
+    // never the stale preview (spec 5.3).
+    const performWrite = (
+        changesToWrite: GroupChange[],
+        completeMembers?: Map<string, string[]>
+    ) => {
         setStep('apply')
         setProgress(null)
         setWriteResult(null)
@@ -521,10 +613,11 @@ export const BulkFixDialog = ({
         setApplyError(null)
         write({
             set,
-            changes: plan.changes,
+            changes: changesToWrite,
             action: changeSetAction,
             note,
             targetGroupId,
+            completeMembers,
             onProgress: (done, total) => setProgress({ done, total }),
         })
             .then((result) => {
@@ -539,6 +632,71 @@ export const BulkFixDialog = ({
                 // nothing happened.
                 setApplyError(e instanceof Error ? e.message : String(e))
             })
+    }
+
+    const handleApply = async () => {
+        if (!plan) {
+            return
+        }
+        setApplyError(null)
+        let completeMembers: Map<string, string[]>
+        try {
+            completeMembers = await readImportRouteGroups(plan.changes)
+        } catch (e) {
+            // A failed re-read must never fall through to a write against
+            // data that could not be confirmed fresh -- the whole point of
+            // this check is that an import route is only safe against
+            // membership just read from the server.
+            setApplyError(e instanceof Error ? e.message : String(e))
+            return
+        }
+        if (completeMembers.size === 0) {
+            // The common case: no group in this plan takes the import
+            // route, so there is nothing a concurrent editor could have
+            // silently dropped, and nothing to check -- write exactly as
+            // before, with no progress message.
+            performWrite(plan.changes)
+            return
+        }
+        setCheckingFreshness(true)
+        try {
+            if (client) {
+                await client.call(
+                    'setGroupMembers',
+                    set.objectType,
+                    Array.from(completeMembers, ([groupId, memberIds]) => ({
+                        groupId,
+                        memberIds,
+                    }))
+                )
+            }
+            const recomputed = client
+                ? await client.call<AssignmentPlan>(
+                      'planAssignment',
+                      set.id,
+                      scope,
+                      populationFilter,
+                      targetGroupId
+                  )
+                : plan
+            const unchanged =
+                recomputed.affected === plan.affected &&
+                JSON.stringify(recomputed.changes) ===
+                    JSON.stringify(plan.changes)
+            if (unchanged) {
+                performWrite(recomputed.changes, completeMembers)
+            } else {
+                setRecheck({
+                    previewed: plan.affected,
+                    recomputed,
+                    completeMembers,
+                })
+            }
+        } catch (e) {
+            setApplyError(e instanceof Error ? e.message : String(e))
+        } finally {
+            setCheckingFreshness(false)
+        }
     }
 
     // D2: retry is built from the previous result's `unaccounted` batches,
@@ -586,7 +744,7 @@ export const BulkFixDialog = ({
     return (
         <Modal
             position="middle"
-            onClose={isWriting ? () => undefined : onClose}
+            onClose={isWriting || checkingFreshness ? () => undefined : onClose}
             large
         >
             <ModalTitle>
@@ -695,6 +853,50 @@ export const BulkFixDialog = ({
                     <div>
                         {planLoading && <CircularLoader small />}
                         {planError && <NoticeBox error>{planError}</NoticeBox>}
+                        {/* Task 9 (spec 5.1/5.4): shown only for a plan with
+                            at least one group taking the import route --
+                            the common case (every group batched) never sets
+                            `checkingFreshness` at all. */}
+                        {checkingFreshness && (
+                            <div className={styles.progressRow}>
+                                <CircularLoader small />
+                                <span>
+                                    {i18n.t(
+                                        'Checking the metadata is up to date…'
+                                    )}
+                                </span>
+                            </div>
+                        )}
+                        {/* Task 9 (spec 5.3): the recomputed plan disagreed
+                            with the one just previewed -- rendered in place
+                            of the checking indicator above, never together
+                            with it. */}
+                        {recheck && !checkingFreshness && (
+                            <NoticeBox
+                                warning
+                                title={i18n.t(
+                                    'The metadata changed while you were reviewing'
+                                )}
+                            >
+                                <p>
+                                    {i18n.t(
+                                        'Someone else has changed this group set since the preview was calculated. The plan below has been recalculated against the current metadata — check it before applying.'
+                                    )}
+                                </p>
+                                <p className={styles.recheckCounts}>
+                                    <span>
+                                        {i18n.t('Previewed')}:{' '}
+                                        <s>
+                                            {recheck.previewed.toLocaleString()}
+                                        </s>
+                                    </span>
+                                    <span>
+                                        {i18n.t('Will now change')}:{' '}
+                                        {recheck.recomputed.affected.toLocaleString()}
+                                    </span>
+                                </p>
+                            </NoticeBox>
+                        )}
                         {plan && (
                             <>
                                 {action === 'moveToCatchAll' && (
@@ -890,12 +1092,22 @@ export const BulkFixDialog = ({
                     (writeResult || applyError) ? (
                         <Button onClick={onClose}>{i18n.t('Close')}</Button>
                     ) : (
-                        <Button onClick={onClose} disabled={isWriting}>
+                        <Button
+                            onClick={onClose}
+                            disabled={isWriting || checkingFreshness}
+                        >
                             {i18n.t('Cancel')}
                         </Button>
                     )}
-                    {step === 'preview' && !isWriting && (
-                        <Button onClick={() => setStep('action')}>
+                    {step === 'preview' && !isWriting && !recheck && (
+                        <Button
+                            disabled={checkingFreshness}
+                            onClick={() => {
+                                setStep('action')
+                                setRecheck(null)
+                                setPlanOverride(null)
+                            }}
+                        >
                             {i18n.t('Back')}
                         </Button>
                     )}
@@ -908,10 +1120,48 @@ export const BulkFixDialog = ({
                             {i18n.t('Next')}
                         </Button>
                     )}
-                    {step === 'preview' && (
-                        <Button primary disabled={!plan} onClick={handleApply}>
+                    {step === 'preview' && !recheck && (
+                        <Button
+                            primary
+                            disabled={!plan || checkingFreshness}
+                            onClick={handleApply}
+                        >
                             {i18n.t('Apply…')}
                         </Button>
+                    )}
+                    {/* Task 9 (spec 5.3): replaces Back/Apply… while the
+                        recomputed plan disagrees with the preview -- "Review
+                        changes" carries the recomputed plan back into the
+                        preview above (`planOverride`), and "Apply {n}
+                        changes" writes it directly, never a second recheck. */}
+                    {step === 'preview' && recheck && (
+                        <>
+                            <Button
+                                onClick={() => {
+                                    if (!recheck) {
+                                        return
+                                    }
+                                    setPlanOverride(recheck.recomputed)
+                                    setRecheck(null)
+                                }}
+                            >
+                                {i18n.t('Review changes')}
+                            </Button>
+                            <Button
+                                primary
+                                onClick={() => {
+                                    if (!recheck) {
+                                        return
+                                    }
+                                    performWrite(
+                                        recheck.recomputed.changes,
+                                        recheck.completeMembers
+                                    )
+                                }}
+                            >
+                                {applyChangesLabel(recheck.recomputed.affected)}
+                            </Button>
+                        </>
                     )}
                     {step === 'apply' &&
                         writeResult &&

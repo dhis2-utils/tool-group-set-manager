@@ -35,6 +35,13 @@
     gap: 8px;
 }
 
+/* Task 9: the pre-write freshness re-confirmation's previewed/recalculated
+   counts, side by side rather than stacked. */
+.recheckCounts {
+    display: flex;
+    gap: 16px;
+}
+
 .resultPanel {
     display: flex;
     flex-direction: column;

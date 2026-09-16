@@ -80,6 +80,15 @@ jest.mock('@/hooks/useMembershipWrite', () => ({
     }),
 }))
 
+// Task 9: `readImportRouteGroups` calls the real fetcher, not `client.call`
+// -- this is the one place in the file that needs the raw HTTP layer
+// stubbed, since every other data access goes through the mocked engine
+// client or the mocked hooks above.
+const mockFetcher = jest.fn()
+jest.mock('@/data/fetcher', () => ({
+    createFetcher: () => mockFetcher,
+}))
+
 const VIOLATION_STATUSES = [
     Status.MissingError,
     Status.MissingWarning,
@@ -130,6 +139,14 @@ beforeEach(() => {
     mockLoadConfig.mockResolvedValue({
         catchAllGroup: {},
         includeTracker: false,
+    })
+    // Harmless default: nothing outside the Task 9 describe block below
+    // exercises a plan large enough to reach the import route, so this is
+    // never actually invoked by those tests -- it exists so a future one
+    // that accidentally does cannot fail on an unmocked fetcher instead.
+    mockFetcher.mockResolvedValue({
+        ok: true,
+        json: async () => ({}),
     })
     mockUseEngineQuery.mockImplementation((method: string) => {
         if (method === 'planAssignment') {
@@ -1627,5 +1644,216 @@ describe('BulkFixDialog apply step', () => {
             screen.getByRole('button', { name: /close modal dialog/i })
         )
         expect(onClose).not.toHaveBeenCalled()
+    })
+
+    // Task 9 (spec 5.1/5.4): the bulk fix's pre-write freshness check. Only
+    // a group whose OWN delta exceeds DEFAULT_BATCH_SIZE (5000) takes the
+    // import route and is therefore worth re-reading -- IMPORT_CHANGE below
+    // is sized to cross that on purpose, so the default fixture for this
+    // block genuinely exercises the check rather than skipping it.
+    describe('pre-write freshness check', () => {
+        const IMPORT_CHANGE = [
+            {
+                groupId: 'g2',
+                additions: Array.from(
+                    { length: 5001 },
+                    (_, i) => `m${i}`
+                ),
+                deletions: [],
+            },
+        ]
+
+        // Extracted from `goToApply` above: render, choose the (preselected)
+        // target, and click Next through to the preview, where the "Apply…"
+        // button lives. Deliberately does not touch `mockUseEngineQuery` or
+        // `mockClientCall` -- every test in this block (including this
+        // block's own `beforeEach`) owns those, and a helper that reset them
+        // here would silently discard whichever scenario the caller just set
+        // up.
+        async function renderAndReachApply() {
+            render(
+                <BulkFixDialog
+                    set={setForApply}
+                    scope={scope}
+                    filter={{}}
+                    onClose={jest.fn()}
+                    onApplied={jest.fn()}
+                />
+            )
+            await waitFor(() =>
+                expect(screen.getByText('Beta')).toBeInTheDocument()
+            )
+            fireEvent.click(screen.getByRole('button', { name: /next/i }))
+            await screen.findByRole('button', { name: /^apply/i })
+        }
+
+        beforeEach(() => {
+            mockLoadConfig.mockResolvedValue({
+                catchAllGroup: { own: 'g2' },
+                includeTracker: false,
+            })
+            // Default scenario: one group's delta crosses the import
+            // threshold, and the recompute agrees with the preview -- the
+            // "large fix, nothing actually changed underneath it" case.
+            // Individual tests below override either mock to exercise the
+            // no-crossing and mismatch scenarios.
+            mockUseEngineQuery.mockImplementation((method: string) => {
+                if (method === 'planAssignment') {
+                    return {
+                        data: plan({
+                            changes: IMPORT_CHANGE,
+                            affected: IMPORT_CHANGE[0].additions.length,
+                        }),
+                        isLoading: false,
+                        error: null,
+                    }
+                }
+                return {
+                    data: { total: 0, offset: 0, items: [] },
+                    isLoading: false,
+                    error: null,
+                }
+            })
+            mockClientCall.mockImplementation((method: string) => {
+                if (method === 'setGroupMembers') {
+                    return Promise.resolve(undefined)
+                }
+                if (method === 'planAssignment') {
+                    return Promise.resolve(
+                        plan({
+                            changes: IMPORT_CHANGE,
+                            affected: IMPORT_CHANGE[0].additions.length,
+                        })
+                    )
+                }
+                return Promise.resolve(undefined)
+            })
+            mockFetcher.mockResolvedValue({
+                ok: true,
+                json: async () => ({ organisationUnits: [{ id: 'm0' }] }),
+            })
+            mockWrite.mockResolvedValue({
+                outcomes: [],
+                applied: [],
+                unaccounted: [],
+                changeSet: {} as never,
+            })
+        })
+
+        it('writes straight through, with no re-read at all, when nothing crosses the import threshold', async () => {
+            // The common case by far: a few hundred violations, every group
+            // taking the batched delta route. A delta cannot silently drop
+            // a concurrent editor's member, so there is nothing to check
+            // and nothing to pay.
+            mockUseEngineQuery.mockImplementation((method: string) =>
+                method === 'planAssignment'
+                    ? { data: plan({ affected: 3 }), isLoading: false, error: null }
+                    : {
+                          data: { total: 0, offset: 0, items: [] },
+                          isLoading: false,
+                          error: null,
+                      }
+            )
+            mockClientCall.mockResolvedValue(plan({ affected: 3 }))
+            await renderAndReachApply()
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            expect(mockWrite).toHaveBeenCalled()
+            expect(
+                screen.queryByText(
+                    'The metadata changed while you were reviewing'
+                )
+            ).not.toBeInTheDocument()
+            expect(mockFetcher).not.toHaveBeenCalled()
+        })
+
+        it('blocks and re-confirms when the recomputed plan differs', async () => {
+            mockUseEngineQuery.mockImplementation((method: string) =>
+                method === 'planAssignment'
+                    ? {
+                          data: plan({
+                              changes: IMPORT_CHANGE,
+                              affected: 45,
+                          }),
+                          isLoading: false,
+                          error: null,
+                      }
+                    : {
+                          data: { total: 0, offset: 0, items: [] },
+                          isLoading: false,
+                          error: null,
+                      }
+            )
+            // setGroupMembers resolves, then the recomputed plan comes back
+            // smaller.
+            mockClientCall.mockImplementation((method: string) =>
+                method === 'planAssignment'
+                    ? Promise.resolve(plan({ affected: 44 }))
+                    : Promise.resolve(undefined)
+            )
+            await renderAndReachApply()
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            expect(
+                await screen.findByText(
+                    'The metadata changed while you were reviewing'
+                )
+            ).toBeInTheDocument()
+            expect(mockWrite).not.toHaveBeenCalled()
+        })
+
+        it('writes the recalculated plan, not the previewed one, after re-confirming', async () => {
+            mockUseEngineQuery.mockImplementation((method: string) =>
+                method === 'planAssignment'
+                    ? {
+                          data: plan({
+                              changes: IMPORT_CHANGE,
+                              affected: 45,
+                          }),
+                          isLoading: false,
+                          error: null,
+                      }
+                    : {
+                          data: { total: 0, offset: 0, items: [] },
+                          isLoading: false,
+                          error: null,
+                      }
+            )
+            mockClientCall.mockImplementation((method: string) =>
+                method === 'planAssignment'
+                    ? Promise.resolve(plan({ affected: 44 }))
+                    : Promise.resolve(undefined)
+            )
+            await renderAndReachApply()
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            await screen.findByText(
+                'The metadata changed while you were reviewing'
+            )
+            await act(async () => {
+                fireEvent.click(
+                    screen.getByRole('button', { name: 'Apply 44 changes' })
+                )
+            })
+            expect(mockWrite).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    changes: plan({ affected: 44 }).changes,
+                })
+            )
+        })
+
+        it('passes the freshly read membership to the writer', async () => {
+            // Task 8's import route is unreachable without this, by design.
+            await renderAndReachApply()
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            expect(mockWrite).toHaveBeenCalledWith(
+                expect.objectContaining({ completeMembers: expect.any(Map) })
+            )
+        })
     })
 })
