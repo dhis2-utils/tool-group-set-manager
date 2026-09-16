@@ -288,6 +288,53 @@ export class EngineStore {
         })
     }
 
+    /**
+     * Replaces the named groups' membership with exactly `memberIds`, then
+     * re-evaluates the sets that contain them.
+     *
+     * The absolute counterpart to `applyChangeSet`, and it exists for the bulk
+     * fix's pre-write freshness check (spec 2026-09-16 section 5.2): a plan
+     * can only be recomputed against fresh data once that data is in the
+     * engine, and `loadMemberships` replaces a whole type rather than named
+     * groups.
+     *
+     * Unknown ids and unknown groups are ignored rather than fabricated, the
+     * same reading `applyChangeSet` applies -- a group the type never loaded
+     * is not this method's to invent, and an object id that no longer exists
+     * must not become a member of anything.
+     */
+    setGroupMembers(
+        objectType: ObjectType,
+        groups: { groupId: string; memberIds: string[] }[]
+    ): void {
+        const t = this.types.get(objectType)
+        if (!t) {
+            return // Nothing loaded for this type; nothing to set.
+        }
+        const touchedGroups = new Set<string>()
+        groups.forEach(({ groupId, memberIds }) => {
+            if (!t.membersByGroup.has(groupId)) {
+                return
+            }
+            t.membersByGroup.set(
+                groupId,
+                memberIds.filter((id) => t.indexOf.has(id))
+            )
+            touchedGroups.add(groupId)
+        })
+        // Same narrowing as applyChangeSet, and for the same reason: only the
+        // sets containing one of these groups can have changed, and a full
+        // rebuild of every set of the type is not something to pay per Apply.
+        this.groupSets.forEach((set) => {
+            if (
+                set.objectType === objectType &&
+                set.groups.some((g) => touchedGroups.has(g.id))
+            ) {
+                this.evaluateOne(set)
+            }
+        })
+    }
+
     /** Rebuilds membership and status for every set whose object type is loaded. */
     evaluate(): void {
         this.sets.clear()

@@ -27,6 +27,7 @@ export type EngineMethod =
     | 'setNames'
     | 'evaluate'
     | 'applyChangeSet'
+    | 'setGroupMembers'
     | 'dashboard'
     | 'matrixFor'
     | 'objectsFor'

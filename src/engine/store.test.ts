@@ -837,6 +837,55 @@ describe('EngineStore', () => {
     })
 })
 
+describe('EngineStore.setGroupMembers', () => {
+    const scope = { objectType: 'organisationUnit' as const, rootId: null }
+
+    it("replaces a group's membership absolutely rather than merging", () => {
+        const store = loadedStore()
+        // pub starts as ['a1', 'a2', 'unknown-id']; priv starts as
+        // ['a2', 'b1']. A merge implementation would still show a1/a2 in
+        // pub afterwards (and b1 would conflict, being in both groups); a
+        // replace leaves pub with exactly b1, alone in its own group.
+        store.setGroupMembers('organisationUnit', [
+            { groupId: 'pub', memberIds: ['b1'] },
+            { groupId: 'priv', memberIds: [] },
+        ])
+        const result = store.objectsFor('own', scope, { group: 0 }, 0, 100)
+        expect(result.items.map((i) => i.id)).toEqual(['b1'])
+    })
+
+    it('ignores ids the type has never loaded, as applyChangeSet does', () => {
+        const store = loadedStore()
+        store.setGroupMembers('organisationUnit', [
+            { groupId: 'pub', memberIds: ['a1', 'nosuchobject'] },
+        ])
+        const result = store.objectsFor('own', scope, { group: 0 }, 0, 100)
+        expect(result.items.map((i) => i.id)).toEqual(['a1'])
+    })
+
+    it('ignores a group the type has never loaded', () => {
+        const store = loadedStore()
+        expect(() =>
+            store.setGroupMembers('organisationUnit', [
+                { groupId: 'nosuchgroup', memberIds: ['a1'] },
+            ])
+        ).not.toThrow()
+    })
+
+    it('re-evaluates status for the set it touched', () => {
+        // Emptying a group's membership must be reflected by objectsFor,
+        // which reads the cached evaluated state rather than
+        // membersByGroup directly -- proving evaluateOne ran, not just
+        // that membersByGroup changed.
+        const store = loadedStore()
+        store.setGroupMembers('organisationUnit', [
+            { groupId: 'pub', memberIds: [] },
+        ])
+        const result = store.objectsFor('own', scope, { group: 0 }, 0, 100)
+        expect(result.total).toBe(0)
+    })
+})
+
 describe('EngineStore.planAssignment', () => {
     const scope = { objectType: 'organisationUnit' as const, rootId: null }
 
