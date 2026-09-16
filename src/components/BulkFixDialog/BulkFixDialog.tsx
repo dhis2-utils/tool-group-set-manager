@@ -14,7 +14,7 @@ import {
     SingleSelectField,
     SingleSelectOption,
 } from '@dhis2/ui'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import styles from './BulkFixDialog.module.css'
 import {
     afterIdsPrepared,
@@ -269,6 +269,22 @@ export const BulkFixDialog = ({
     const [planOverride, setPlanOverride] = useState<AssignmentPlan | null>(
         null
     )
+    // Fix round 1, finding 2: the check itself (the re-read, or the
+    // recompute) can fail before anything is written -- this is its own
+    // error, distinct from `applyError` (which is specifically about a
+    // write whose outcome could not be confirmed) and rendered on the
+    // preview step rather than the apply step, since no write has happened
+    // yet when this is set. The message stored here is diagnostic only,
+    // same convention as `applyError` -- the rendered notice is a fixed,
+    // translated sentence, never this raw text.
+    const [checkError, setCheckError] = useState<string | null>(null)
+    // Fix round 1, finding 1: a plain state flag is not enough to stop a
+    // second click landing before React has re-rendered the disabled
+    // button -- two synchronous clicks in the same tick both close over the
+    // same pre-update `checkingFreshness`. A ref is mutated immediately, so
+    // the second call sees it inside the very same synchronous burst that
+    // started the first.
+    const checkInFlightRef = useRef(false)
 
     const { config: gsiConfig, isLoaded: gsiConfigLoaded } = useGsiConfig()
 
@@ -545,6 +561,16 @@ export const BulkFixDialog = ({
     ]
 
     /**
+     * A group change large enough to take the import route (spec 6.1) --
+     * shared between the synchronous pre-check in `handleApply` (which
+     * decides whether to touch any of this machinery at all) and
+     * `readImportRouteGroups` below (which decides which ids to re-read),
+     * so the two can never disagree about where the threshold sits.
+     */
+    const takesImportRoute = (c: GroupChange): boolean =>
+        c.additions.length + c.deletions.length > DEFAULT_BATCH_SIZE
+
+    /**
      * The membership of the groups this plan will write by metadata import,
      * read fresh from the server.
      *
@@ -556,18 +582,17 @@ export const BulkFixDialog = ({
      * 1-2s (docs/superpowers/notes/2026-09-plan8-reread-cost.md).
      *
      * Returns an empty map when nothing crosses the threshold, which is the
-     * common case -- the caller then skips the whole check.
+     * common case -- though by the time `handleApply` calls this, it has
+     * already checked that with `takesImportRoute` itself (see the fix
+     * round 1 note there on why that check has to happen before this
+     * function is even called, not just inside it).
      */
     const readImportRouteGroups = async (
         planChanges: GroupChange[]
     ): Promise<Map<string, string[]>> => {
         const endpoint = ENDPOINTS[set.objectType]
         const ids = planChanges
-            .filter(
-                (c) =>
-                    c.additions.length + c.deletions.length >
-                    DEFAULT_BATCH_SIZE
-            )
+            .filter(takesImportRoute)
             .map((c) => c.groupId)
         if (ids.length === 0) {
             return new Map()
@@ -635,50 +660,65 @@ export const BulkFixDialog = ({
     }
 
     const handleApply = async () => {
-        if (!plan) {
+        // Fix round 1, finding 1: this guard has to be a ref, not just the
+        // `checkingFreshness` state below -- two clicks fired back to back,
+        // in the same synchronous burst, both close over the render that
+        // was current when the *first* click started, so a state check
+        // alone would let the second one through before React ever
+        // re-renders the disabled button. The ref is written synchronously,
+        // before this function's first `await`, so the second call sees it
+        // immediately.
+        if (!plan || checkInFlightRef.current) {
             return
         }
         setApplyError(null)
-        let completeMembers: Map<string, string[]>
-        try {
-            completeMembers = await readImportRouteGroups(plan.changes)
-        } catch (e) {
-            // A failed re-read must never fall through to a write against
-            // data that could not be confirmed fresh -- the whole point of
-            // this check is that an import route is only safe against
-            // membership just read from the server.
-            setApplyError(e instanceof Error ? e.message : String(e))
-            return
-        }
-        if (completeMembers.size === 0) {
-            // The common case: no group in this plan takes the import
-            // route, so there is nothing a concurrent editor could have
-            // silently dropped, and nothing to check -- write exactly as
-            // before, with no progress message.
+        setCheckError(null)
+        // Synchronous by construction (spec 5.1's own scoping rule): whether
+        // any group in this plan takes the import route is knowable from
+        // the plan already in hand, with no read of anything. Deciding it
+        // here, before `checkingFreshness` is ever touched, is what keeps
+        // the common case (no group crosses the threshold) genuinely inert
+        // -- no field read, no progress message, nothing to race.
+        const needsCheck = plan.changes.some(takesImportRoute)
+        if (!needsCheck) {
             performWrite(plan.changes)
             return
         }
+        if (!client) {
+            // Fix round 1, finding 3: the same shape as `handleDownloadCsv`
+            // above (`if (!client || !plan) return`) -- but that read-only
+            // export can bail silently, while this dialog is about to
+            // replace a group's whole collection, so the bail has to be
+            // loud. Writing the stale plan here (the previous behaviour)
+            // would apply decisions the user made against data that was
+            // never re-verified, with no signal that the check never ran.
+            setCheckError(i18n.t('The metadata could not be checked'))
+            return
+        }
+        // Fix round 1, finding 1: set *before* the read starts, not after
+        // it resolves -- the read is the only slow part (1-2s per group),
+        // and Cancel/Back/Apply/the modal's own close affordance all read
+        // this flag. Setting it after the `await` left a real window where
+        // all four were still enabled through the entire read.
+        checkInFlightRef.current = true
         setCheckingFreshness(true)
         try {
-            if (client) {
-                await client.call(
-                    'setGroupMembers',
-                    set.objectType,
-                    Array.from(completeMembers, ([groupId, memberIds]) => ({
-                        groupId,
-                        memberIds,
-                    }))
-                )
-            }
-            const recomputed = client
-                ? await client.call<AssignmentPlan>(
-                      'planAssignment',
-                      set.id,
-                      scope,
-                      populationFilter,
-                      targetGroupId
-                  )
-                : plan
+            const completeMembers = await readImportRouteGroups(plan.changes)
+            await client.call(
+                'setGroupMembers',
+                set.objectType,
+                Array.from(completeMembers, ([groupId, memberIds]) => ({
+                    groupId,
+                    memberIds,
+                }))
+            )
+            const recomputed = await client.call<AssignmentPlan>(
+                'planAssignment',
+                set.id,
+                scope,
+                populationFilter,
+                targetGroupId
+            )
             const unchanged =
                 recomputed.affected === plan.affected &&
                 JSON.stringify(recomputed.changes) ===
@@ -693,9 +733,15 @@ export const BulkFixDialog = ({
                 })
             }
         } catch (e) {
-            setApplyError(e instanceof Error ? e.message : String(e))
+            // Fix round 1, finding 2: the check itself failed -- nothing
+            // was written (nothing above this line ever calls
+            // `performWrite`), so this must never be confused with
+            // `applyError`, which specifically means the opposite: a write
+            // that did happen but could not be confirmed.
+            setCheckError(e instanceof Error ? e.message : String(e))
         } finally {
             setCheckingFreshness(false)
+            checkInFlightRef.current = false
         }
     }
 
@@ -866,6 +912,24 @@ export const BulkFixDialog = ({
                                     )}
                                 </span>
                             </div>
+                        )}
+                        {/* Fix round 1, finding 2: the check itself failed
+                            (or, finding 3, there was no engine client to run
+                            it against) -- distinct from `applyError` below,
+                            which only ever renders on the apply step and
+                            means the opposite (a write happened but could
+                            not be confirmed). Nothing was written here. */}
+                        {checkError && !checkingFreshness && (
+                            <NoticeBox
+                                error
+                                title={i18n.t(
+                                    'The metadata could not be checked'
+                                )}
+                            >
+                                {i18n.t(
+                                    'Reading the latest metadata before applying failed, so nothing was written — try Apply again'
+                                )}
+                            </NoticeBox>
                         )}
                         {/* Task 9 (spec 5.3): the recomputed plan disagreed
                             with the one just previewed -- rendered in place
@@ -1106,6 +1170,7 @@ export const BulkFixDialog = ({
                                 setStep('action')
                                 setRecheck(null)
                                 setPlanOverride(null)
+                                setCheckError(null)
                             }}
                         >
                             {i18n.t('Back')}

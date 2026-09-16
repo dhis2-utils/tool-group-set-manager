@@ -67,8 +67,15 @@ jest.mock('@/hooks/useEngineQuery', () => ({
 
 const mockClientCall = jest.fn()
 const mockReload = jest.fn(async () => undefined)
+// Fix round 1, finding 3: mutable so a test can simulate "no engine client"
+// (e.g. the worker was torn down between the preview render and the Apply
+// click) -- reset to a real client in the top-level beforeEach below, since
+// every other test in the file expects the normal, non-null client.
+let mockEngineClient: { call: typeof mockClientCall } | null = {
+    call: mockClientCall,
+}
 jest.mock('@/hooks/useEngine', () => ({
-    useEngine: () => ({ client: { call: mockClientCall }, reload: mockReload }),
+    useEngine: () => ({ client: mockEngineClient, reload: mockReload }),
 }))
 
 const mockWrite = jest.fn()
@@ -136,6 +143,7 @@ const plan = (
 beforeEach(() => {
     jest.clearAllMocks()
     mockIsWriting = false
+    mockEngineClient = { call: mockClientCall }
     mockLoadConfig.mockResolvedValue({
         catchAllGroup: {},
         includeTracker: false,
@@ -1663,6 +1671,17 @@ describe('BulkFixDialog apply step', () => {
             },
         ]
 
+        // Fix round 1: a distinct, non-empty change list for the recomputed
+        // (44-affected) plan -- the original fixture reused `plan({ affected:
+        // 44 })`'s default empty `changes`, which discriminated today only
+        // because the previewed changes happened to be non-empty. This pins
+        // the actually-important property (the applied changes are the
+        // recomputed ones) against a fixture that would fail if `changes`
+        // and `affected` ever disagreed again.
+        const RECOMPUTED_CHANGE = [
+            { groupId: 'g2', additions: ['m0'], deletions: [] },
+        ]
+
         // Extracted from `goToApply` above: render, choose the (preselected)
         // target, and click Next through to the preview, where the "Apply…"
         // button lives. Deliberately does not touch `mockUseEngineQuery` or
@@ -1789,7 +1808,9 @@ describe('BulkFixDialog apply step', () => {
             // smaller.
             mockClientCall.mockImplementation((method: string) =>
                 method === 'planAssignment'
-                    ? Promise.resolve(plan({ affected: 44 }))
+                    ? Promise.resolve(
+                          plan({ changes: RECOMPUTED_CHANGE, affected: 44 })
+                      )
                     : Promise.resolve(undefined)
             )
             await renderAndReachApply()
@@ -1823,7 +1844,9 @@ describe('BulkFixDialog apply step', () => {
             )
             mockClientCall.mockImplementation((method: string) =>
                 method === 'planAssignment'
-                    ? Promise.resolve(plan({ affected: 44 }))
+                    ? Promise.resolve(
+                          plan({ changes: RECOMPUTED_CHANGE, affected: 44 })
+                      )
                     : Promise.resolve(undefined)
             )
             await renderAndReachApply()
@@ -1840,7 +1863,7 @@ describe('BulkFixDialog apply step', () => {
             })
             expect(mockWrite).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    changes: plan({ affected: 44 }).changes,
+                    changes: RECOMPUTED_CHANGE,
                 })
             )
         })
@@ -1854,6 +1877,144 @@ describe('BulkFixDialog apply step', () => {
             expect(mockWrite).toHaveBeenCalledWith(
                 expect.objectContaining({ completeMembers: expect.any(Map) })
             )
+        })
+
+        // Fix round 1, finding 1 (first consequence): two clicks landing
+        // before React ever re-renders the disabled Apply button must not
+        // start two independent checks -- and, downstream, must not produce
+        // two writes.
+        it('a second click while the freshness check is reading fresh metadata cannot start a second check or write', async () => {
+            let resolveFetch!: (value: unknown) => void
+            mockFetcher.mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        resolveFetch = resolve
+                    })
+            )
+            await renderAndReachApply()
+            // Both clicks inside one `act`, with no render flush between
+            // them -- exactly the race a plain `checkingFreshness` state
+            // check (rather than a ref) would lose, since neither click's
+            // closure has seen the other's update yet.
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            expect(mockFetcher).toHaveBeenCalledTimes(1)
+            await act(async () => {
+                resolveFetch({
+                    ok: true,
+                    json: async () => ({
+                        organisationUnits: [{ id: 'm0' }],
+                    }),
+                })
+            })
+            expect(mockWrite).toHaveBeenCalledTimes(1)
+        })
+
+        // Fix round 1, finding 1 (second consequence): Cancel -- and the
+        // modal's own close affordance -- must be disabled for the entire
+        // read, not just from some point after it resolves, or the dialog
+        // can be dismissed mid-check while the write still lands afterwards.
+        it('cannot cancel while the freshness check is reading fresh metadata, and no write follows', async () => {
+            const onClose = jest.fn()
+            let resolveFetch!: (value: unknown) => void
+            mockFetcher.mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        resolveFetch = resolve
+                    })
+            )
+            render(
+                <BulkFixDialog
+                    set={setForApply}
+                    scope={scope}
+                    filter={{}}
+                    onClose={onClose}
+                    onApplied={jest.fn()}
+                />
+            )
+            await waitFor(() =>
+                expect(screen.getByText('Beta')).toBeInTheDocument()
+            )
+            fireEvent.click(screen.getByRole('button', { name: /next/i }))
+            await screen.findByRole('button', { name: /^apply/i })
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            expect(
+                screen.getByText(/Checking the metadata is up to date/)
+            ).toBeInTheDocument()
+            const cancelButton = screen.getByRole('button', {
+                name: /^cancel$/i,
+            })
+            expect(cancelButton).toBeDisabled()
+            fireEvent.click(cancelButton)
+            expect(onClose).not.toHaveBeenCalled()
+            // The modal's own close affordance (Escape/backdrop, exposed
+            // here as its close button) is not a plain disabled control --
+            // @dhis2/ui's Modal is given a no-op in place of `onClose` while
+            // checking, so the button renders normally but does nothing.
+            fireEvent.click(
+                screen.getByRole('button', { name: /close modal dialog/i })
+            )
+            expect(onClose).not.toHaveBeenCalled()
+            expect(mockWrite).not.toHaveBeenCalled()
+            // Let the pending read settle so it cannot leak into another test.
+            await act(async () => {
+                resolveFetch({
+                    ok: true,
+                    json: async () => ({
+                        organisationUnits: [{ id: 'm0' }],
+                    }),
+                })
+            })
+        })
+
+        // Fix round 1, finding 2: the check itself can fail (a non-OK HTTP
+        // response from the re-read, here) before anything is written --
+        // this must show its own error, distinct from the apply step's "the
+        // write may have reached the server" wording, since nothing was
+        // written at all.
+        it('shows a distinct error, without writing, when the freshness check itself fails', async () => {
+            mockFetcher.mockResolvedValue({
+                ok: false,
+                status: 500,
+                json: async () => ({}),
+            })
+            await renderAndReachApply()
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            expect(
+                await screen.findByText(
+                    'The metadata could not be checked'
+                )
+            ).toBeInTheDocument()
+            expect(
+                screen.queryByText(/write may have reached the server/i)
+            ).not.toBeInTheDocument()
+            expect(mockWrite).not.toHaveBeenCalled()
+        })
+
+        // Fix round 1, finding 3: no engine client to push the fresh
+        // membership into or recompute against -- must bail the same way
+        // `handleDownloadCsv` does for a read-only export, except loudly,
+        // since writing the stale plan here would apply the user's
+        // unverified decisions to data that was never re-checked.
+        it('bails without writing when there is no engine client to check the plan against', async () => {
+            mockEngineClient = null
+            await renderAndReachApply()
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            expect(
+                await screen.findByText(
+                    'The metadata could not be checked'
+                )
+            ).toBeInTheDocument()
+            expect(mockWrite).not.toHaveBeenCalled()
+            expect(mockFetcher).not.toHaveBeenCalled()
         })
     })
 })
