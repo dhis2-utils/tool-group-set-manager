@@ -41,18 +41,6 @@ type DetailTab = 'overview' | 'objects' | 'usage' | 'integrity'
 /** Used only while nothing at all is known about the scope's level yet. */
 const DEFAULT_LEVEL = 1
 
-/**
- * Spec 5.3: the header's "Fix issues…" is the card/header shortcut that
- * "preselects all violations of one rule" -- opening it unfiltered would
- * hand the bulk fix dialog every correctly categorised object too (see
- * task-7-fix1.md's Critical finding).
- */
-const VIOLATION_STATUSES = [
-    Status.MissingError,
-    Status.MissingWarning,
-    Status.Conflict,
-]
-
 export const GroupSetDetail = () => {
     const { setId = '' } = useParams()
     const location = useLocation()
@@ -77,10 +65,12 @@ export const GroupSetDetail = () => {
         }
     }, [tab, integrity.available])
     const [filter, setFilter] = useState<ObjectFilter>({})
-    // The filter a bulk fix was opened for -- the header's own "Fix
-    // issues…" button opens it unfiltered (every object in the set), and
-    // ObjectsTab's button opens it against whatever the Objects tab is
-    // currently filtered to. `null` means the dialog is closed.
+    // The filter a bulk fix was opened for. Spec 5.1: ObjectsTab's own
+    // button is the only thing that sets this, so a bulk fix always acts on
+    // rows the user can see and has already been shown the count of. The
+    // header's old "Fix issues…" shortcut set it to every violation in the
+    // set with no way to narrow it, and is gone. `null` means the dialog is
+    // closed.
     const [bulkFixFilter, setBulkFixFilter] = useState<ObjectFilter | null>(
         null
     )
@@ -332,14 +322,6 @@ export const GroupSetDetail = () => {
                             {i18n.t('Run DHIS2 integrity checks')}
                         </Button>
                     )}
-                    <Button
-                        small
-                        onClick={() =>
-                            setBulkFixFilter({ statuses: VIOLATION_STATUSES })
-                        }
-                    >
-                        {i18n.t('Fix issues…')}
-                    </Button>
                 </div>
             </div>
             <LoadProgress status={status} />

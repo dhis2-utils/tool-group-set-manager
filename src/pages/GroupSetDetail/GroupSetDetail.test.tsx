@@ -391,6 +391,31 @@ it('queries organisation unit levels without the deprecated paging=false', async
     expect(params?.pageSize as number).toBeGreaterThanOrEqual(20)
 })
 
+// Spec 2026-09-15 §5.1: one way into the bulk fix, on the table the user is
+// already looking at. The header's coarse "Fix issues…" shortcut -- every
+// violation in the set, with no way to narrow it and no sight of the rows --
+// is gone. Nothing becomes unreachable: opening the dialog from the Objects
+// tab with no filter set still means every violation, and the user sees the
+// count first.
+describe('one fix entry point (§5.1)', () => {
+    it('offers no fix action in the page header', async () => {
+        renderDetail()
+        expect(await screen.findByText('Overview')).toBeInTheDocument()
+        expect(
+            screen.queryByRole('button', { name: 'Fix issues…' })
+        ).not.toBeInTheDocument()
+    })
+
+    // The one that matters: deleting a button is easy to do while also
+    // breaking the path that replaces it.
+    it("opens the bulk fix dialog from the Objects tab, against that tab's filter", async () => {
+        renderDetail()
+        fireEvent.click(await screen.findByText('Objects'))
+        fireEvent.click(await screen.findByRole('button', { name: 'Bulk fix…' }))
+        expect(await screen.findByText('mock-dialog-close')).toBeInTheDocument()
+    })
+})
+
 describe('bulk fix dialog wiring (D4/D5)', () => {
     it('does not close the dialog when a write applies -- only reloads the engine snapshot', async () => {
         renderDetail()
