@@ -370,44 +370,88 @@ and in §6.4 of this document once known.
 
 Shapes 2 and 3 replace a group's whole membership rather than adding to it, so
 they silently discard a concurrent editor's change in a way the batched
-endpoint does not. The app holds the complete membership already, and its
-cache validation already keys on each group's `lastUpdated`, so the guard is a
-re-check of `lastUpdated` immediately before the write, aborting if it moved.
+endpoint does not.
 
-2.40 bumps a group's `lastUpdated` when members change; 2.43 does not
-(`2026-09-plan2-write-compatibility.md`). **The guard must therefore be proven
-on every target version before an import shape is adopted.** Where it cannot
-be proven, the batched endpoint stays the write path on that version whatever
-the timings say.
+**Amended 2026-09-16 — the guard below cannot be built and was replaced, not
+patched.** `docs/superpowers/notes/2026-09-plan7-lastupdated-guard.md`
+measured that a group's `lastUpdated` does not move on a
+collection-endpoint membership write on 2.41, 2.42 or 2.43, so a re-check of
+it before the write — the guard this section originally specified — is
+blind on three of the four supported versions to exactly the concurrent
+edit it exists to catch, including one made by another user of this same
+app through its own batched write path. There is no per-version fallback
+either: the group's own `~size` does not move on an equal-sized swap, which
+is exactly what a "move these objects from group A to group B" fix does.
+
+The guard is now the freshness check in
+`2026-09-16-metadata-freshness-design.md` §5: before a write, re-read the
+groups that will take the replace route, recompute the plan, and require
+re-confirmation if it changed. Two properties worth stating: it observes
+**content** rather than a proxy timestamp the server does not maintain, so
+it is version-independent where the `lastUpdated` guard was not; and it is
+**scoped to the groups taking the replace route**, because a batched delta
+cannot silently drop a concurrent editor's member and so needs no such
+protection.
+
+The paragraph below is retained as the historical record of the guard this
+replaced: 2.40 bumps a group's `lastUpdated` when members change; 2.41, 2.42
+and 2.43 do not (`2026-09-plan2-write-compatibility.md`,
+`2026-09-plan7-lastupdated-guard.md`). Proving the guard on every target
+version, as this section originally required, turned out to mean proving it
+fails on three of them — which is why it was replaced rather than shipped
+with a per-version branch.
 
 ### 6.4 Outcome
 
-**Decision: keep the batched collection endpoint, and raise its batch size
-from 1000 to 5000.** No import shape, no concurrency guard, no per-version
-branching.
+**Amended 2026-09-16 — this decision no longer holds.** It kept the batched
+collection endpoint alone, at a raised batch size, and rejected the import
+shape outright because §6.3's guard could not be built on 2.41–2.43.
+`2026-09-16-metadata-freshness-design.md` §6 replaces it with a rule chosen
+**per group, by delta size**, not a single global choice of shape: a group
+whose delta is at most `DEFAULT_BATCH_SIZE` (5000) still takes the batched
+collection endpoint below; a group whose delta exceeds it takes a **JSON
+Patch** replacing that group's members collection instead — available only
+when the caller has just re-read that group's complete membership under the
+§6.3 freshness check above. The correctness problem this section treated as
+unsolvable on 2.41+ is solved differently, not left unsolved: a content-based
+re-read stands in for the `lastUpdated` timestamp this section's guard
+depended on.
 
-Measured over 91,892 memberships on the EMIS instance (2.41.10, 266,396
-organisation units): batch 5000 takes **47.4s**, which is **~39.7s** scaled to
-the 77,017 objects §6.1 states, and so meets the ~60-second budget. Today's
-default, batch 1000, takes 192s. Batch 250 takes 823s — smaller batches are
-far worse, not gentler, because DHIS2 re-reads the whole collection on each
-write.
+This section's own batch-size measurements stand: batch 5000 takes **47.4s**
+over 91,892 memberships (2.41.10, 266,396 organisation units), **~39.7s**
+scaled to the 77,017 objects §6.1 states and so inside the ~60-second budget;
+batch 1000 (the previous default) takes 192s; batch 250 takes 823s — smaller
+batches are far worse, not gentler, because DHIS2 re-reads the whole
+collection on each write. What does not stand is treating that as the whole
+answer: **all seven of Plan 7's runs wrote a group's entire population from
+empty**, which flatters a shape that always sends the complete membership
+regardless of how much actually changed. A realistic fix of a few hundred
+violations sends a few hundred ids at either batch size, while the import (or
+patch) shape would still have sent on the order of 91,892 ids — markedly
+worse for that case than the measurement above suggests. That correction is
+why the eventual rule routes per group and by delta size rather than
+adopting one shape for every write.
 
-The import shape is genuinely faster (18.2s) and much cheaper (3.1 rows
-fetched per object written, against 19.5 at batch 5000), and it is **not**
-adopted, for the reason §6.3 exists: its guard cannot be built. A group's
-`lastUpdated` does not move on a collection-endpoint membership write on 2.41,
-2.42 or 2.43, and neither does `~size` when the change is an equal-sized swap
-— so on three of the four supported versions the guard would be blind to
-exactly the concurrent edit it is there to catch, including one made by
-another user of this same app. Under §6.3 that disqualifies the import shape
-there; it survives only on 2.40, and a second write path plus a guard, for the
-oldest supported version alone, is not a trade worth making when the simple
-path already meets the budget.
+The shape adopted above the threshold is a **JSON Patch**, not the
+`/api/metadata` import this section's §6.2 measured. `POST /api/metadata`
+overwrites every owned property absent from its payload — not a configurable
+default: `mergeMode` was removed from the endpoint in 2.41 and backported to
+2.38.7/2.39.6/2.40.4, so REPLACE is the only behaviour across this app's
+whole supported range, and an import would have nulled `description`,
+`symbol`, `color`, `attributeValues` and `translations` on every large fix
+unless the app first read and re-sent them. A JSON Patch scoped to the
+members path touches nothing else, so no such read is needed. Measured over
+the same 91,892 memberships on the same instance: 23.0s and 19.2s for the
+patch against the import's 18.2s and 20.3s — the same cluster — with
+identical add/remove correctness and owned-property preservation confirmed
+on both 2.40.12 and 2.41.10.
 
-Evidence: `docs/superpowers/notes/2026-09-plan7-write-shapes.md` (timings and
-server load) and `docs/superpowers/notes/2026-09-plan7-lastupdated-guard.md`
-(the guard, per version).
+Evidence: `docs/superpowers/notes/2026-09-plan7-write-shapes.md` (the
+original batch and import timings),
+`docs/superpowers/notes/2026-09-plan7-lastupdated-guard.md` (why the
+`lastUpdated` guard fails on 2.41–2.43), and
+`docs/superpowers/notes/2026-09-plan8-json-patch.md` (the JSON Patch
+measurement that replaced the import shape).
 
 ## 7. Carried-forward defects
 
@@ -462,6 +506,16 @@ independent of everything here.
   `docs/superpowers/notes/2026-09-plan6-usage-tables.md`. §3.3 was updated in
   the same task to record that the shipped candidate was proven on 2.40
   through 2.43.
+- §4.4 (Cache and refresh): the `lastUpdated` gate that reuse relies on to
+  catch a membership move cannot see one on 2.41–2.43 — a group's
+  `lastUpdated` does not move on a collection-endpoint membership write on
+  those versions, so the gate added specifically for this is blind to it on
+  three of the four supported versions
+  (`docs/superpowers/notes/2026-09-plan7-lastupdated-guard.md`). The 10-minute
+  `CACHE_TTL_MS` added by `2026-09-16-metadata-freshness-design.md` bounds how
+  long that blindness can persist; it does not repair it — nothing can, on
+  those versions. Full reasoning: `2026-09-16-metadata-freshness-design.md`
+  §1 and §3.3.
 
 ## 10. Verification
 
