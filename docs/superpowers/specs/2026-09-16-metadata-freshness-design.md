@@ -186,7 +186,7 @@ Refresh
 On **Apply** in `BulkFixDialog`, before any write:
 
 1. Re-read, from the server, the membership of **only the groups that will
-   take the import route** — those whose own delta exceeds
+   take the replace route** — those whose own delta exceeds
    `DEFAULT_BATCH_SIZE` (§6.1). Not the whole set, not the whole type, and
    not every group the plan names.
 
@@ -196,7 +196,8 @@ On **Apply** in `BulkFixDialog`, before any write:
    — `2026-09-plan8-reread-cost.md` — which §5.4's own ladder puts in the
    "stop and revisit" band. The narrowing is not a cost compromise that
    weakens the guarantee: **the hazard this check exists to prevent is
-   exclusive to the import route.** An import replaces a group's whole
+   exclusive to the replace route.** A whole-collection replace rewrites a
+   group's whole
    collection, so a member added by someone else since our snapshot is
    absent from the list we send and is silently dropped. A batched delta
    touches only the ids it names and cannot do that. Reading a group we are
@@ -266,7 +267,7 @@ one instance was running).
 
 Two things follow, both applied in §5.1 above:
 
-1. **The re-read is scoped to import-route groups**, because that is where
+1. **The re-read is scoped to replace-route groups**, because that is where
    the hazard is. A large fix crosses the threshold on one or two groups, not
    all of them, so the realistic cost is ~1–4s rather than 2–11s.
 2. **Show progress while it runs.** At 1–2s per group this lands in the
@@ -289,7 +290,19 @@ narrowing in (1) is what actually makes this affordable.
 | per-group delta | shape |
 | --- | --- |
 | ≤ 5000 ids | collection endpoint, batched (today's path) |
-| > 5000 ids | metadata import carrying that group's complete membership |
+| > 5000 ids | JSON Patch replacing that group's members array with its complete membership |
+
+**Amended after measurement.** This was originally specified as a
+`POST /api/metadata` import, which is what Plan 7 measured. It is now a JSON
+Patch. `POST /api/metadata` overwrites every owned property absent from the
+payload — `mergeMode` was removed from that endpoint in 2.41 and backported to
+2.38.7/2.39.6/2.40.4 — so an import would have nulled a group's `description`,
+`symbol`, `color`, `attributeValues` and `translations`. A patch touches only
+the members array, so the hazard disappears rather than being compensated for.
+Measured at 23.0s/19.2s over 91,892 memberships against the import's
+18.2s/20.3s, same server-cost cluster, and identical behaviour on 2.40.12 and
+2.41.10 — the only shape measured in this project with no per-version caveat.
+See `docs/superpowers/notes/2026-09-plan8-json-patch.md`.
 
 ### 6.2 Why 5000, and why per group
 
@@ -311,9 +324,9 @@ of ~300.
 **It routes itself.** Inline assign is one or two ids; revert replays a
 recorded delta. Both are always under the threshold and keep today's behaviour
 without any caller deciding. Only the bulk fix can produce a change large
-enough to take the import route.
+enough to take the replace route.
 
-**The safety is structural.** The import route requires the group's complete
+**The safety is structural.** The replace route requires the group's complete
 membership, supplied by the caller as a new optional parameter. Without it the
 route is unavailable and the code falls back to batched — so a caller that has
 **not** done a §5 refresh cannot obtain replace-all semantics. This is enforced
