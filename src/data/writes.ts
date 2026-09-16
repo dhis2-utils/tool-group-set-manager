@@ -309,6 +309,13 @@ export async function writeMemberships(
     objectType: ObjectType,
     changes: GroupChange[],
     onProgress: (done: number, total: number) => void,
+    // Finding 5 (fix round 2): `BulkFixDialog.tsx`'s own `takesPatchRoute`
+    // hardcodes `DEFAULT_BATCH_SIZE` rather than reading this parameter --
+    // the two agree today only because `useMembershipWrite.ts` always
+    // passes `DEFAULT_BATCH_SIZE` here explicitly. A caller passing a
+    // different `batchSize` would silently desync which groups the dialog
+    // re-reads for freshness from which groups actually take the patch
+    // route, with nothing to fail.
     batchSize = DEFAULT_BATCH_SIZE,
     completeMembers?: Map<string, string[]>
 ): Promise<WriteResult> {

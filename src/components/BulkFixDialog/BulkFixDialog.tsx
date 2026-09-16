@@ -253,18 +253,21 @@ export const BulkFixDialog = ({
     // plan recomputed -- never for the common case where nothing crosses the
     // patch threshold, which writes straight through with none of this ever
     // touched. `recheck` holds the previewed count and the recomputed plan
-    // once the two disagree, so the re-confirmation can show both and apply
-    // the recomputed one specifically, never the stale preview. `planOverride`
-    // is what makes "Review changes" carry the recomputed plan back to the
-    // preview step (spec 5.3) without every other reader of `plan` below (the
-    // sample, the CSV export, the summary line) needing its own copy of that
-    // logic -- it is cleared whenever the user leaves the preview step, so a
-    // later, unrelated preview can never be shadowed by a stale recompute.
+    // once the two disagree, so the re-confirmation can show both. It does
+    // NOT hold the membership that check read: the re-confirmation's own
+    // Apply button re-runs the same check (fix round 2, finding 1) rather
+    // than writing from a map read before the unbounded pause while the user
+    // reads the notice, so there is nothing here for it to read stale.
+    // `planOverride` is what makes "Review changes" carry the recomputed plan
+    // back to the preview step (spec 5.3) without every other reader of
+    // `plan` below (the sample, the CSV export, the summary line) needing its
+    // own copy of that logic -- it is cleared by Back (the only way to leave
+    // the preview step without either writing or re-previewing), so a later,
+    // unrelated preview can never be shadowed by a stale recompute.
     const [checkingFreshness, setCheckingFreshness] = useState(false)
     const [recheck, setRecheck] = useState<{
         previewed: number
         recomputed: AssignmentPlan
-        completeMembers: Map<string, string[]>
     } | null>(null)
     const [planOverride, setPlanOverride] = useState<AssignmentPlan | null>(
         null
@@ -566,6 +569,14 @@ export const BulkFixDialog = ({
      * decides whether to touch any of this machinery at all) and
      * `readPatchRouteGroups` below (which decides which ids to re-read),
      * so the two can never disagree about where the threshold sits.
+     *
+     * Finding 5 (fix round 2): this is its own copy of the same route
+     * predicate `writeMemberships` (writes.ts) computes internally against
+     * its `batchSize` parameter. The two agree today only because
+     * `useMembershipWrite.ts` passes `DEFAULT_BATCH_SIZE` explicitly rather
+     * than relying on that parameter's default -- a future caller passing a
+     * different `batchSize` would silently widen or narrow which groups get
+     * re-read for freshness here, with no test to catch the mismatch.
      */
     const takesPatchRoute = (c: GroupChange): boolean =>
         c.additions.length + c.deletions.length > DEFAULT_BATCH_SIZE
@@ -660,18 +671,27 @@ export const BulkFixDialog = ({
             })
     }
 
-    const handleApply = async () => {
-        // Fix round 1, finding 1: this guard has to be a ref, not just the
-        // `checkingFreshness` state below -- two clicks fired back to back,
-        // in the same synchronous burst, both close over the render that
-        // was current when the *first* click started, so a state check
-        // alone would let the second one through before React ever
-        // re-renders the disabled button. The ref is written synchronously,
-        // before this function's first `await`, so the second call sees it
-        // immediately.
-        if (!plan || checkInFlightRef.current) {
-            return
-        }
+    /**
+     * The freshness check itself (spec 5.1-5.3), against whichever plan is
+     * the current reference point: the previewed `plan` the first time
+     * through, or -- fix round 2, finding 1 -- the just-recomputed
+     * `recheck.recomputed` when the user re-confirms. Both callers (
+     * `handleApply` and `handleReconfirmApply`) set `checkInFlightRef`
+     * synchronously, before calling this, so the guard is in place before
+     * this function's first `await` regardless of which of them is
+     * running.
+     *
+     * The property this restores: a JSON Patch is never built from
+     * membership read before an unbounded user pause. The re-confirmation's
+     * Apply button used to write from a map read at the *start* of the
+     * pause the user then took to read the notice; now it calls this again,
+     * so the membership it writes is as fresh as the click that sends it,
+     * not as stale as the click that preceded the pause. If the plan has
+     * changed *again* by the time this resolves, re-confirming once more
+     * with the newer numbers is correct -- it means someone is still
+     * actively editing this set -- not a bug to work around.
+     */
+    const runFreshnessCheck = async (referencePlan: AssignmentPlan) => {
         setApplyError(null)
         setCheckError(null)
         // Synchronous by construction (spec 5.1's own scoping rule): whether
@@ -680,9 +700,9 @@ export const BulkFixDialog = ({
         // here, before `checkingFreshness` is ever touched, is what keeps
         // the common case (no group crosses the threshold) genuinely inert
         // -- no field read, no progress message, nothing to race.
-        const needsCheck = plan.changes.some(takesPatchRoute)
+        const needsCheck = referencePlan.changes.some(takesPatchRoute)
         if (!needsCheck) {
-            performWrite(plan.changes)
+            performWrite(referencePlan.changes)
             return
         }
         if (!client) {
@@ -704,7 +724,9 @@ export const BulkFixDialog = ({
         checkInFlightRef.current = true
         setCheckingFreshness(true)
         try {
-            const completeMembers = await readPatchRouteGroups(plan.changes)
+            const completeMembers = await readPatchRouteGroups(
+                referencePlan.changes
+            )
             await client.call(
                 'setGroupMembers',
                 set.objectType,
@@ -721,16 +743,15 @@ export const BulkFixDialog = ({
                 targetGroupId
             )
             const unchanged =
-                recomputed.affected === plan.affected &&
+                recomputed.affected === referencePlan.affected &&
                 JSON.stringify(recomputed.changes) ===
-                    JSON.stringify(plan.changes)
+                    JSON.stringify(referencePlan.changes)
             if (unchanged) {
                 performWrite(recomputed.changes, completeMembers)
             } else {
                 setRecheck({
-                    previewed: plan.affected,
+                    previewed: referencePlan.affected,
                     recomputed,
-                    completeMembers,
                 })
             }
         } catch (e) {
@@ -744,6 +765,35 @@ export const BulkFixDialog = ({
             setCheckingFreshness(false)
             checkInFlightRef.current = false
         }
+    }
+
+    const handleApply = async () => {
+        // Fix round 1, finding 1: this guard has to be a ref, not just the
+        // `checkingFreshness` state below -- two clicks fired back to back,
+        // in the same synchronous burst, both close over the render that
+        // was current when the *first* click started, so a state check
+        // alone would let the second one through before React ever
+        // re-renders the disabled button. The ref is written synchronously,
+        // inside `runFreshnessCheck`, before that function's first `await`,
+        // so the second call sees it immediately.
+        if (!plan || checkInFlightRef.current) {
+            return
+        }
+        await runFreshnessCheck(plan)
+    }
+
+    // Fix round 2, finding 1 (and, by sharing `runFreshnessCheck` and its
+    // ref, finding 2): the re-confirmation's own Apply button. Re-runs the
+    // full check against `recheck.recomputed` -- the plan the user just
+    // confirmed -- rather than writing from membership read before this
+    // button was even shown. Same in-flight guard as `handleApply`, for the
+    // same reason: two clicks in one synchronous burst must produce one
+    // check and one write, not two.
+    const handleReconfirmApply = async () => {
+        if (!recheck || checkInFlightRef.current) {
+            return
+        }
+        await runFreshnessCheck(recheck.recomputed)
     }
 
     // D2: retry is built from the previous result's `unaccounted` batches,
@@ -1195,14 +1245,19 @@ export const BulkFixDialog = ({
                             {i18n.t('Apply…')}
                         </Button>
                     )}
-                    {/* Task 9 (spec 5.3): replaces Back/Apply… while the
-                        recomputed plan disagrees with the preview -- "Review
-                        changes" carries the recomputed plan back into the
-                        preview above (`planOverride`), and "Apply {n}
-                        changes" writes it directly, never a second recheck. */}
+                    {/* Task 9 (spec 5.3), fix round 2 finding 1: replaces
+                        Back/Apply… while the recomputed plan disagrees with
+                        the preview -- "Review changes" carries the recomputed
+                        plan back into the preview above (`planOverride`), and
+                        "Apply {n} changes" re-runs the freshness check
+                        against that same recomputed plan (`handleReconfirmApply`)
+                        rather than writing it as-is, since it was confirmed
+                        an unbounded user pause ago. Both disabled while that
+                        re-run is in flight, same as the first Apply below. */}
                     {step === 'preview' && recheck && (
                         <>
                             <Button
+                                disabled={checkingFreshness}
                                 onClick={() => {
                                     if (!recheck) {
                                         return
@@ -1215,15 +1270,8 @@ export const BulkFixDialog = ({
                             </Button>
                             <Button
                                 primary
-                                onClick={() => {
-                                    if (!recheck) {
-                                        return
-                                    }
-                                    performWrite(
-                                        recheck.recomputed.changes,
-                                        recheck.completeMembers
-                                    )
-                                }}
+                                disabled={checkingFreshness}
+                                onClick={handleReconfirmApply}
                             >
                                 {applyChangesLabel(recheck.recomputed.affected)}
                             </Button>

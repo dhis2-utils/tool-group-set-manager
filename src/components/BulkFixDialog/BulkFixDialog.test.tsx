@@ -1825,6 +1825,10 @@ describe('BulkFixDialog apply step', () => {
             expect(mockWrite).not.toHaveBeenCalled()
         })
 
+        // RECOMPUTED_CHANGE (1 addition) no longer crosses the patch
+        // threshold, so re-confirming here writes straight through with no
+        // second re-read -- see the next test for the case where the
+        // recomputed plan still crosses it and a second re-read is required.
         it('writes the recalculated plan, not the previewed one, after re-confirming', async () => {
             mockUseEngineQuery.mockImplementation((method: string) =>
                 method === 'planAssignment'
@@ -1866,6 +1870,244 @@ describe('BulkFixDialog apply step', () => {
                     changes: RECOMPUTED_CHANGE,
                 })
             )
+        })
+
+        // Fix round 2, finding 1: the property this restores is that a JSON
+        // Patch must never be built from membership read before an
+        // unbounded user pause. RECOMPUTED_CHANGE above happens to fall
+        // under the patch threshold, so it does not exercise the actual
+        // repeat re-read; PATCH_CHANGE_STILL_LARGE here stays above it, so
+        // the re-confirmation must re-read a *second* time (a fresh
+        // `mockFetcher` call, not the map captured before the pause) before
+        // writing.
+        it('the re-confirmation button re-reads membership again immediately before writing, not the map read before the pause', async () => {
+            const PATCH_CHANGE_STILL_LARGE = [
+                {
+                    groupId: 'g2',
+                    additions: Array.from(
+                        { length: 5010 },
+                        (_, i) => `n${i}`
+                    ),
+                    deletions: [],
+                },
+            ]
+            mockUseEngineQuery.mockImplementation((method: string) =>
+                method === 'planAssignment'
+                    ? {
+                          data: plan({
+                              changes: PATCH_CHANGE,
+                              affected: PATCH_CHANGE[0].additions.length,
+                          }),
+                          isLoading: false,
+                          error: null,
+                      }
+                    : {
+                          data: { total: 0, offset: 0, items: [] },
+                          isLoading: false,
+                          error: null,
+                      }
+            )
+            // Both the initial check and the re-confirmation's own check
+            // recompute to the same still-large plan -- the first disagrees
+            // with the ORIGINAL preview (PATCH_CHANGE), which is what
+            // triggers the re-confirmation notice; the second agrees with
+            // what the re-confirmation itself just confirmed
+            // (PATCH_CHANGE_STILL_LARGE), which is what lets it write.
+            mockClientCall.mockImplementation((method: string) =>
+                method === 'planAssignment'
+                    ? Promise.resolve(
+                          plan({
+                              changes: PATCH_CHANGE_STILL_LARGE,
+                              affected:
+                                  PATCH_CHANGE_STILL_LARGE[0].additions
+                                      .length,
+                          })
+                      )
+                    : Promise.resolve(undefined)
+            )
+            mockFetcher.mockImplementationOnce(async () => ({
+                ok: true,
+                json: async () => ({
+                    organisationUnits: [{ id: 'stale-member' }],
+                }),
+            }))
+            mockFetcher.mockImplementationOnce(async () => ({
+                ok: true,
+                json: async () => ({
+                    organisationUnits: [{ id: 'fresh-member' }],
+                }),
+            }))
+            await renderAndReachApply()
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            await screen.findByText(
+                'The metadata changed while you were reviewing'
+            )
+            expect(mockFetcher).toHaveBeenCalledTimes(1)
+            expect(mockWrite).not.toHaveBeenCalled()
+            // Simulates the "unbounded user pause" the finding describes --
+            // nothing happens here except time; the read above must not be
+            // reused when Apply is finally clicked below.
+            await act(async () => {
+                fireEvent.click(
+                    screen.getByRole('button', { name: /^Apply/ })
+                )
+            })
+            expect(mockFetcher).toHaveBeenCalledTimes(2)
+            expect(mockWrite).toHaveBeenCalledTimes(1)
+            const written = mockWrite.mock.calls[0][0]
+            expect(written.changes).toEqual(PATCH_CHANGE_STILL_LARGE)
+            // The map the write actually used came from the SECOND read
+            // (triggered by clicking Apply), not the first (captured before
+            // the pause) -- this is the property finding 1 exists to
+            // restore.
+            expect(written.completeMembers.get('g2')).toEqual([
+                'fresh-member',
+            ])
+        })
+
+        // Fix round 2, finding 2: Task 9's `checkInFlightRef` guard is
+        // shared between `handleApply` and this button (both call the same
+        // `runFreshnessCheck`), so the same two-clicks-in-one-tick race it
+        // was added for must be closed here too, with no second guard
+        // needed.
+        it('two clicks on the re-confirmation button in one tick produce one re-read and one write', async () => {
+            const PATCH_CHANGE_STILL_LARGE = [
+                {
+                    groupId: 'g2',
+                    additions: Array.from(
+                        { length: 5010 },
+                        (_, i) => `n${i}`
+                    ),
+                    deletions: [],
+                },
+            ]
+            mockUseEngineQuery.mockImplementation((method: string) =>
+                method === 'planAssignment'
+                    ? {
+                          data: plan({
+                              changes: PATCH_CHANGE,
+                              affected: PATCH_CHANGE[0].additions.length,
+                          }),
+                          isLoading: false,
+                          error: null,
+                      }
+                    : {
+                          data: { total: 0, offset: 0, items: [] },
+                          isLoading: false,
+                          error: null,
+                      }
+            )
+            mockClientCall.mockImplementation((method: string) =>
+                method === 'planAssignment'
+                    ? Promise.resolve(
+                          plan({
+                              changes: PATCH_CHANGE_STILL_LARGE,
+                              affected:
+                                  PATCH_CHANGE_STILL_LARGE[0].additions
+                                      .length,
+                          })
+                      )
+                    : Promise.resolve(undefined)
+            )
+            mockFetcher.mockImplementationOnce(async () => ({
+                ok: true,
+                json: async () => ({ organisationUnits: [{ id: 'm0' }] }),
+            }))
+            let resolveSecondFetch!: (value: unknown) => void
+            mockFetcher.mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        resolveSecondFetch = resolve
+                    })
+            )
+            await renderAndReachApply()
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            await screen.findByText(
+                'The metadata changed while you were reviewing'
+            )
+            expect(mockFetcher).toHaveBeenCalledTimes(1)
+            // Both clicks inside one `act`, with no render flush between
+            // them -- same race as the existing "second click" test above,
+            // now against the re-confirmation button instead of the first
+            // Apply.
+            await act(async () => {
+                fireEvent.click(
+                    screen.getByRole('button', { name: /^Apply/ })
+                )
+                fireEvent.click(
+                    screen.getByRole('button', { name: /^Apply/ })
+                )
+            })
+            expect(mockFetcher).toHaveBeenCalledTimes(2)
+            await act(async () => {
+                resolveSecondFetch({
+                    ok: true,
+                    json: async () => ({
+                        organisationUnits: [{ id: 'm1' }],
+                    }),
+                })
+            })
+            expect(mockWrite).toHaveBeenCalledTimes(1)
+        })
+
+        // Spec §7: "Review changes returns to preview with the recalculated
+        // plan".
+        it('"Review changes" returns to the preview step with the recalculated plan', async () => {
+            mockUseEngineQuery.mockImplementation((method: string) =>
+                method === 'planAssignment'
+                    ? {
+                          data: plan({
+                              changes: PATCH_CHANGE,
+                              affected: 45,
+                          }),
+                          isLoading: false,
+                          error: null,
+                      }
+                    : {
+                          data: { total: 0, offset: 0, items: [] },
+                          isLoading: false,
+                          error: null,
+                      }
+            )
+            mockClientCall.mockImplementation((method: string) =>
+                method === 'planAssignment'
+                    ? Promise.resolve(
+                          plan({ changes: RECOMPUTED_CHANGE, affected: 44 })
+                      )
+                    : Promise.resolve(undefined)
+            )
+            await renderAndReachApply()
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            await screen.findByText(
+                'The metadata changed while you were reviewing'
+            )
+            await act(async () => {
+                fireEvent.click(
+                    screen.getByRole('button', { name: /Review changes/i })
+                )
+            })
+            // Back at the preview step with the recalculated plan: the
+            // re-confirmation notice and its own buttons are gone, the
+            // ordinary preview buttons (Back / Apply…) are back, and the
+            // count shown is the recomputed one (44), never the stale
+            // preview (45) -- and critically, nothing was written just by
+            // looking at it.
+            expect(
+                screen.queryByText(
+                    'The metadata changed while you were reviewing'
+                )
+            ).not.toBeInTheDocument()
+            expect(screen.getByText('44 objects')).toBeInTheDocument()
+            expect(
+                screen.getByRole('button', { name: 'Apply…' })
+            ).toBeInTheDocument()
+            expect(mockWrite).not.toHaveBeenCalled()
         })
 
         it('passes the freshly read membership to the writer', async () => {
