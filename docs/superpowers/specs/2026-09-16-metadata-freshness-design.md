@@ -181,8 +181,28 @@ Refresh
 
 On **Apply** in `BulkFixDialog`, before any write:
 
-1. Re-read, from the server, the membership of **only the groups the plan
-   names** — not the whole set, and not the whole type.
+1. Re-read, from the server, the membership of **only the groups that will
+   take the import route** — those whose own delta exceeds
+   `DEFAULT_BATCH_SIZE` (§6.1). Not the whole set, not the whole type, and
+   not every group the plan names.
+
+   **Amended 2026-09-16 after measurement.** This section originally said
+   every group the plan names. Measured on `agent-gsi-emis` (266,396
+   organisation units), reading every group of a set costs 2.1–10.8s
+   — `2026-09-plan8-reread-cost.md` — which §5.4's own ladder puts in the
+   "stop and revisit" band. The narrowing is not a cost compromise that
+   weakens the guarantee: **the hazard this check exists to prevent is
+   exclusive to the import route.** An import replaces a group's whole
+   collection, so a member added by someone else since our snapshot is
+   absent from the list we send and is silently dropped. A batched delta
+   touches only the ids it names and cannot do that. Reading a group we are
+   about to write a *delta* to buys no safety at all.
+
+   What this costs: the re-confirmation in §5.3 now fires only for fixes
+   large enough to cross the threshold. A small fix applies its delta
+   against a snapshot at most `CACHE_TTL_MS` old, and the worst it can do is
+   add an object to a group someone else has since classified — which
+   surfaces as a conflict the tool itself reports, not as silent loss.
 2. Push that into the engine via `setGroupMembers` (§5.2).
 3. Recompute the plan.
 4. **Identical → write immediately.** No interruption, no message.
@@ -230,16 +250,29 @@ remove, in miniature.
 
 ### 5.4 Risk: the re-read's cost is unmeasured
 
-A "move to catch-all" can touch every group in a set, and on the EMIS instance
-a set's total membership runs to hundreds of thousands of ids. This could add
-seconds to Apply.
+**Measured, and the result changed the design.**
+`docs/superpowers/notes/2026-09-plan8-reread-cost.md`: reading every group of
+a set on `agent-gsi-emis` took 9.7s / 6.3s (Geo-Political Zone, 6 groups,
+211,299 ids), 10.8s / 4.9s (School Level, 4 groups, 221,652 ids) and 3.9s /
+2.1s (Location, 2 groups, 97,264 ids) — roughly 1–2s per group, and over the
+6s ceiling for the larger sets even on their faster run. Every set disagreed
+between its two runs by more than 30%, consistently slower on the first,
+which reads as a cold JVM or database cache rather than external load (only
+one instance was running).
 
-**Measure it first.** The implementation plan must establish this on
-`agent-gsi-emis` before the check is wired in. Mitigations in order: read only
-the groups the plan names (already specified); show progress, since this is a
-deliberate user-initiated action where a few seconds with feedback is
-acceptable. If it proves worse than that, the design needs revisiting rather
-than shipping behind a spinner.
+Two things follow, both applied in §5.1 above:
+
+1. **The re-read is scoped to import-route groups**, because that is where
+   the hazard is. A large fix crosses the threshold on one or two groups, not
+   all of them, so the realistic cost is ~1–4s rather than 2–11s.
+2. **Show progress while it runs.** At 1–2s per group this lands in the
+   "2–6s" band of the ladder below even after narrowing, so Apply must say
+   what it is doing rather than appear to hang.
+
+The measurement read groups **sequentially**; the implementation reads them
+concurrently, so the per-group figures above are an upper bound on the real
+cost. Concurrency is not a free win on a shared server, though, and the
+narrowing in (1) is what actually makes this affordable.
 
 ---
 

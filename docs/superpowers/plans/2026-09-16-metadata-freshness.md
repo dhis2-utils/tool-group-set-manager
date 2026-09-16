@@ -1352,7 +1352,25 @@ git commit -m "Choose the write shape per group by how much is changing"
 - Consumes: `setGroupMembers` (Task 7); `writeMemberships`'s `completeMembers` (Task 8); `createFetcher`; `ENDPOINTS`.
 - Produces: nothing other tasks import.
 
-**Read Task 1's note first.** `docs/superpowers/notes/2026-09-plan8-reread-cost.md` carries a verdict. If it says **over ~6s**, stop and report rather than implementing this task as written — spec §5.4 requires the design to be revisited, not worked around.
+**Task 1 landed in the "over ~6s" band, and spec §5.1 has been amended as a
+result. This task is written against the amended spec — read §5.1 and §5.4 of
+`docs/superpowers/specs/2026-09-16-metadata-freshness-design.md` before
+starting.**
+
+The change in one line: **re-read only the groups that will take the import
+route** (own delta > `DEFAULT_BATCH_SIZE`), not every group the plan names.
+The hazard is exclusive to the import route — an import replaces a group's
+whole collection and so silently drops a member someone else added since the
+snapshot, whereas a batched delta touches only the ids it names and cannot.
+Reading a group that is about to receive a delta buys no safety and costs
+1–2s.
+
+Consequences you must implement:
+- When **no** group crosses the threshold, there is nothing to re-read: skip
+  the check entirely and write exactly as today. This is the common case.
+- When one or more groups cross it, re-read those groups only, recompute, and
+  re-confirm if the plan changed.
+- Show progress while the re-read runs (measured at 1–2s per group).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1364,9 +1382,10 @@ navigation path alongside the existing one; the tests below depend on it
 behaving identically.
 
 ```tsx
-it('re-reads the plan\'s groups and writes straight through when nothing changed', async () => {
-    // The common case, and always the case when one person is using the
-    // app: the check must be invisible.
+it('writes straight through, with no re-read at all, when nothing crosses the import threshold', async () => {
+    // The common case by far: a few hundred violations, every group taking
+    // the batched delta route. A delta cannot silently drop a concurrent
+    // editor's member, so there is nothing to check and nothing to pay.
     mockUseEngineQuery.mockImplementation((method: string) =>
         method === 'planAssignment'
             ? { data: plan({ affected: 3 }), isLoading: false, error: null }
@@ -1440,16 +1459,32 @@ Add a helper in `BulkFixDialog.tsx` that reads the membership of the groups the 
 
 ```tsx
 /**
- * The membership of every group this plan touches, read fresh from the
- * server. Only the groups the plan names -- reading the whole set would
- * cost far more and buy nothing, since a group the plan does not touch
- * cannot change what the plan does.
+ * The membership of the groups this plan will write by metadata import,
+ * read fresh from the server.
+ *
+ * Only those groups. An import replaces a group's whole collection, so a
+ * member someone else added since our snapshot is absent from the list we
+ * send and is silently dropped -- that is the hazard this read exists to
+ * remove. A batched delta touches only the ids it names and cannot do it,
+ * so re-reading a group about to receive a delta buys no safety and costs
+ * 1-2s (docs/superpowers/notes/2026-09-plan8-reread-cost.md).
+ *
+ * Returns an empty map when nothing crosses the threshold, which is the
+ * common case -- the caller then skips the whole check.
  */
-const readPlanGroups = async (
+const readImportRouteGroups = async (
     planChanges: GroupChange[]
 ): Promise<Map<string, string[]>> => {
     const endpoint = ENDPOINTS[set.objectType]
-    const ids = Array.from(new Set(planChanges.map((c) => c.groupId)))
+    const ids = planChanges
+        .filter(
+            (c) =>
+                c.additions.length + c.deletions.length > DEFAULT_BATCH_SIZE
+        )
+        .map((c) => c.groupId)
+    if (ids.length === 0) {
+        return new Map()
+    }
     const entries = await Promise.all(
         ids.map(async (groupId) => {
             const response = await fetcher(
@@ -1477,7 +1512,7 @@ const readPlanGroups = async (
 
 - [ ] **Step 4: Implement the check and the re-confirmation**
 
-On Apply, before writing: call `readPlanGroups`, push the result into the engine with `setGroupMembers`, recompute via `planAssignment`, and compare `affected` plus the change lists. Hold the recomputed plan and the previewed count in state:
+On Apply, before writing: call `readImportRouteGroups`. **If it returns an empty map, write immediately — no `setGroupMembers`, no recompute, no re-confirmation.** Otherwise push the result into the engine with `setGroupMembers`, recompute via `planAssignment`, and compare `affected` plus the change lists. Hold the recomputed plan and the previewed count in state:
 
 ```tsx
 const [recheck, setRecheck] = useState<{
@@ -1504,7 +1539,7 @@ and the button, count-aware:
 Apply 1 change  /  Apply {count} changes
 ```
 
-If Task 1's note put the re-read in the **2–6s** band, show progress while `readPlanGroups` runs: disable the actions and render `i18n.t('Checking the metadata is up to date…')` in place of the notice.
+Show progress while `readImportRouteGroups` runs — Task 1 measured 1–2s per group, which is the ladder's 2–6s band once one or two groups are read. Disable the actions and render `i18n.t('Checking the metadata is up to date…')` in place of the notice.
 
 - [ ] **Step 5: Run the tests, extract strings, run the gates, commit**
 
