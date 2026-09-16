@@ -193,36 +193,54 @@ git commit -m "Measure what the pre-write metadata re-read costs"
 
 In `src/data/loadAll.test.ts`, alongside the existing cache tests:
 
+This file's existing cache tests are the pattern to follow exactly: they
+build a `createMemoryCache()`, run `loadAll` once to populate it, then run it
+again with a fresh `fakeSource()` and assert on `fromCache`. Copy that shape.
+
 ```ts
 it('does not reuse a cache entry older than the TTL, even when every other gate passes', async () => {
-    // The gates that exist today all pass here -- same group ids, same
-    // object total, same lastUpdated stamps. On 2.41-2.43 that is exactly
-    // the state a membership move leaves behind, which is why age has to
-    // be a gate of its own.
-    const cache = makeCache()
+    // Every gate that exists today passes here -- same group ids, same
+    // object total, same lastUpdated stamps -- because the second load runs
+    // against the same fixtures. On 2.41-2.43 that is exactly the state a
+    // membership move leaves behind, which is why age has to be a gate of
+    // its own.
+    const cache = createMemoryCache()
+    await loadAll({
+        source: fakeSource(),
+        fetcher,
+        cache,
+        engine: inlineEngine(),
+        onStatus: () => undefined,
+    })
+
+    // Age the entry past the TTL in place, rather than hand-building a
+    // CachedType fixture that would drift from the real one.
+    const entry = await cache.get('organisationUnit')
     await cache.put('organisationUnit', {
-        ...cachedFixture(),
+        ...entry!,
         savedAt: Date.now() - CACHE_TTL_MS - 1,
     })
-    const fetcher = countingFetcher()
-    await loadAll({ ...deps(cache, fetcher), forceRefresh: false })
-    expect(fetcher.calls.some((p) => p.includes('/organisationUnits'))).toBe(
-        true
-    )
-})
 
-it('reuses a cache entry inside the TTL', async () => {
-    const cache = makeCache()
-    await cache.put('organisationUnit', {
-        ...cachedFixture(),
-        savedAt: Date.now() - 1000,
+    const second = fakeSource()
+    const status: LoadStatus[] = []
+    await loadAll({
+        source: second,
+        fetcher,
+        cache,
+        engine: inlineEngine(),
+        onStatus: (s) => status.push(s),
     })
-    const status = await loadAll({ ...deps(cache), forceRefresh: false })
-    expect(status.fromCache.organisationUnit).toBe(true)
+    expect(
+        second.loads.filter((l) => l.endsWith('organisationUnit'))
+    ).not.toEqual([])
+    expect(status[status.length - 1].fromCache.organisationUnit).toBeFalsy()
 })
 ```
 
-Match the existing file's own fixture helpers rather than the placeholder names above — `src/data/loadAll.test.ts` already builds a cache, a fetcher and a `deps` object for its current cache tests; reuse them.
+The "reuses a cache entry inside the TTL" case is already covered by the
+existing `reuses the cache when group ids and totals match` test — its entries
+are written and read within the same test, so they are milliseconds old. Do
+not add a duplicate; if that test starts failing, the TTL gate is wrong.
 
 - [ ] **Step 2: Run the tests and watch them fail**
 
@@ -297,23 +315,55 @@ git commit -m "Expire a cached metadata payload after ten minutes"
 
 In `src/data/loadAll.test.ts`:
 
+Same shape as Task 2's — `createMemoryCache()`, `fakeSource()`,
+`inlineEngine()` and the module-level `fetcher`, all of which this file
+already defines.
+
 ```ts
 it('reports loadedAt as the time of the server read on a fresh load', async () => {
     const before = Date.now()
-    const status = await loadAll({ ...deps(), forceRefresh: false })
-    expect(status.loadedAt.organisationUnit).toBeGreaterThanOrEqual(before)
+    const status: LoadStatus[] = []
+    await loadAll({
+        source: fakeSource(),
+        fetcher,
+        cache: createMemoryCache(),
+        engine: inlineEngine(),
+        onStatus: (s) => status.push(s),
+    })
+    expect(
+        status[status.length - 1].loadedAt.organisationUnit
+    ).toBeGreaterThanOrEqual(before)
 })
 
 it('reports the cached savedAt, not now, when a type is served from cache', async () => {
     // The age the user is shown must be the age of the data, not of the
-    // page load -- a cache hit that reported `now` would claim freshness it
+    // page load -- a cache hit reporting `now` would claim a freshness it
     // does not have, which is the whole defect this feature exists to fix.
-    const savedAt = Date.now() - 5 * 60 * 1000
-    const cache = makeCache()
-    await cache.put('organisationUnit', { ...cachedFixture(), savedAt })
-    const status = await loadAll({ ...deps(cache), forceRefresh: false })
-    expect(status.fromCache.organisationUnit).toBe(true)
-    expect(status.loadedAt.organisationUnit).toBe(savedAt)
+    const cache = createMemoryCache()
+    await loadAll({
+        source: fakeSource(),
+        fetcher,
+        cache,
+        engine: inlineEngine(),
+        onStatus: () => undefined,
+    })
+    // Inside the TTL, so the entry is still reused, but old enough that
+    // `now` and `savedAt` cannot be confused.
+    const savedAt = Date.now() - 60_000
+    const entry = await cache.get('organisationUnit')
+    await cache.put('organisationUnit', { ...entry!, savedAt })
+
+    const status: LoadStatus[] = []
+    await loadAll({
+        source: fakeSource(),
+        fetcher,
+        cache,
+        engine: inlineEngine(),
+        onStatus: (s) => status.push(s),
+    })
+    const last = status[status.length - 1]
+    expect(last.fromCache.organisationUnit).toBe(true)
+    expect(last.loadedAt.organisationUnit).toBe(savedAt)
 })
 ```
 
