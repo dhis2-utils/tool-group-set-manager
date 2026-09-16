@@ -530,7 +530,7 @@ describe('writeMemberships', () => {
         })
 
         const fieldsPath = (groupId: string) =>
-            `organisationUnitGroups/${groupId}?fields=id,name,shortName,code`
+            `organisationUnitGroups/${groupId}?fields=:owner,!organisationUnits`
 
         // Task 8 fix round 1, C1: an import writes with mergeMode=REPLACE,
         // so the group's own fields (name, shortName -- name is required)
@@ -666,6 +666,53 @@ describe('writeMemberships', () => {
                 id: 'g1',
                 name: 'Chiefdoms',
                 shortName: 'CD',
+            })
+        })
+
+        // Task 8 fix round 2: mergeMode=REPLACE (the default) nulls *every*
+        // owned property left out of the payload, not just name/shortName --
+        // measured directly against a live 2.43.1 instance (see the doc
+        // comment on importChange). The field read must therefore carry
+        // whatever `:owner` returns wholesale, not a fixed list of names
+        // this module happens to know about.
+        it('carries every owned property the field read returns, not a fixed list of names', async () => {
+            const calls: string[] = []
+            let body:
+                | { organisationUnitGroups: Record<string, unknown>[] }
+                | undefined
+            const fetcher = async (path: string, init?: RequestInit) => {
+                calls.push(path)
+                if (init?.method === 'POST') {
+                    body = JSON.parse(String(init.body))
+                    return json({ status: 'OK', stats: { updated: 1 } })
+                }
+                return okFields('g1', {
+                    description: 'Chiefdom-level facilities',
+                    color: '#3366ff',
+                    symbol: '16.png',
+                    attributeValues: [
+                        { attribute: { id: 'attr1' }, value: 'x' },
+                    ],
+                })
+            }
+            await writeMemberships(
+                fetcher,
+                'organisationUnit',
+                [bigChange(DEFAULT_BATCH_SIZE + 1)],
+                () => undefined,
+                DEFAULT_BATCH_SIZE,
+                new Map([['g1', []]])
+            )
+            // The field read asks for every owned property (schema-driven),
+            // excluding only the members collection this call computes
+            // itself -- never a hardcoded list of property names.
+            expect(calls[0]).toBe(fieldsPath('g1'))
+            expect(body!.organisationUnitGroups[0]).toMatchObject({
+                id: 'g1',
+                description: 'Chiefdom-level facilities',
+                color: '#3366ff',
+                symbol: '16.png',
+                attributeValues: [{ attribute: { id: 'attr1' }, value: 'x' }],
             })
         })
 

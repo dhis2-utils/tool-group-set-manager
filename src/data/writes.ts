@@ -173,14 +173,19 @@ function splitChange(change: GroupChange, batchSize: number): GroupChange[] {
     return batches
 }
 
-/** The group's own fields an import must carry, read fresh -- see the note
- * on `importChange` below. */
-interface GroupFields {
-    id: string
-    name?: string
-    shortName?: string
-    code?: string
-}
+/**
+ * Every persisted property the group's own object owns, read fresh -- see
+ * the note on `importChange` below. Untyped beyond `id` because the set of
+ * fields varies by object type (`color`/`symbol` on an organisation unit
+ * group, `dataDimensionType` on a category option group, and so on) and by
+ * which ones happen to be non-default on this particular object -- `:owner`
+ * (the field preset that produces it) omits a field entirely rather than
+ * returning it as `null`. Either way, spreading whatever comes back is
+ * correct: a field this object doesn't have is simply absent from the
+ * payload, which is exactly what "leave it at its default" means to the
+ * importer.
+ */
+type GroupFields = { id: string } & Record<string, unknown>
 
 /**
  * Builds one group's complete intended membership -- the current list plus
@@ -190,18 +195,39 @@ interface GroupFields {
  * batched route by a caller.
  *
  * `POST /api/metadata` defaults to `mergeMode=REPLACE`: any of the group's
- * own fields left out of the payload -- `name`, `shortName` -- would be
- * nulled rather than left alone, and a group requires a `name`. So the
- * group's own fields are read immediately before the import and spread
- * into the payload alongside the members, mirroring the shape measured in
- * scripts/perf/write-shapes.js (`{ ...group, organisationUnits }`, `group`
- * read as `id,name,shortName,code`). They are read fresh rather than
- * carried in `completeMembers` from an earlier snapshot: a name someone
- * changed since that snapshot would otherwise be clobbered by this write,
- * which is exactly the class of bug this whole task exists to prevent. If
- * that read fails, the import must not be attempted at all -- a partial
- * payload (members but no name) is not a safer fallback, it is a
- * different way to corrupt the group.
+ * own properties left out of the payload -- not just `name`/`shortName`,
+ * but every owned scalar and embedded property (`description`, `color`,
+ * `symbol`, `attributeValues`, `translations`, ...) -- is nulled rather
+ * than left alone. Measured directly (spec 2026-09-16, Task 8 fix round 2 --
+ * see docs/superpowers/notes/2026-09-plan8-task8-mergemode-check.md for the
+ * full request/response transcript): `mergeMode=MERGE` does *not* rescue
+ * this -- on a live 2.43.1 instance, importing with `mergeMode=MERGE` and a
+ * payload of only `id` plus a changed member list still nulled a group's
+ * `description`, `color`, `code` and `symbol`, exactly as `REPLACE` does;
+ * the only fields it preserved were the ones the payload happened to
+ * include anyway (`name`, `shortName`, both required regardless of merge
+ * mode -- an import carrying neither is rejected outright with `E4000`,
+ * not silently accepted). Encouragingly, the *collection* itself was still
+ * replaced correctly under `MERGE`, not unioned with what existed -- so
+ * there is no hazard on that axis -- but since `MERGE` buys nothing for
+ * the property problem it exists to solve, there is no reason to move off
+ * the default.
+ *
+ * So every owned property is read immediately before the import and spread
+ * into the payload alongside the members, via DHIS2's `:owner` field
+ * preset (`fields=:owner,!<endpoint.members>`) rather than a hardcoded
+ * field list: `:owner` is schema-driven, so it does not need revisiting
+ * when DHIS2 adds a property to a group type, and it is the same query
+ * shape for all four object types this module writes (each has different
+ * owned properties -- confirmed on the same instance for
+ * dataElementGroup, indicatorGroup and categoryOptionGroup, whose
+ * `:owner` responses each differ from organisationUnitGroup's and from
+ * each other). Read fresh rather than carried in `completeMembers` from an
+ * earlier snapshot: a property someone changed since that snapshot would
+ * otherwise be clobbered by this write, which is exactly the class of bug
+ * this whole task exists to prevent. If that read fails, the import must
+ * not be attempted at all -- a partial payload (members but nothing else)
+ * is not a safer fallback, it is a different way to corrupt the group.
  */
 async function importChange(
     fetcher: Fetcher,
@@ -216,7 +242,7 @@ async function importChange(
     try {
         group = await fetchJson<GroupFields>(
             fetcher,
-            `${endpoint.groups}/${change.groupId}?fields=id,name,shortName,code`
+            `${endpoint.groups}/${change.groupId}?fields=:owner,!${endpoint.members}`
         )
     } catch (error) {
         return {
