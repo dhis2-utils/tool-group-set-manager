@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-16T06:23:25.099Z\n"
-"PO-Revision-Date: 2026-09-16T06:23:25.100Z\n"
+"POT-Creation-Date: 2026-09-16T11:38:35.049Z\n"
+"PO-Revision-Date: 2026-09-16T11:38:35.049Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -1055,6 +1055,42 @@ msgstr "1 group"
 
 msgid "{count} groups"
 msgstr "{count} groups"
+
+msgid "Metadata from just now"
+msgstr "Metadata from just now"
+
+msgid "Metadata from 1 minute ago"
+msgstr "Metadata from 1 minute ago"
+
+msgid "Metadata from {count} minutes ago"
+msgstr "Metadata from {count} minutes ago"
+
+msgid "Metadata from 1 hour ago"
+msgstr "Metadata from 1 hour ago"
+
+msgid "Metadata from {count} hours ago"
+msgstr "Metadata from {count} hours ago"
+
+msgid "Metadata from over a day ago"
+msgstr "Metadata from over a day ago"
+
+msgid "Metadata from just now and may be out of date"
+msgstr "Metadata from just now and may be out of date"
+
+msgid "Metadata from 1 minute ago and may be out of date"
+msgstr "Metadata from 1 minute ago and may be out of date"
+
+msgid "Metadata from {count} minutes ago and may be out of date"
+msgstr "Metadata from {count} minutes ago and may be out of date"
+
+msgid "Metadata from 1 hour ago and may be out of date"
+msgstr "Metadata from 1 hour ago and may be out of date"
+
+msgid "Metadata from {count} hours ago and may be out of date"
+msgstr "Metadata from {count} hours ago and may be out of date"
+
+msgid "Metadata from over a day ago and may be out of date"
+msgstr "Metadata from over a day ago and may be out of date"
 
 msgid "Organisation unit group sets"
 msgstr "Organisation unit group sets"
