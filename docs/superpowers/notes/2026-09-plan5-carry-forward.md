@@ -62,7 +62,28 @@ app code that changed since. What varies is the *instance* — whether the
 was not investigated; §3 below (that instance's "Northern Area" holding 0
 members) is sufficient on its own to fail that flow's matrix assertion.
 
-## 2. The e2e suite has no cleanup net
+## 2. The e2e suite has no cleanup net — FIXED (Plan 9)
+
+**Closed.** `flows.spec.ts` now has a suite-wide `beforeAll`/`afterEach` net
+over the `Area` set. `beforeAll` strips any member below level 2 (reporting
+what it removed) and snapshots the repaired state; `afterEach` restores any
+group that diverges from that snapshot. Both halves were verified against a
+real failure rather than only reasoned about: a level-4 facility injected into
+"Northern Area" was reported and removed on the next run, and a deliberate
+throw between a flow's write and its revert produced
+`cleanup net: restoring "Southern Area" -- found 4 member(s), expected 3`,
+leaving the instance back at its thirteen level-2 districts.
+
+The three design questions this entry raised, answered: **what to revert** —
+`Area`'s membership, the only thing these flows write. **How to know what this
+run wrote** — don't; journalling fails in precisely the case that matters (the
+test died early and recorded nothing), so it compares against a snapshot
+instead. **What to do when cleanup fails** — throw, because a net that
+silently does not work is worse than none.
+
+**Original entry, kept for provenance:**
+
+> ## 2. The e2e suite has no cleanup net
 
 `e2e/flows.spec.ts` and `e2e/fixtures/session.ts` have no `afterEach` or
 `afterAll`. Every write-then-revert test reverts only as its own last step,

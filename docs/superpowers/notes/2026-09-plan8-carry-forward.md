@@ -141,5 +141,7 @@ not later mistaken for app damage.
   missing cleanup net) and §4 stand.
 - `2026-09-plan6-carry-forward.md` — **entirely unchanged.** This work touched
   none of it.
-- `2026-09-plan5-carry-forward.md` — §2 (no cleanup net) still open, and it
-  remains the item with the most demonstrated cost across plans.
+- `2026-09-plan5-carry-forward.md` — §2 (no cleanup net) is **now closed**
+  (Plan 9); it had by then cost four investigations, the last of them during
+  this work's own multi-version pass, when a leftover usage SQL view failed
+  the next run on a dirty precondition.

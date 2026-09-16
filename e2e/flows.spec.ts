@@ -102,14 +102,23 @@ const USAGE_SQL_VIEW_CODE = 'GSI_GROUPSET_USAGE'
  * through the page) precisely because it has to work when the page itself
  * is the thing that failed.
  */
-async function deleteUsageViewByCode(
-    request: import('@playwright/test').APIRequestContext,
-    baseURL: string
-): Promise<void> {
+type ApiRequest = import('@playwright/test').APIRequestContext
+
+/** Basic auth for the direct-to-API calls the cleanup net and the usage
+ * teardown make -- both have to work when the page is the thing that
+ * failed, so neither goes through the app. */
+function apiHeaders(): Record<string, string> {
     const auth = Buffer.from(
         `${CREDENTIALS.username}:${CREDENTIALS.password}`
     ).toString('base64')
-    const headers = { Authorization: `Basic ${auth}` }
+    return { Authorization: `Basic ${auth}` }
+}
+
+async function deleteUsageViewByCode(
+    request: ApiRequest,
+    baseURL: string
+): Promise<void> {
+    const headers = apiHeaders()
     const lookup = await request.get(
         `${baseURL}/api/sqlViews.json?filter=code:eq:${USAGE_SQL_VIEW_CODE}&fields=id`,
         { headers }
@@ -124,6 +133,127 @@ async function deleteUsageViewByCode(
         })
     }
 }
+
+/**
+ * The cleanup net (carried forward from Plan 5 §2, through Plans 6, 7 and 8).
+ *
+ * Every membership flow below reverts its own write as its last step, but a
+ * flow that fails *between* the write and the revert leaves this shared
+ * instance in exactly the state that fails the next run's precondition -- so
+ * one failure becomes permanent. That has twice cost this project a full
+ * investigation, and once produced a wrong diagnosis in a written note.
+ *
+ * The net does not journal what each test wrote: the case that matters is
+ * precisely the one where the test died early and recorded nothing. It
+ * snapshots `Area`'s membership once, and restores anything that diverges.
+ *
+ * Scope: `Area` only, because `Area` is the only set these flows write to.
+ * A future flow that writes to a different set gets no protection from this
+ * and must extend it. History is deliberately not cleaned -- `revertChangeSet`
+ * always targets the newest row, so stale entries accumulate harmlessly, and
+ * deleting the app's own audit trail wholesale is a bigger statement than
+ * this problem warrants. The usage SQL view keeps its own `afterAll`.
+ */
+const AREA_SET_ID = 'uIuxlbV1vRT'
+
+/**
+ * Every legitimate member of an `Area` group is one of the thirteen level-2
+ * districts. The flows here only ever wrongly add level-3/4 facilities, so
+ * "member below level 2" is an exact characterisation of the damage they
+ * cause -- and a seed-agnostic one, which a hardcoded list of district names
+ * would not be.
+ *
+ * Deliberately narrow. `agent-gsi-p2-40` has `Kambia` in both "Western Area"
+ * and "Eastern Area" -- a real conflict, and both entries are level 2, so the
+ * net leaves them alone. That is the point: a level-2 org unit in two groups
+ * is exactly the condition this tool exists to *detect*, not damage from a
+ * half-finished test, and a net that tidied it away would be quietly
+ * destroying the more interesting fixture. Only sub-level-2 members are
+ * treated as leftovers.
+ */
+const AREA_MEMBER_LEVEL = 2
+
+interface AreaGroupState {
+    id: string
+    name: string
+    memberIds: string[]
+}
+
+async function readAreaGroups(
+    request: ApiRequest,
+    baseURL: string
+): Promise<{ id: string; name: string; members: { id: string; level: number }[] }[]> {
+    const response = await request.get(
+        `${baseURL}/api/organisationUnitGroupSets/${AREA_SET_ID}` +
+            `?fields=organisationUnitGroups[id,name,organisationUnits[id,level]]`,
+        { headers: apiHeaders() }
+    )
+    if (!response.ok()) {
+        throw new Error(
+            `cleanup net: could not read the Area set -- HTTP ${response.status()}`
+        )
+    }
+    const body = (await response.json()) as {
+        organisationUnitGroups: {
+            id: string
+            name: string
+            organisationUnits?: { id: string; level: number }[]
+        }[]
+    }
+    return body.organisationUnitGroups.map((g) => ({
+        id: g.id,
+        name: g.name,
+        members: g.organisationUnits ?? [],
+    }))
+}
+
+/**
+ * A JSON Patch `replace` of the group's whole members collection -- the same
+ * shape `writes.ts` uses for a large change, and proven atomic on every
+ * supported version (2026-09-plan9-json-patch-rejection.md): a refusal
+ * changes nothing rather than partially applying, which is what makes it
+ * safe to use for a restore.
+ */
+async function replaceAreaGroupMembers({
+    request,
+    baseURL,
+    groupId,
+    memberIds,
+}: {
+    request: ApiRequest
+    baseURL: string
+    groupId: string
+    memberIds: string[]
+}): Promise<void> {
+    const response = await request.patch(
+        `${baseURL}/api/organisationUnitGroups/${groupId}`,
+        {
+            headers: {
+                ...apiHeaders(),
+                'Content-Type': 'application/json-patch+json',
+            },
+            data: [
+                {
+                    op: 'replace',
+                    path: '/organisationUnits',
+                    value: memberIds.map((id) => ({ id })),
+                },
+            ],
+        }
+    )
+    if (!response.ok()) {
+        // Loud on purpose. A net that silently does not work is worse than
+        // no net at all, because it invites trust it has not earned.
+        throw new Error(
+            `cleanup net: could not restore group ${groupId} -- HTTP ${response.status()}: ${(
+                await response.text()
+            ).slice(0, 300)}`
+        )
+    }
+}
+
+const sameIds = (a: string[], b: string[]) =>
+    a.length === b.length && a.every((id, i) => id === b[i])
 
 async function goto(page: Page, hash: string): Promise<AppRoot> {
     await page.goto(`${APP_PATH}#${hash}`)
@@ -379,6 +509,82 @@ function membershipChangeText(count: number): string {
 }
 
 test.describe('Group Set Integrity Tool', () => {
+    /**
+     * `Area`'s membership as this run found it, after repair -- what
+     * `afterEach` restores to. Populated once per project by `beforeAll`;
+     * the config runs one worker with `fullyParallel: false`, so there is
+     * exactly one run of these hooks in flight at a time.
+     */
+    let areaBaseline: AreaGroupState[] = []
+
+    test.beforeAll(async ({ request, baseURL }) => {
+        if (!baseURL) {
+            return
+        }
+        const groups = await readAreaGroups(request, baseURL)
+        const repaired: AreaGroupState[] = []
+        for (const group of groups) {
+            const keep = group.members.filter(
+                (m) => m.level === AREA_MEMBER_LEVEL
+            )
+            if (keep.length !== group.members.length) {
+                // A previous run died between its write and its revert.
+                // Repair rather than refuse to start -- refusing would
+                // block the suite until someone cleaned up by hand, and
+                // this damage is exactly what the net exists to absorb --
+                // but never silently, or a real seed problem would hide
+                // here indefinitely.
+                const removed = group.members
+                    .filter((m) => m.level !== AREA_MEMBER_LEVEL)
+                    .map((m) => m.id)
+                console.warn(
+                    `cleanup net: "${group.name}" started dirty -- removing ${removed.length} member(s) below level ${AREA_MEMBER_LEVEL}: ${removed.join(', ')}`
+                )
+                await replaceAreaGroupMembers({
+                    request,
+                    baseURL,
+                    groupId: group.id,
+                    memberIds: keep.map((m) => m.id),
+                })
+            }
+            repaired.push({
+                id: group.id,
+                name: group.name,
+                memberIds: keep.map((m) => m.id).sort(),
+            })
+        }
+        areaBaseline = repaired
+    })
+
+    test.afterEach(async ({ request, baseURL }) => {
+        if (!baseURL || areaBaseline.length === 0) {
+            return
+        }
+        const groups = await readAreaGroups(request, baseURL)
+        for (const base of areaBaseline) {
+            const current = groups.find((g) => g.id === base.id)
+            if (!current) {
+                continue
+            }
+            const currentIds = current.members.map((m) => m.id).sort()
+            if (sameIds(currentIds, base.memberIds)) {
+                continue
+            }
+            // Reached only when a flow failed before its own revert ran --
+            // a passing flow leaves membership exactly as it found it, so
+            // this is silent on a green run.
+            console.warn(
+                `cleanup net: restoring "${base.name}" -- found ${currentIds.length} member(s), expected ${base.memberIds.length}`
+            )
+            await replaceAreaGroupMembers({
+                request,
+                baseURL,
+                groupId: base.id,
+                memberIds: base.memberIds,
+            })
+        }
+    })
+
     // Step 1 gate: the session fixture itself is proven here, independent of
     // any flow below. If this is the only test running green, that is a
     // silent-fixture failure, not a pass -- see fixtures/session.ts.

@@ -6,7 +6,15 @@ items from earlier plans that are still open after it.
 
 Nothing here is a known-broken behaviour except where it says so.
 
-## 1. Still open from Plan 5: the e2e suite has no cleanup net
+## 1. Still open from Plan 5: the e2e suite has no cleanup net — FIXED (Plan 9)
+
+**Closed.** See `2026-09-plan5-carry-forward.md` §2 for the net and how both
+halves were verified. The evidence this section gathered is what shaped it:
+because a failure between write and revert is the case that matters, the net
+restores against a snapshot rather than a journal of what each test wrote.
+
+**Original entry, kept for provenance:**
+
 
 `2026-09-plan5-carry-forward.md` §2, and **this plan is the strongest evidence
 yet for fixing it**. Task 1 found that the three "failing" write/revert flows
