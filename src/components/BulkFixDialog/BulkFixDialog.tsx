@@ -249,9 +249,9 @@ export const BulkFixDialog = ({
     const [applyError, setApplyError] = useState<string | null>(null)
 
     // Task 9 (spec 5.1/5.4): the pre-write freshness check. `checkingFreshness`
-    // is true only while the import-route groups are being re-read and the
+    // is true only while the patch-route groups are being re-read and the
     // plan recomputed -- never for the common case where nothing crosses the
-    // import threshold, which writes straight through with none of this ever
+    // patch threshold, which writes straight through with none of this ever
     // touched. `recheck` holds the previewed count and the recomputed plan
     // once the two disagree, so the re-confirmation can show both and apply
     // the recomputed one specifically, never the stale preview. `planOverride`
@@ -561,38 +561,39 @@ export const BulkFixDialog = ({
     ]
 
     /**
-     * A group change large enough to take the import route (spec 6.1) --
+     * A group change large enough to take the patch route (spec 6.1) --
      * shared between the synchronous pre-check in `handleApply` (which
      * decides whether to touch any of this machinery at all) and
-     * `readImportRouteGroups` below (which decides which ids to re-read),
+     * `readPatchRouteGroups` below (which decides which ids to re-read),
      * so the two can never disagree about where the threshold sits.
      */
-    const takesImportRoute = (c: GroupChange): boolean =>
+    const takesPatchRoute = (c: GroupChange): boolean =>
         c.additions.length + c.deletions.length > DEFAULT_BATCH_SIZE
 
     /**
-     * The membership of the groups this plan will write by metadata import,
+     * The membership of the groups this plan will write by JSON Patch,
      * read fresh from the server.
      *
-     * Only those groups. An import replaces a group's whole collection, so a
-     * member someone else added since our snapshot is absent from the list we
-     * send and is silently dropped -- that is the hazard this read exists to
-     * remove. A batched delta touches only the ids it names and cannot do it,
-     * so re-reading a group about to receive a delta buys no safety and costs
-     * 1-2s (docs/superpowers/notes/2026-09-plan8-reread-cost.md).
+     * Only those groups. A JSON Patch replaces a group's whole members
+     * collection, so a member someone else added since our snapshot is
+     * absent from the list we send and is silently dropped -- that is the
+     * hazard this read exists to remove. A batched delta touches only the
+     * ids it names and cannot do it, so re-reading a group about to receive
+     * a delta buys no safety and costs 1-2s
+     * (docs/superpowers/notes/2026-09-plan8-reread-cost.md).
      *
      * Returns an empty map when nothing crosses the threshold, which is the
      * common case -- though by the time `handleApply` calls this, it has
-     * already checked that with `takesImportRoute` itself (see the fix
+     * already checked that with `takesPatchRoute` itself (see the fix
      * round 1 note there on why that check has to happen before this
      * function is even called, not just inside it).
      */
-    const readImportRouteGroups = async (
+    const readPatchRouteGroups = async (
         planChanges: GroupChange[]
     ): Promise<Map<string, string[]>> => {
         const endpoint = ENDPOINTS[set.objectType]
         const ids = planChanges
-            .filter(takesImportRoute)
+            .filter(takesPatchRoute)
             .map((c) => c.groupId)
         if (ids.length === 0) {
             return new Map()
@@ -623,7 +624,7 @@ export const BulkFixDialog = ({
     // applied -- `plan.changes` is read once here and never recomputed from
     // `useEngineQuery`'s own copy, so a background requery can never smuggle
     // in something other than what was shown. Task 9 adds one exception, and
-    // only one: when a group in that plan is large enough to take the import
+    // only one: when a group in that plan is large enough to take the patch
     // route (spec 5.1), its membership is re-read from the server first, and
     // if that changes the plan, the recomputed one is what gets applied --
     // never the stale preview (spec 5.3).
@@ -674,12 +675,12 @@ export const BulkFixDialog = ({
         setApplyError(null)
         setCheckError(null)
         // Synchronous by construction (spec 5.1's own scoping rule): whether
-        // any group in this plan takes the import route is knowable from
+        // any group in this plan takes the patch route is knowable from
         // the plan already in hand, with no read of anything. Deciding it
         // here, before `checkingFreshness` is ever touched, is what keeps
         // the common case (no group crosses the threshold) genuinely inert
         // -- no field read, no progress message, nothing to race.
-        const needsCheck = plan.changes.some(takesImportRoute)
+        const needsCheck = plan.changes.some(takesPatchRoute)
         if (!needsCheck) {
             performWrite(plan.changes)
             return
@@ -703,7 +704,7 @@ export const BulkFixDialog = ({
         checkInFlightRef.current = true
         setCheckingFreshness(true)
         try {
-            const completeMembers = await readImportRouteGroups(plan.changes)
+            const completeMembers = await readPatchRouteGroups(plan.changes)
             await client.call(
                 'setGroupMembers',
                 set.objectType,
@@ -900,7 +901,7 @@ export const BulkFixDialog = ({
                         {planLoading && <CircularLoader small />}
                         {planError && <NoticeBox error>{planError}</NoticeBox>}
                         {/* Task 9 (spec 5.1/5.4): shown only for a plan with
-                            at least one group taking the import route --
+                            at least one group taking the patch route --
                             the common case (every group batched) never sets
                             `checkingFreshness` at all. */}
                         {checkingFreshness && (

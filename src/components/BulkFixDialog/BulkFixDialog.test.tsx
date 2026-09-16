@@ -87,7 +87,7 @@ jest.mock('@/hooks/useMembershipWrite', () => ({
     }),
 }))
 
-// Task 9: `readImportRouteGroups` calls the real fetcher, not `client.call`
+// Task 9: `readPatchRouteGroups` calls the real fetcher, not `client.call`
 // -- this is the one place in the file that needs the raw HTTP layer
 // stubbed, since every other data access goes through the mocked engine
 // client or the mocked hooks above.
@@ -149,7 +149,7 @@ beforeEach(() => {
         includeTracker: false,
     })
     // Harmless default: nothing outside the Task 9 describe block below
-    // exercises a plan large enough to reach the import route, so this is
+    // exercises a plan large enough to reach the patch route, so this is
     // never actually invoked by those tests -- it exists so a future one
     // that accidentally does cannot fail on an unmocked fetcher instead.
     mockFetcher.mockResolvedValue({
@@ -1656,11 +1656,11 @@ describe('BulkFixDialog apply step', () => {
 
     // Task 9 (spec 5.1/5.4): the bulk fix's pre-write freshness check. Only
     // a group whose OWN delta exceeds DEFAULT_BATCH_SIZE (5000) takes the
-    // import route and is therefore worth re-reading -- IMPORT_CHANGE below
+    // patch route and is therefore worth re-reading -- PATCH_CHANGE below
     // is sized to cross that on purpose, so the default fixture for this
     // block genuinely exercises the check rather than skipping it.
     describe('pre-write freshness check', () => {
-        const IMPORT_CHANGE = [
+        const PATCH_CHANGE = [
             {
                 groupId: 'g2',
                 additions: Array.from(
@@ -1711,7 +1711,7 @@ describe('BulkFixDialog apply step', () => {
                 catchAllGroup: { own: 'g2' },
                 includeTracker: false,
             })
-            // Default scenario: one group's delta crosses the import
+            // Default scenario: one group's delta crosses the patch
             // threshold, and the recompute agrees with the preview -- the
             // "large fix, nothing actually changed underneath it" case.
             // Individual tests below override either mock to exercise the
@@ -1720,8 +1720,8 @@ describe('BulkFixDialog apply step', () => {
                 if (method === 'planAssignment') {
                     return {
                         data: plan({
-                            changes: IMPORT_CHANGE,
-                            affected: IMPORT_CHANGE[0].additions.length,
+                            changes: PATCH_CHANGE,
+                            affected: PATCH_CHANGE[0].additions.length,
                         }),
                         isLoading: false,
                         error: null,
@@ -1740,8 +1740,8 @@ describe('BulkFixDialog apply step', () => {
                 if (method === 'planAssignment') {
                     return Promise.resolve(
                         plan({
-                            changes: IMPORT_CHANGE,
-                            affected: IMPORT_CHANGE[0].additions.length,
+                            changes: PATCH_CHANGE,
+                            affected: PATCH_CHANGE[0].additions.length,
                         })
                     )
                 }
@@ -1759,7 +1759,7 @@ describe('BulkFixDialog apply step', () => {
             })
         })
 
-        it('writes straight through, with no re-read at all, when nothing crosses the import threshold', async () => {
+        it('writes straight through, with no re-read at all, when nothing crosses the patch threshold', async () => {
             // The common case by far: a few hundred violations, every group
             // taking the batched delta route. A delta cannot silently drop
             // a concurrent editor's member, so there is nothing to check
@@ -1792,7 +1792,7 @@ describe('BulkFixDialog apply step', () => {
                 method === 'planAssignment'
                     ? {
                           data: plan({
-                              changes: IMPORT_CHANGE,
+                              changes: PATCH_CHANGE,
                               affected: 45,
                           }),
                           isLoading: false,
@@ -1830,7 +1830,7 @@ describe('BulkFixDialog apply step', () => {
                 method === 'planAssignment'
                     ? {
                           data: plan({
-                              changes: IMPORT_CHANGE,
+                              changes: PATCH_CHANGE,
                               affected: 45,
                           }),
                           isLoading: false,
@@ -1869,7 +1869,7 @@ describe('BulkFixDialog apply step', () => {
         })
 
         it('passes the freshly read membership to the writer', async () => {
-            // Task 8's import route is unreachable without this, by design.
+            // Task 8's patch route is unreachable without this, by design.
             await renderAndReachApply()
             await act(async () => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))

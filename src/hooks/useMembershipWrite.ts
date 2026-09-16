@@ -40,7 +40,7 @@ export interface MembershipWriteInput {
     /**
      * The current complete membership of each group in `changes`, by group
      * id, read fresh immediately before this call. Supplying it is what
-     * makes `writeMemberships`'s import route available for a large
+     * makes `writeMemberships`'s patch route available for a large
      * per-group change -- and withholding it is what makes that route
      * unreachable for a caller that has not re-read (spec 2026-09-16
      * section 6.3). Optional, so every existing caller keeps working and

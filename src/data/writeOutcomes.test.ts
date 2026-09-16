@@ -1,5 +1,5 @@
 import { aggregateOutcomes, mergeOutcomes, outcomeText } from './writeOutcomes'
-import { BatchOutcome, IMPORT_NOT_OK, UNPARSEABLE_RESPONSE } from './writes'
+import { BatchOutcome, UNPARSEABLE_RESPONSE } from './writes'
 
 const batch = (
     o: Partial<BatchOutcome> & { groupId: string }
@@ -83,32 +83,6 @@ describe('outcomeText', () => {
         expect(text).toContain('HTTP 500')
         expect(text).toMatch(/could not read/i)
         expect(text).not.toContain(UNPARSEABLE_RESPONSE)
-    })
-
-    // Task 8 fix round 1, I1: a rejected import is a real server report
-    // (typeReports naming the actual conflict), not a parse failure -- it
-    // must render as its own sentence, not the UNPARSEABLE_RESPONSE one.
-    it('gives the IMPORT_NOT_OK sentinel its own sentence, distinct from UNPARSEABLE_RESPONSE', () => {
-        const { tone, text } = textFor([
-            batch({ groupId: 'g1', accepted: 0, error: IMPORT_NOT_OK }),
-        ])
-        expect(tone).toBe('error')
-        expect(text).not.toContain(IMPORT_NOT_OK)
-        expect(text).toMatch(/rejected the import/i)
-        expect(text).not.toMatch(/could not read/i)
-        expect(text).not.toMatch(/failed with error/i)
-    })
-
-    it('gives a group that failed both an unreadable response and a rejected import one sentence for each', () => {
-        const { tone, text } = textFor([
-            batch({ groupId: 'g1', accepted: 0, error: UNPARSEABLE_RESPONSE }),
-            batch({ groupId: 'g1', accepted: 0, error: IMPORT_NOT_OK }),
-        ])
-        expect(tone).toBe('error')
-        expect(text).toMatch(/could not read/i)
-        expect(text).toMatch(/rejected the import/i)
-        expect(text).not.toContain(UNPARSEABLE_RESPONSE)
-        expect(text).not.toContain(IMPORT_NOT_OK)
     })
 
     it('reports a silent short accept as a partial acceptance, not a failure', () => {

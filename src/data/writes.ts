@@ -1,5 +1,5 @@
 import { ENDPOINTS } from './endpoints'
-import { Fetcher, fetchJson } from './sources/DataSource'
+import { Fetcher } from './sources/DataSource'
 import { GroupChange } from '@/engine/changeSet'
 import { ObjectType } from '@/engine/types'
 
@@ -31,12 +31,11 @@ export interface BatchOutcome {
      */
     error?: string
     /**
-     * The raw text behind an `UNPARSEABLE_RESPONSE` or `IMPORT_NOT_OK`
-     * `error`, kept for developer diagnostics only -- never shown to a
-     * user. `UNPARSEABLE_RESPONSE`'s raw text is also logged via
+     * The raw text behind an `UNPARSEABLE_RESPONSE` `error`, kept for
+     * developer diagnostics only -- never shown to a user. Also logged via
      * `console.warn` at the point of capture (below); if a future caller
-     * wants to attach either to a bug report or a persisted write log, it
-     * is also carried here rather than only in that one console line.
+     * wants to attach it to a bug report or a persisted write log, it is
+     * carried here rather than only in that one console line.
      */
     rawError?: string
 }
@@ -55,22 +54,6 @@ export interface BatchOutcome {
  * sentence in its place.
  */
 export const UNPARSEABLE_RESPONSE = 'unparseable-response'
-
-/**
- * Sentinel `error` value for a metadata import whose response parsed as
- * JSON just fine but reported a `status` other than `OK`/`SUCCESS` -- a
- * request DHIS2 accepted at the HTTP level but itself refused (a
- * validation failure, a conflict; the real reason lives in the report's
- * `typeReports`). Distinct from `UNPARSEABLE_RESPONSE`, which means the
- * response was not JSON at all: this one has a real server report, just
- * not one this module can translate (no `i18n.t` here -- same reasoning
- * as `UNPARSEABLE_RESPONSE`'s own doc comment). `outcomeText`
- * (writeOutcomes.ts) recognises this exact value and renders its own
- * translated sentence for it, the same way it does for
- * `UNPARSEABLE_RESPONSE`; the server's own report text is kept on
- * `rawError` for diagnostics, never shown to the user directly.
- */
-export const IMPORT_NOT_OK = 'import-not-ok'
 
 /**
  * What `writeMemberships` actually achieved, as distinct from what it was
@@ -174,67 +157,47 @@ function splitChange(change: GroupChange, batchSize: number): GroupChange[] {
 }
 
 /**
- * Every persisted property the group's own object owns, read fresh -- see
- * the note on `importChange` below. Untyped beyond `id` because the set of
- * fields varies by object type (`color`/`symbol` on an organisation unit
- * group, `dataDimensionType` on a category option group, and so on) and by
- * which ones happen to be non-default on this particular object -- `:owner`
- * (the field preset that produces it) omits a field entirely rather than
- * returning it as `null`. Either way, spreading whatever comes back is
- * correct: a field this object doesn't have is simply absent from the
- * payload, which is exactly what "leave it at its default" means to the
- * importer.
- */
-type GroupFields = { id: string } & Record<string, unknown>
-
-/**
  * Builds one group's complete intended membership -- the current list plus
  * this change's additions, minus its deletions -- and sends it as a single
- * metadata import replacing that group's whole collection. Reports back as
+ * JSON Patch `replace` of the group's members collection (`PATCH
+ * <endpoint.groups>/<groupId>`, `Content-Type: application/json-patch+json`,
+ * a one-op body `[{op: 'replace', path: '/<endpoint.members>', value:
+ * [...]}]`), the exact shape proven against live 2.40.12 and 2.41.10
+ * instances by `scripts/perf/json-patch-members.js` and measured in
+ * docs/superpowers/notes/2026-09-plan8-json-patch.md. Reports back as
  * exactly one `BatchOutcome`, so `WriteResult` cannot be told apart from the
  * batched route by a caller.
  *
- * `POST /api/metadata` overwrites every owned property absent from the
- * payload. This is not a default that could be changed: `mergeMode` was
- * REMOVED from the endpoint in 2.41 and backported to 2.38.7/2.39.6/2.40.4,
- * so REPLACE is the only behaviour across this app's supported range, and a
- * request carrying `mergeMode=MERGE` may be rejected outright. Any of the
- * group's own properties left out of the payload -- not just `name`/`shortName`,
- * but every owned scalar and embedded property (`description`, `color`,
- * `symbol`, `attributeValues`, `translations`, ...) -- is nulled rather
- * than left alone. Measured directly (spec 2026-09-16, Task 8 fix round 2 --
- * see docs/superpowers/notes/2026-09-plan8-task8-mergemode-check.md for the
- * full request/response transcript, and its correction on why): passing
- * `mergeMode=MERGE` does *not* rescue
- * this -- on a live 2.43.1 instance, importing with `mergeMode=MERGE` and a
- * payload of only `id` plus a changed member list still nulled a group's
- * `description`, `color`, `code` and `symbol`, exactly as `REPLACE` does;
- * the only fields it preserved were the ones the payload happened to
- * include anyway (`name`, `shortName`, both required regardless of merge
- * mode -- an import carrying neither is rejected outright with `E4000`,
- * not silently accepted). Encouragingly, the *collection* itself was still
- * replaced correctly under `MERGE`, not unioned with what existed -- so
- * there is no hazard on that axis -- but since `MERGE` buys nothing for
- * the property problem it exists to solve, there is no reason to move off
- * the default.
+ * This replaces a metadata-import shape (`POST /api/metadata`) this module
+ * used until that note measured JSON Patch against it. The import shape
+ * overwrote every owned property absent from its payload -- not a default
+ * that could be changed: `mergeMode` was removed from the endpoint in 2.41
+ * and backported to 2.38.7/2.39.6/2.40.4, so REPLACE was the only behaviour
+ * available across this app's supported range -- which forced it to read
+ * the group fresh with `fields=:owner,!<members>` immediately before every
+ * write and spread the result back into the payload, just to avoid nulling
+ * `description`, `color`, `symbol` and every other owned property the
+ * payload didn't happen to repeat.
  *
- * So every owned property is read immediately before the import and spread
- * into the payload alongside the members, via DHIS2's `:owner` field
- * preset (`fields=:owner,!<endpoint.members>`) rather than a hardcoded
- * field list: `:owner` is schema-driven, so it does not need revisiting
- * when DHIS2 adds a property to a group type, and it is the same query
- * shape for all four object types this module writes (each has different
- * owned properties -- confirmed on the same instance for
- * dataElementGroup, indicatorGroup and categoryOptionGroup, whose
- * `:owner` responses each differ from organisationUnitGroup's and from
- * each other). Read fresh rather than carried in `completeMembers` from an
- * earlier snapshot: a property someone changed since that snapshot would
- * otherwise be clobbered by this write, which is exactly the class of bug
- * this whole task exists to prevent. If that read fails, the import must
- * not be attempted at all -- a partial payload (members but nothing else)
- * is not a safer fallback, it is a different way to corrupt the group.
+ * A JSON Patch scoped to the members path cannot touch anything else by
+ * construction: there is no payload to keep in sync with the group's other
+ * properties, and therefore no pre-read needed to protect them -- the
+ * hazard the import shape's `:owner` read compensated for does not exist
+ * here at all, rather than being worked around. Plan 8 confirmed this holds
+ * at the same 91,892-membership scale the import shape was measured at
+ * (23.0s and 19.2s in 2 requests, against the import shape's 18.2s and
+ * 20.3s at the same cluster; `description`/`color`/`symbol` preserved
+ * through a full empty-then-refill on both 2.40.12 and 2.41.10) -- one
+ * request cheaper than the import shape's real production path, which
+ * needed the owner-field read on top of its own two requests.
+ *
+ * There is no analogue here of the import shape's "200 OK but the report
+ * says ERROR" case: a single-object JSON Patch has no import report to
+ * carry a `status` field, so `response.ok` is the whole success signal --
+ * the same convention `setGroupSetProperties` (metadataWrites.ts) already
+ * uses for this app's other JSON Patch call.
  */
-async function importChange(
+async function patchChange(
     fetcher: Fetcher,
     objectType: ObjectType,
     change: GroupChange,
@@ -243,24 +206,6 @@ async function importChange(
     const endpoint = ENDPOINTS[objectType]
     const requested = change.additions.length + change.deletions.length
 
-    let group: GroupFields
-    try {
-        group = await fetchJson<GroupFields>(
-            fetcher,
-            `${endpoint.groups}/${change.groupId}?fields=:owner,!${endpoint.members}`
-        )
-    } catch (error) {
-        return {
-            outcome: {
-                groupId: change.groupId,
-                requested,
-                accepted: 0,
-                error: error instanceof Error ? error.message : String(error),
-            },
-            ok: false,
-        }
-    }
-
     const currentIds = new Set(current)
     const deletions = new Set(change.deletions)
     const intended = [
@@ -268,18 +213,22 @@ async function importChange(
         ...change.additions.filter((id) => !currentIds.has(id)),
     ]
     try {
-        const response = await fetcher('metadata?importStrategy=UPDATE', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                [endpoint.groups]: [
+        const response = await fetcher(
+            `${endpoint.groups}/${change.groupId}`,
+            {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json-patch+json',
+                },
+                body: JSON.stringify([
                     {
-                        ...group,
-                        [endpoint.members]: intended.map((id) => ({ id })),
+                        op: 'replace',
+                        path: `/${endpoint.members}`,
+                        value: intended.map((id) => ({ id })),
                     },
-                ],
-            }),
-        })
+                ]),
+            }
+        )
         if (!response.ok) {
             return {
                 outcome: {
@@ -291,52 +240,13 @@ async function importChange(
                 ok: false,
             }
         }
-        let body: { status?: string }
-        try {
-            body = (await response.json()) as { status?: string }
-        } catch (parseError) {
-            // Same conclusion as the batched path's own JSON-parse guard
-            // below: the raw parser message is never something a user
-            // should see, so the sentinel is recorded and the raw text
-            // kept on rawError for diagnostics only.
-            const rawMessage =
-                parseError instanceof Error
-                    ? parseError.message
-                    : String(parseError)
-            console.warn(
-                `writeMemberships: import for group ${change.groupId} returned a response that could not be parsed as JSON`,
-                rawMessage
-            )
-            return {
-                outcome: {
-                    groupId: change.groupId,
-                    requested,
-                    accepted: 0,
-                    error: UNPARSEABLE_RESPONSE,
-                    rawError: rawMessage,
-                },
-                ok: false,
-            }
-        }
-        // An import reports objects touched, never memberships, so its
-        // stats cannot be reconciled against `requested` the way a
-        // collection response is. A non-OK status is the only failure
-        // signal available, so that is what is trusted -- and the caller
-        // re-reads this group before the next write anyway (section 5).
-        // A non-OK status is a real report from the server (typeReports
-        // naming the actual conflict), not a parse failure, so it gets its
-        // own sentinel (`IMPORT_NOT_OK`) rather than `UNPARSEABLE_RESPONSE`
-        // -- the raw report is kept on `rawError` for diagnostics.
-        const ok = body.status === 'OK' || body.status === 'SUCCESS'
         return {
             outcome: {
                 groupId: change.groupId,
                 requested,
-                accepted: ok ? requested : 0,
-                error: ok ? undefined : IMPORT_NOT_OK,
-                rawError: ok ? undefined : JSON.stringify(body),
+                accepted: requested,
             },
-            ok,
+            ok: true,
         }
     } catch (error) {
         return {
@@ -354,9 +264,9 @@ async function importChange(
 /**
  * Writes membership changes to DHIS2. Per group, a change at or below
  * `batchSize` goes to the collection endpoint as one request per batch,
- * strictly sequential; a change above `batchSize` goes as a single metadata
- * import carrying that group's complete intended membership instead --
- * see the routing note above `takesImport` inside this function, and spec
+ * strictly sequential; a change above `batchSize` goes as a single JSON
+ * Patch carrying that group's complete intended membership instead -- see
+ * the routing note above `takesPatchRoute` inside this function, and spec
  * 2026-09-16 section 6.1. Both routes are sequential across groups and
  * batches alike -- a national fix can be a hundred thousand
  * memberships, and a burst of parallel requests against a shared production
@@ -406,30 +316,30 @@ export async function writeMemberships(
 
     // Spec 2026-09-16 section 6.1. DHIS2 re-reads a group's whole collection
     // on every collection write, so the batched path costs roughly (requests
-    // x collection size) while an import costs one pass. The two are equal
-    // at one request -- which is `batchSize` ids -- and the import wins
-    // beyond it. Below it, batched costs the same single re-read and sends
-    // far fewer ids, so a small fix must never take the import route.
+    // x collection size) while a JSON Patch replace costs one pass. The two
+    // are equal at one request -- which is `batchSize` ids -- and the patch
+    // wins beyond it. Below it, batched costs the same single re-read and
+    // sends far fewer ids, so a small fix must never take the patch route.
     //
     // The `completeMembers` requirement is the safety property, not a
-    // convenience: an import replaces the group's whole collection, which is
-    // only sound when the membership it is built from was just re-read
-    // (section 5). A caller that has not done that refresh has no entry
-    // here and therefore cannot reach this route at all.
-    const takesImport = (change: GroupChange): boolean =>
+    // convenience: a JSON Patch replace overwrites the group's whole
+    // collection, which is only sound when the membership it is built from
+    // was just re-read (section 5). A caller that has not done that refresh
+    // has no entry here and therefore cannot reach this route at all.
+    const takesPatchRoute = (change: GroupChange): boolean =>
         change.additions.length + change.deletions.length > batchSize &&
         completeMembers?.has(change.groupId) === true
 
-    // Each change is routed once, in the order given: an import change
+    // Each change is routed once, in the order given: a patch change
     // counts as one unit of `onProgress`'s total (the same as one batch),
     // and a batched change contributes the batches `splitChange` produces
     // for it (zero for a no-op change).
     type Unit =
-        | { kind: 'import'; change: GroupChange }
+        | { kind: 'patch'; change: GroupChange }
         | { kind: 'batch'; batch: GroupChange }
     const units: Unit[] = changes.flatMap((change): Unit[] =>
-        takesImport(change)
-            ? [{ kind: 'import', change }]
+        takesPatchRoute(change)
+            ? [{ kind: 'patch', change }]
             : splitChange(change, batchSize).map((batch) => ({
                   kind: 'batch',
                   batch,
@@ -444,14 +354,14 @@ export async function writeMemberships(
     // is skipped rather than retried, but still recorded (see the doc
     // comment above), keyed by groupId so a hundred-way split only ever
     // costs one real request. Any other failure is not added here. Not
-    // consulted for an import change, which is always a single request per
+    // consulted for a patch change, which is always a single request per
     // group and has no "remaining batches" to skip.
     const failedGroups = new Map<string, string>()
 
     let done = 0
     for (const unit of units) {
-        if (unit.kind === 'import') {
-            const { outcome, ok } = await importChange(
+        if (unit.kind === 'patch') {
+            const { outcome, ok } = await patchChange(
                 fetcher,
                 objectType,
                 unit.change,

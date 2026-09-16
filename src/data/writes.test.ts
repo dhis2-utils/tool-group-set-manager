@@ -1,7 +1,6 @@
 import { ENDPOINTS } from './endpoints'
 import {
     DEFAULT_BATCH_SIZE,
-    IMPORT_NOT_OK,
     UNPARSEABLE_RESPONSE,
     writeMemberships,
 } from './writes'
@@ -529,23 +528,6 @@ describe('writeMemberships', () => {
             deletions: [] as string[],
         })
 
-        const fieldsPath = (groupId: string) =>
-            `organisationUnitGroups/${groupId}?fields=:owner,!organisationUnits`
-
-        // Task 8 fix round 1, C1: an import writes with mergeMode=REPLACE,
-        // so the group's own fields (name, shortName -- name is required)
-        // must be read fresh and spread into the payload, mirroring
-        // scripts/perf/write-shapes.js's proven shape. A GET fetcher call
-        // never carries `init.body`, which is what distinguishes it from
-        // the POST in these mocks.
-        const okFields = (groupId: string, extra: object = {}) =>
-            json({
-                id: groupId,
-                name: 'Group one',
-                shortName: 'Group 1',
-                ...extra,
-            })
-
         it('uses the collection endpoint for a change at the threshold', async () => {
             const calls: string[] = []
             const fetcher = async (path: string, init?: RequestInit) => {
@@ -568,14 +550,18 @@ describe('writeMemberships', () => {
             ])
         })
 
-        it('uses a metadata import for a change above the threshold', async () => {
-            const calls: string[] = []
+        // Plan 8: the large-change route is a JSON Patch against the
+        // group's own endpoint, not a metadata import -- exact call shape
+        // proven by scripts/perf/json-patch-members.js and measured in
+        // docs/superpowers/notes/2026-09-plan8-json-patch.md. No pre-read
+        // of the group's fields: a patch scoped to the members path cannot
+        // touch anything else, so there is nothing to read first.
+        it('uses a JSON Patch replacing the members collection for a change above the threshold', async () => {
+            const calls: { path: string; method?: string; headers?: unknown }[] =
+                []
             const fetcher = async (path: string, init?: RequestInit) => {
-                calls.push(path)
-                if (init?.method === 'POST') {
-                    return json({ status: 'OK', stats: { updated: 1 } })
-                }
-                return okFields('g1')
+                calls.push({ path, method: init?.method, headers: init?.headers })
+                return json({})
             }
             await writeMemberships(
                 fetcher,
@@ -585,28 +571,22 @@ describe('writeMemberships', () => {
                 DEFAULT_BATCH_SIZE,
                 new Map([['g1', ['existing1']]])
             )
-            // The group's fields are read once (a GET, no method on the
-            // mock's init), then exactly one import POST is sent.
             expect(calls).toEqual([
-                fieldsPath('g1'),
-                'metadata?importStrategy=UPDATE',
+                {
+                    path: 'organisationUnitGroups/g1',
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json-patch+json' },
+                },
             ])
         })
 
         it('sends the complete intended membership, not a delta', async () => {
             let body:
-                | {
-                      organisationUnitGroups: {
-                          organisationUnits: { id: string }[]
-                      }[]
-                  }
+                | { op: string; path: string; value: { id: string }[] }[]
                 | undefined
             const fetcher = async (_path: string, init?: RequestInit) => {
-                if (init?.method === 'POST') {
-                    body = JSON.parse(String(init.body))
-                    return json({ status: 'OK', stats: { updated: 1 } })
-                }
-                return okFields('g1')
+                body = JSON.parse(String(init?.body))
+                return json({})
             }
             await writeMemberships(
                 fetcher,
@@ -625,101 +605,26 @@ describe('writeMemberships', () => {
                 DEFAULT_BATCH_SIZE,
                 new Map([['g1', ['keep1', 'gone1']]])
             )
-            const sent = body!.organisationUnitGroups[0].organisationUnits.map(
-                (o) => o.id
-            )
+            expect(body).toEqual([
+                {
+                    op: 'replace',
+                    path: '/organisationUnits',
+                    value: expect.any(Array),
+                },
+            ])
+            const sent = body![0].value.map((o) => o.id)
             expect(sent).toContain('keep1')
             expect(sent).toContain('new0')
             expect(sent).not.toContain('gone1')
             expect(sent).toHaveLength(DEFAULT_BATCH_SIZE + 2)
         })
 
-        // Task 8 fix round 1, C1: the payload must carry the group's own
-        // identifying fields, not just its id -- otherwise mergeMode=REPLACE
-        // nulls out a required field (name) on every import.
-        it("carries the group's own name and shortName in the import payload, not just its id", async () => {
-            let body:
-                | {
-                      organisationUnitGroups: {
-                          id: string
-                          name?: string
-                          shortName?: string
-                      }[]
-                  }
-                | undefined
-            const fetcher = async (_path: string, init?: RequestInit) => {
-                if (init?.method === 'POST') {
-                    body = JSON.parse(String(init.body))
-                    return json({ status: 'OK', stats: { updated: 1 } })
-                }
-                return okFields('g1', { name: 'Chiefdoms', shortName: 'CD' })
-            }
-            await writeMemberships(
-                fetcher,
-                'organisationUnit',
-                [bigChange(DEFAULT_BATCH_SIZE + 1)],
-                () => undefined,
-                DEFAULT_BATCH_SIZE,
-                new Map([['g1', []]])
-            )
-            expect(body!.organisationUnitGroups[0]).toMatchObject({
-                id: 'g1',
-                name: 'Chiefdoms',
-                shortName: 'CD',
-            })
-        })
-
-        // Task 8 fix round 2: mergeMode=REPLACE (the default) nulls *every*
-        // owned property left out of the payload, not just name/shortName --
-        // measured directly against a live 2.43.1 instance (see the doc
-        // comment on importChange). The field read must therefore carry
-        // whatever `:owner` returns wholesale, not a fixed list of names
-        // this module happens to know about.
-        it('carries every owned property the field read returns, not a fixed list of names', async () => {
-            const calls: string[] = []
-            let body:
-                | { organisationUnitGroups: Record<string, unknown>[] }
-                | undefined
-            const fetcher = async (path: string, init?: RequestInit) => {
-                calls.push(path)
-                if (init?.method === 'POST') {
-                    body = JSON.parse(String(init.body))
-                    return json({ status: 'OK', stats: { updated: 1 } })
-                }
-                return okFields('g1', {
-                    description: 'Chiefdom-level facilities',
-                    color: '#3366ff',
-                    symbol: '16.png',
-                    attributeValues: [
-                        { attribute: { id: 'attr1' }, value: 'x' },
-                    ],
-                })
-            }
-            await writeMemberships(
-                fetcher,
-                'organisationUnit',
-                [bigChange(DEFAULT_BATCH_SIZE + 1)],
-                () => undefined,
-                DEFAULT_BATCH_SIZE,
-                new Map([['g1', []]])
-            )
-            // The field read asks for every owned property (schema-driven),
-            // excluding only the members collection this call computes
-            // itself -- never a hardcoded list of property names.
-            expect(calls[0]).toBe(fieldsPath('g1'))
-            expect(body!.organisationUnitGroups[0]).toMatchObject({
-                id: 'g1',
-                description: 'Chiefdom-level facilities',
-                color: '#3366ff',
-                symbol: '16.png',
-                attributeValues: [{ attribute: { id: 'attr1' }, value: 'x' }],
-            })
-        })
-
-        // Task 8 fix round 1, C1: if the fresh field read fails, the group
-        // must fail cleanly -- no import attempted with a partial payload,
-        // and nothing added to `applied`.
-        it('fails the group cleanly, without attempting an import, when the field read fails', async () => {
+        // Plan 8 removed the metadata-import shape's owner-field pre-read
+        // entirely: a JSON Patch scoped to `/organisationUnits` cannot
+        // touch any other property, so there is no field list to keep in
+        // sync and nothing to fail fetching. The only failure surface left
+        // is the patch request itself.
+        it('fails the group cleanly when the JSON Patch request fails, with no other request attempted', async () => {
             const calls: string[] = []
             const fetcher = async (path: string) => {
                 calls.push(path)
@@ -733,45 +638,17 @@ describe('writeMemberships', () => {
                 DEFAULT_BATCH_SIZE,
                 new Map([['g1', []]])
             )
-            expect(calls).toEqual([fieldsPath('g1')])
+            expect(calls).toEqual(['organisationUnitGroups/g1'])
             expect(result.applied).toHaveLength(0)
             expect(result.unaccounted).toHaveLength(1)
-            expect(result.outcomes[0].error).toBeTruthy()
-        })
-
-        // Task 8 fix round 1, I1: a non-OK import status is a real server
-        // report (typeReports naming the actual conflict), not a parse
-        // failure -- it must not be folded into UNPARSEABLE_RESPONSE.
-        it('reports a non-OK import status as IMPORT_NOT_OK, distinct from UNPARSEABLE_RESPONSE, and keeps the report on rawError', async () => {
-            const fetcher = async (_path: string, init?: RequestInit) => {
-                if (init?.method === 'POST') {
-                    return json({
-                        status: 'ERROR',
-                        typeReports: [{ klass: 'OrganisationUnitGroup' }],
-                    })
-                }
-                return okFields('g1')
-            }
-            const result = await writeMemberships(
-                fetcher,
-                'organisationUnit',
-                [bigChange(DEFAULT_BATCH_SIZE + 1)],
-                () => undefined,
-                DEFAULT_BATCH_SIZE,
-                new Map([['g1', []]])
-            )
-            expect(result.outcomes[0].error).toBe(IMPORT_NOT_OK)
-            expect(result.outcomes[0].error).not.toBe(UNPARSEABLE_RESPONSE)
-            expect(result.outcomes[0].rawError).toContain('ERROR')
-            expect(result.applied).toHaveLength(0)
-            expect(result.unaccounted).toHaveLength(1)
+            expect(result.outcomes[0].error).toBe('HTTP 404')
         })
 
         // The structural safety property: no fresh membership, no replace-all.
         it('falls back to batched above the threshold when no complete membership is given', async () => {
-            const calls: string[] = []
+            const calls: { path: string; method?: string }[] = []
             const fetcher = async (path: string, init?: RequestInit) => {
-                calls.push(path)
+                calls.push({ path, method: init?.method })
                 const body = JSON.parse(String(init?.body)) as {
                     additions: unknown[]
                 }
@@ -783,17 +660,12 @@ describe('writeMemberships', () => {
                 [bigChange(DEFAULT_BATCH_SIZE + 1)],
                 () => undefined
             )
-            expect(calls.every((p) => !p.startsWith('metadata'))).toBe(true)
+            expect(calls.every((c) => c.method !== 'PATCH')).toBe(true)
             expect(calls).toHaveLength(2)
         })
 
-        it('reports an import group in WriteResult exactly as a batched one', async () => {
-            const fetcher = async (_path: string, init?: RequestInit) => {
-                if (init?.method === 'POST') {
-                    return json({ status: 'OK', stats: { updated: 1 } })
-                }
-                return okFields('g1')
-            }
+        it('reports a patch group in WriteResult exactly as a batched one', async () => {
+            const fetcher = async () => json({})
             const result = await writeMemberships(
                 fetcher,
                 'organisationUnit',
