@@ -2,6 +2,23 @@ import { openDB } from 'idb'
 import { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
 import { ObjectType } from '@/engine/types'
 
+/**
+ * How long a cached payload may be reused before it is re-read regardless
+ * of what the server's own signals say.
+ *
+ * This is not belt-and-braces on top of a working check. On 2.41 through
+ * 2.43 a group's `lastUpdated` does not move when its membership changes
+ * (docs/superpowers/notes/2026-09-plan7-lastupdated-guard.md), and neither
+ * the group id list nor the object total can see an object moving between
+ * groups -- so on three of four supported versions every gate spec 4.4
+ * defines is blind to the one change this tool exists to watch. Age cannot
+ * make them see it; it bounds how long they can be wrong.
+ *
+ * Ten minutes is a starting value chosen to match "a few minutes old is
+ * fine", not a tuned one.
+ */
+export const CACHE_TTL_MS = 10 * 60 * 1000
+
 export interface CachedType {
     objects: ObjectsPayload
     memberships: MembershipsPayload
@@ -17,6 +34,11 @@ export interface CachedType {
      */
     groupLastUpdated?: Record<string, string>
     objectTotal: number
+    /**
+     * When this entry was written. `tryCache` reads it to reject the entry
+     * once it is older than `CACHE_TTL_MS`, regardless of what the other
+     * gates say.
+     */
     savedAt: number
 }
 

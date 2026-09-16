@@ -1,4 +1,4 @@
-import { createMemoryCache } from './cache'
+import { CACHE_TTL_MS, createMemoryCache } from './cache'
 import { loadAll, LoadStatus } from './loadAll'
 import { DataSource } from './sources/DataSource'
 import { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
@@ -206,6 +206,44 @@ describe('loadAll', () => {
             (s) => s.type === 'organisationUnit' && s.fromCache.organisationUnit
         )
         expect(ouStatus?.phase).toBe('evaluate')
+    })
+
+    it('does not reuse a cache entry older than the TTL, even when every other gate passes', async () => {
+        // Every gate that exists today passes here -- same group ids, same
+        // object total, same lastUpdated stamps -- because the second load runs
+        // against the same fixtures. On 2.41-2.43 that is exactly the state a
+        // membership move leaves behind, which is why age has to be a gate of
+        // its own.
+        const cache = createMemoryCache()
+        await loadAll({
+            source: fakeSource(),
+            fetcher,
+            cache,
+            engine: inlineEngine(),
+            onStatus: () => undefined,
+        })
+
+        // Age the entry past the TTL in place, rather than hand-building a
+        // CachedType fixture that would drift from the real one.
+        const entry = await cache.get('organisationUnit')
+        await cache.put('organisationUnit', {
+            ...entry!,
+            savedAt: Date.now() - CACHE_TTL_MS - 1,
+        })
+
+        const second = fakeSource()
+        const status: LoadStatus[] = []
+        await loadAll({
+            source: second,
+            fetcher,
+            cache,
+            engine: inlineEngine(),
+            onStatus: (s) => status.push(s),
+        })
+        expect(
+            second.loads.filter((l) => l.endsWith('organisationUnit'))
+        ).not.toEqual([])
+        expect(status[status.length - 1].fromCache.organisationUnit).toBeFalsy()
     })
 
     it('bypasses a populated cache when forceRefresh is set', async () => {

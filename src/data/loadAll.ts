@@ -1,4 +1,4 @@
-import { Cache, CachedType } from './cache'
+import { CACHE_TTL_MS, Cache, CachedType } from './cache'
 import { ENDPOINTS } from './endpoints'
 import { groupIdsFor, loadGroupSets } from './groupSets'
 import {
@@ -382,7 +382,11 @@ export async function loadAll(deps: Deps): Promise<{
  * data the user has already fixed is still broken. A stamp that cannot be
  * fetched (or was never cached) counts as a mismatch, so the type is
  * reloaded rather than trusted -- the same conservative reading the object
- * total check already applies.
+ * total check already applies. On top of those, an entry older than
+ * `CACHE_TTL_MS` is rejected outright: on 2.41-2.43 a membership move leaves
+ * every one of those signals unchanged (see `CACHE_TTL_MS`'s own doc
+ * comment), so age is not redundant with them -- it is the only gate that
+ * still catches a stale entry on those versions.
  */
 async function tryCache(
     deps: Deps,
@@ -391,6 +395,12 @@ async function tryCache(
 ): Promise<CachedType | undefined> {
     const cached = await deps.cache.get(type)
     if (!cached || !sameIds(cached.groupIds, groupIds)) {
+        return undefined
+    }
+    // Age first: it is the only gate needing no network call, so an expired
+    // entry is rejected without spending the objectTotal and groupStamps
+    // requests the other three cost.
+    if (Date.now() - cached.savedAt > CACHE_TTL_MS) {
         return undefined
     }
     const total = await objectTotal(deps.fetcher, type).catch(() => -1)
