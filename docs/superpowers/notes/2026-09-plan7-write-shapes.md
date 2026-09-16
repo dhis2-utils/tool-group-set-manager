@@ -248,3 +248,92 @@ The §6.4 decision — which of these to adopt, and on which versions — is
 Task 4's, and it needs Task 3's per-version answer on whether the import
 shape's concurrency guard can actually be built. See
 `2026-09-plan7-lastupdated-guard.md`.
+
+---
+
+## 7. Conclusion (Task 4)
+
+Added after `2026-09-plan7-lastupdated-guard.md` answered the guard question.
+The four rules of §6.4's decision procedure, applied in order and against the
+numbers above rather than against whichever looked best.
+
+### Rule 1 — a shape whose guard cannot be built on a version is disqualified there
+
+`2026-09-plan7-lastupdated-guard.md`: the guard can be built on **2.40 only**.
+On 2.41, 2.42 and 2.43 a group's `lastUpdated` does not move on a
+collection-endpoint membership write, and `~size` does not move on an
+equal-sized swap — so both available signals are blind to exactly the
+concurrent edit the guard exists to catch, including one made by another user
+of this app through its own batched write path.
+
+**`import` and `import-async` are therefore disqualified on 2.41, 2.42 and
+2.43.** They survive on 2.40 alone. Rule 1 does not eliminate them entirely,
+so the procedure continues — but it has already ruled out adopting either as
+*the* write path.
+
+### Rule 2 — a shape that buys speed with server load loses
+
+This rule does not eliminate anything, because the fastest shape is also the
+cheapest: `import` is both quickest (18.2s) and lightest (3.1 rows fetched per
+object). There is no speed-for-load trade to reject here.
+
+Where rule 2 does bite is on the batched sizes among themselves, and it
+sharpens the choice within Branch A: batch 5000 is 4× faster than today's
+1000 **and** 2.9× cheaper per object (19.5 vs 56.1 rows fetched). It is better
+on both axes at once, so nothing is being bought with load.
+
+### Rule 3 — if the batched endpoint meets the budget at some batch size, adopt it
+
+It does. **Batch 5000: 47.4s measured over 91,892 objects, ~39.7s scaled to
+§6.1's stated 77,017.** Inside the ~60-second budget with room to spare.
+
+Rule 3 says to adopt it, and gives the reasons: no guard, no new code path, no
+per-version branching, and the simplest thing that meets the budget wins.
+Every one of those holds here, and the guard clause is not a formality — rule
+1 has just established that the guard is unbuildable on three of four
+supported versions.
+
+**The decision is Branch A: `writeMemberships`'s default batch size moves from
+1000 to 5000.**
+
+### Rule 4 — if nothing meets the budget, say so
+
+Does not apply. Something meets it.
+
+### Why each loser lost
+
+- **`import-async`** lost on every axis and needed no veto: slower than the
+  synchronous import (22.2s vs 18.2s), more requests (21 vs 2), more database
+  work (377k rows fetched vs 284k). Its only argument is avoiding a request
+  timeout, and an 18-second request is not near one.
+- **`import`** lost on **rule 1**, not on its numbers, which are the best of
+  the seven runs. This is worth stating plainly because it is the
+  uncomfortable outcome: the fastest and by far the cheapest shape is being
+  left on the table for a correctness reason. §6.3 anticipated exactly this
+  and settled it in advance — "where it cannot be proven, the batched endpoint
+  stays the write path on that version whatever the timings say" — and the
+  measurement did not change that calculus, it confirmed it.
+  Adopting it only on 2.40 (Branch C) would mean a second write path, a
+  concurrency guard, and a version selector, all to save ~25 seconds on the
+  **oldest** supported version — the one least likely to be running a
+  national-scale population, and the one whose users will upgrade away from
+  the special case. Rule 3's "the simplest thing that meets the budget wins"
+  is the right call here, not a shortcut.
+- **`batched` @ 1000** — today's default — lost to `batched` @ 5000 on both
+  axes: 4× slower and 2.9× more server work per object. It does not meet the
+  budget (160.9s scaled).
+- **`batched` @ 250** lost decisively and is the clearest single result in the
+  table: 397.5 rows fetched per object, 128× the import, 11× over the budget.
+  If there was ever an instinct that smaller batches are kinder to a shared
+  server, this is the measurement that retires it.
+
+### What the user should now expect
+
+A bulk fix over a national-scale population (~77,000 objects) takes **roughly
+40 seconds**, not the 8–12 minutes §6.1 projected and not the 3.2 minutes it
+actually took before this change. That is a real number measured on a real
+266,396-org-unit instance, and it is honest about its conditions: it was
+measured with nothing else driving the API. Run 7 showed what contention does
+to wall-clock (2.4× on an unchanged workload), so on a busy production server
+this will be slower — which is itself the argument for the shape that asks the
+server for 2.9× less work than the one it replaces.

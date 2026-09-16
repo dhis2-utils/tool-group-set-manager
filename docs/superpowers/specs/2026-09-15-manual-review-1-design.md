@@ -382,7 +382,32 @@ the timings say.
 
 ### 6.4 Outcome
 
-To be filled in from the measurement, before the write path changes.
+**Decision: keep the batched collection endpoint, and raise its batch size
+from 1000 to 5000.** No import shape, no concurrency guard, no per-version
+branching.
+
+Measured over 91,892 memberships on the EMIS instance (2.41.10, 266,396
+organisation units): batch 5000 takes **47.4s**, which is **~39.7s** scaled to
+the 77,017 objects §6.1 states, and so meets the ~60-second budget. Today's
+default, batch 1000, takes 192s. Batch 250 takes 823s — smaller batches are
+far worse, not gentler, because DHIS2 re-reads the whole collection on each
+write.
+
+The import shape is genuinely faster (18.2s) and much cheaper (3.1 rows
+fetched per object written, against 19.5 at batch 5000), and it is **not**
+adopted, for the reason §6.3 exists: its guard cannot be built. A group's
+`lastUpdated` does not move on a collection-endpoint membership write on 2.41,
+2.42 or 2.43, and neither does `~size` when the change is an equal-sized swap
+— so on three of the four supported versions the guard would be blind to
+exactly the concurrent edit it is there to catch, including one made by
+another user of this same app. Under §6.3 that disqualifies the import shape
+there; it survives only on 2.40, and a second write path plus a guard, for the
+oldest supported version alone, is not a trade worth making when the simple
+path already meets the budget.
+
+Evidence: `docs/superpowers/notes/2026-09-plan7-write-shapes.md` (timings and
+server load) and `docs/superpowers/notes/2026-09-plan7-lastupdated-guard.md`
+(the guard, per version).
 
 ## 7. Carried-forward defects
 
