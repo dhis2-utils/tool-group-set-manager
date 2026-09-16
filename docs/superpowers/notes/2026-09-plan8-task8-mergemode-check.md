@@ -209,3 +209,52 @@ field (`name`, `shortName`, `code`, `description`, `color`, `symbol`,
 `fields=*` capture, except `lastUpdated` (a server-managed timestamp, not
 something the check could or should restore). The instance was then
 stopped.
+
+---
+
+## Correction, added after the measurement: `mergeMode` no longer exists
+
+The measurement above asked the right question and reached the right
+conclusion, but it misattributes the cause. **`mergeMode` was removed from
+`api/metadata` in 2.41**, and the removal was backported to 2.38.7, 2.39.6 and
+2.40.4 — so it is gone across this app's entire supported range (2.40+).
+
+- DHIS2 2.41 upgrade notes, API changes → Metadata: *"The `mergeMode`
+  parameter is removed from In Metadata Import Export app and also from the
+  endpoint `api/metadata`. This means when updating objects, all existing
+  property values will be overwritten even if the new values are `null`."*
+- [DHIS2-16525](https://dhis2.atlassian.net/browse/DHIS2-16525) — *"the MERGE
+  mode is not working properly. It doesn't support merging collections with
+  item has type of embedded object or JsonB object… the merge operation should
+  always be REPLACE."*
+- [DHIS2-11779](https://dhis2.atlassian.net/browse/DHIS2-11779) — MERGE
+  deprecated because it never supported JSONB-backed properties such as
+  `sharing` and `attributeValues`, which is precisely the class of field this
+  round was trying to protect.
+
+So `mergeMode=MERGE` did not "behave like REPLACE" on 2.43.1 — **it was inert,
+because the parameter no longer does anything.** (DHIS2-16526 notes the
+backend may reject a request carrying it outright; on 2.43.1 it was accepted
+and ignored.) Checks 1 and 2 were therefore measuring REPLACE both times,
+which is why they agree.
+
+**Nothing about the implementation changes.** `importChange` never sends
+`mergeMode`; it relies on the default, which is now the only behaviour there
+is, and it sends every owned property via `:owner`. That is exactly what the
+removal requires of a client, so the code is correct for the right reason —
+and more robustly than the measurement alone established, since there is now
+no mode in which omitted properties would have survived.
+
+### The alternative DHIS2 actually recommends
+
+All three tickets point partial updates at the **JSON Patch API**
+(`Content-Type: application/json-patch+json`), introduced in 2.37 — which this
+app already uses in `setGroupSetProperties` (`src/data/metadataWrites.ts`).
+
+Patching only the members array would sidestep the owned-fields problem
+entirely rather than compensating for it, and would be the idiomatic answer to
+"replace one collection". It was **not** adopted here because its cost at
+national scale is unmeasured, and the import shape's 18.2s figure is the only
+measured justification this route has. Worth measuring before anyone extends
+this code: if a JSON Patch of a ~92,000-element array is comparable, it is the
+better design.

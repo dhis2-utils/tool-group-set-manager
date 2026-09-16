@@ -194,13 +194,18 @@ type GroupFields = { id: string } & Record<string, unknown>
  * exactly one `BatchOutcome`, so `WriteResult` cannot be told apart from the
  * batched route by a caller.
  *
- * `POST /api/metadata` defaults to `mergeMode=REPLACE`: any of the group's
- * own properties left out of the payload -- not just `name`/`shortName`,
+ * `POST /api/metadata` overwrites every owned property absent from the
+ * payload. This is not a default that could be changed: `mergeMode` was
+ * REMOVED from the endpoint in 2.41 and backported to 2.38.7/2.39.6/2.40.4,
+ * so REPLACE is the only behaviour across this app's supported range, and a
+ * request carrying `mergeMode=MERGE` may be rejected outright. Any of the
+ * group's own properties left out of the payload -- not just `name`/`shortName`,
  * but every owned scalar and embedded property (`description`, `color`,
  * `symbol`, `attributeValues`, `translations`, ...) -- is nulled rather
  * than left alone. Measured directly (spec 2026-09-16, Task 8 fix round 2 --
  * see docs/superpowers/notes/2026-09-plan8-task8-mergemode-check.md for the
- * full request/response transcript): `mergeMode=MERGE` does *not* rescue
+ * full request/response transcript, and its correction on why): passing
+ * `mergeMode=MERGE` does *not* rescue
  * this -- on a live 2.43.1 instance, importing with `mergeMode=MERGE` and a
  * payload of only `id` plus a changed member list still nulled a group's
  * `description`, `color`, `code` and `symbol`, exactly as `REPLACE` does;
