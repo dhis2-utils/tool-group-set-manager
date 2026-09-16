@@ -5,51 +5,62 @@ are complete. These items were found during them, confirmed, and
 deliberately left — each is either outside the plan that found it or needs
 its own investigation. A future plan should pick them up in this order.
 
-## 1. Three e2e write/revert flows fail, and the cause is not established
+## 1. Three e2e write/revert flows fail — ANSWERED (Plan 7 Task 1)
 
-`single assign`, `bulk move` and `revert` fail on 2.43.1; `bulk move` fails
-on 2.40.12. Reproduced consistently across 3+ isolated re-runs, not a
-one-off.
+**Status: settled and fixed.** See
+`docs/superpowers/notes/2026-09-plan7-e2e-write-flows.md` for the full
+evidence. The summary, because the framing below turned out to point the
+wrong way:
 
-**The observation**, stated carefully because the framing decides the fix:
-after a real, successful server write (confirmed via direct read-only API
-calls — the membership change always lands), opening History's Revert
-dialog leaves its own Revert button disabled for 5-15 seconds, with **zero**
-further `/api/*` requests in that window, and it self-resolves on its own
-some of the time.
+The cause was **neither** of the two candidates this section proposed. There
+was no contention of any kind, because there was no delayed promise:
+`planRevert` resolved promptly and correctly reported *"Nothing to revert"*,
+and `RevertDialog` disables its button on `plan.affected === 0`. The disabled
+button was the app telling the truth about a stale input.
 
-`planRevert` is a Web Worker call (`client.call('planRevert', …)`), not
-HTTP, which is why no network traffic appears. The client/worker protocol
-is a FIFO in which every message either resolves or rejects (`failAll` on
-`onerror`/`onmessageerror`), so a promise that never settles would require a
-non-terminating loop — and a non-terminating loop does not self-resolve in
-5-15 seconds, repeatedly, across independent runs.
+Two independent causes, both pre-existing, both unrelated to Plans 4, 5 and 6:
 
-**Two candidate explanations, neither confirmed:**
+1. **The app created its `GSI_*` SQL views without a `cacheStrategy`**, so
+   DHIS2 applied `RESPECT_SYSTEM_SETTING`, which on these instances resolves
+   to `keyCacheStrategy: CACHE_TWO_WEEKS`. `/api/sqlViews/<id>/data` was
+   therefore served with `Cache-Control: max-age=1209600, public` and the
+   browser answered every post-write membership read from its own cache,
+   without contacting the server, for up to fourteen days. A user-facing
+   defect in its own right: a user's own fix vanishes on the next load.
+   Fixed in Plan 7 (`cacheStrategy: 'NO_CACHE'` on the definitions, plus
+   `cache: 'no-store'` on the reads, because layer one does nothing for views
+   an earlier version already created).
+2. **The missing cleanup net in §2 below**, which turned one failure into a
+   permanent one: each failed flow left the shared instance in exactly the
+   state that fails the *next* run's precondition. This is what hid cause 1 —
+   the three flows were failing on their preconditions, never reaching the
+   symptom described below.
 
-- worker-queue contention — something ahead of `planRevert` in the
-  single-threaded worker's queue is taking that long;
-- main-thread contention — the response arrives promptly but its handler is
-  delayed.
+**The original observation, kept for provenance** (and note that its most
+suggestive detail had the opposite meaning to the one read into it):
 
-They need different fixes. Queue contention wants the heavy work moved off
-the critical path; main-thread contention wants the opposite. **Either way
-the user gets no feedback distinguishing "still working" from "stuck"**,
-which is a defect in its own right regardless of which is happening.
+> after a real, successful server write (confirmed via direct read-only API
+> calls — the membership change always lands), opening History's Revert
+> dialog leaves its own Revert button disabled for 5-15 seconds, with **zero**
+> further `/api/*` requests in that window, and it self-resolves on its own
+> some of the time.
 
-**What is ruled out.** Plan 5 changes no engine, data-layer or hook code at
-all — `git diff --stat 36325b4..9ef557a -- src/engine src/data src/hooks` is
-empty, and its sole `ObjectsTable.tsx` edit is one `data-test` attribute.
-Plan 4's two candidates were checked too: `evaluateSet`'s simplification
-*removed* a branch and two parameters from a bounded loop, and
-`ObjectsTable`'s per-row patch runs inside an already-resolved `.then()`
-touching only its own component state, so it cannot block a different
-component's pending worker call. `applyChangeSet` re-evaluates only the
-touched sets, and Plan 5's integrity button is pure HTTP.
+The "zero `/api/*` requests" was read as evidence that the stall was inside
+the Web Worker, since `planRevert` is not HTTP. It was in fact the signature
+of a **browser HTTP cache hit**: no request appears because no request is
+made. The reasoning that followed from it — a FIFO client/worker protocol in
+which a never-settling promise would need a non-terminating loop — was sound,
+and its conclusion (that no such loop existed) was right. There was no stalled
+promise.
 
-**What is not ruled out.** Nobody re-ran the suite at a commit before Plan 4.
-The honest status is "very likely not Plan 4's or Plan 5's fault", not
-"proven pre-existing". Establishing that is step one.
+The proposed step one, a re-run at a commit before Plan 4, was **not** run and
+would have proved nothing: both causes predate Plan 4 and neither depends on
+app code that changed since. What varies is the *instance* — whether the
+`GSI_*` views are installed on it, and what its `keyCacheStrategy` is.
+
+`bulk move`'s additional failure on 2.40.12 is **not** explained by this and
+was not investigated; §3 below (that instance's "Northern Area" holding 0
+members) is sufficient on its own to fail that flow's matrix assertion.
 
 ## 2. The e2e suite has no cleanup net
 
