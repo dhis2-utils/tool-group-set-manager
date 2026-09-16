@@ -63,6 +63,15 @@ Not fixed because adding structural cleanup to a suite that writes to shared
 instances is its own design question — what to revert, how to know what this
 run wrote, and what to do when cleanup itself fails.
 
+**Updated after Plan 6.** Plan 6's usage flow writes too (it installs a SQL
+view), and rather than widen this gap it was given a `test.afterAll` of its
+own that deletes the view by code. That was necessary beyond tidiness: a
+leftover usage view makes every *subsequent* run of that flow fail at its
+first assertion, because the button it looks for then reads "Remove usage SQL
+view" instead of "Install usage SQL view". So the suite now has exactly one
+flow that cleans up structurally, and the general question — a suite-wide
+`afterEach` for the membership flows — is still open.
+
 ## 3. A data anomaly on `agent-gsi-p2-40`
 
 That instance's "Northern Area" organisation unit group has **0** members,
@@ -94,7 +103,8 @@ its rule at the existing `.top` class.
 
 ## 5. A latent e2e locator collision
 
-`e2e/flows.spec.ts:674`'s `root.getByText('0 objects', { exact: true })` has
+`e2e/flows.spec.ts:728`'s `root.getByText('0 objects', { exact: true })` has
+(line number as of Plan 6; it was 674 when this was written)
 the same collision shape as two locators hardened in Plan 5's final fix
 wave: `GroupsPanel` renders `0 objects` for an empty group. It is latent
 only because `GroupSetDetail` renders tabs with a ternary — one tab's
