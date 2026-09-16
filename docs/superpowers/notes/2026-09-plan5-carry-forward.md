@@ -83,17 +83,42 @@ view" instead of "Install usage SQL view". So the suite now has exactly one
 flow that cleans up structurally, and the general question — a suite-wide
 `afterEach` for the membership flows — is still open.
 
-## 3. A data anomaly on `agent-gsi-p2-40`
+## 3. A data anomaly on `agent-gsi-p2-40` — FIXED (Plan 7 Task 8)
 
-That instance's "Northern Area" organisation unit group has **0** members,
-where `agent-gsi-p2` correctly has 4 (Tonkolili, Kono, Bombali, Koinadugu —
-the seed data `flows.spec.ts`'s own comments describe). History on 2.40.12
-carries entries from 2026-09-12, so this looks like leftover damage from an
-earlier session rather than anything recent.
+**Original entry, kept for provenance:**
 
-Left alone deliberately: restoring it means guessing the intended full set
-beyond what 2.43.1 happens to show, and a testing task should not silently
-rewrite seed data.
+> That instance's "Northern Area" organisation unit group has **0** members,
+> where `agent-gsi-p2` correctly has 4 (Tonkolili, Kono, Bombali, Koinadugu —
+> the seed data `flows.spec.ts`'s own comments describe). History on 2.40.12
+> carries entries from 2026-09-12, so this looks like leftover damage from an
+> earlier session rather than anything recent.
+>
+> Left alone deliberately: restoring it means guessing the intended full set
+> beyond what 2.43.1 happens to show, and a testing task should not silently
+> rewrite seed data.
+
+**Settled.** By 2026-09-16 the group held **3** members and they were exactly
+`Badjia`, `Njandama MCHP` and `Ngelehun CHC` — the `bulk move` flow's own
+population (`BULK_POPULATION_COUNT`), at levels 3 and 4, with all four
+districts still missing. That removes the guesswork the entry was hedging
+against: this is unreverted damage from an aborted run of this suite, not
+something about the seed, and the intended contents are named by
+`flows.spec.ts`'s own comment rather than inferred from 2.43.1.
+
+Restored: the four districts added back, the three facilities removed. The
+2.40.12 suite then passed 8/8, including `bulk move`, which had been the one
+flow failing on that instance — so this anomaly, not the caching defect in §1,
+was the whole of that failure.
+
+**One observation while restoring, not acted on.** On `agent-gsi-p2-40`,
+`Kambia` is a member of **both** "Western Area" and "Eastern Area" — a genuine
+conflict in the Area set, and exactly the kind of thing this tool exists to
+report. It was left alone: unlike Northern Area it is not obviously damage
+(the Sierra Leone seed has real oddities, and a demo database containing a
+conflict is plausible and even useful here), no flow depends on it, and
+"restore what is clearly damaged" is a different licence from "tidy the seed".
+Worth a minute's comparison against `agent-gsi-p2` before anyone treats it as
+either.
 
 ## 4. `@dhis2/ui`'s `DataTableColumnHeader` ignores its own `align` prop
 
