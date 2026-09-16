@@ -51,6 +51,30 @@ import {
 } from '@/hooks/useMembershipWrite'
 import { interpolate } from '@/utils/interpolate'
 
+/**
+ * How long the pre-write freshness check may run before it is abandoned.
+ *
+ * Not a performance budget -- it is the escape hatch for a check that never
+ * settles, which would otherwise leave the dialog unclosable (Cancel, Back
+ * and the modal's own close affordance are all disabled while it runs).
+ * Well above anything measured: the re-read costs 1-2s per group and runs
+ * the groups in parallel, and the slowest whole check observed on the
+ * largest real database (266,396 organisation units) was single-digit
+ * seconds. A legitimate check has to be an order of magnitude slower than
+ * ever seen to hit this, and when it does nothing has been written and
+ * Apply can simply be pressed again.
+ */
+const CHECK_TIMEOUT_MS = 60_000
+
+/**
+ * Stored in `checkError` when the deadline above wins, so the notice can say
+ * "took too long" rather than the generic "failed" -- different words
+ * because they call for different things from the reader. Locale-neutral by
+ * construction: `checkError` is diagnostic only and is never rendered, the
+ * same convention `applyError` follows.
+ */
+const CHECK_TIMEOUT = 'CHECK_TIMEOUT'
+
 interface Props {
     set: GroupSetMeta
     scope: ScopeRef
@@ -288,6 +312,29 @@ export const BulkFixDialog = ({
     // the second call sees it inside the very same synchronous burst that
     // started the first.
     const checkInFlightRef = useRef(false)
+    // Carried forward from Plan 8: `checkingFreshness` disables Cancel, Back
+    // and the modal's own close affordance, which is right while the check
+    // is genuinely running but left the dialog unclosable if the check never
+    // settled -- a hung request meant a page reload was the only way out.
+    // Two refs give it an escape hatch. `checkAbortRef` stops the HTTP
+    // re-read itself; `checkGenerationRef` is what makes abandoning one
+    // safe at all, because `Promise.race` does not cancel the chain that
+    // loses -- without it a timed-out check could still reach
+    // `performWrite` afterwards and write a plan the user was never shown.
+    const checkAbortRef = useRef<AbortController | null>(null)
+    const checkGenerationRef = useRef(0)
+
+    // If the dialog unmounts while a check is running, stop the read and
+    // mark the check stale: its continuation would otherwise set state on
+    // an unmounted component, and the request would keep the connection
+    // open for an answer nobody can receive.
+    useEffect(
+        () => () => {
+            checkGenerationRef.current++
+            checkAbortRef.current?.abort()
+        },
+        []
+    )
 
     const { config: gsiConfig, isLoaded: gsiConfigLoaded } = useGsiConfig()
 
@@ -600,7 +647,8 @@ export const BulkFixDialog = ({
      * function is even called, not just inside it).
      */
     const readPatchRouteGroups = async (
-        planChanges: GroupChange[]
+        planChanges: GroupChange[],
+        signal?: AbortSignal
     ): Promise<Map<string, string[]>> => {
         const endpoint = ENDPOINTS[set.objectType]
         const ids = planChanges
@@ -613,7 +661,7 @@ export const BulkFixDialog = ({
             ids.map(async (groupId) => {
                 const response = await fetcher(
                     `${endpoint.groups}/${groupId}/${endpoint.members}?fields=id&paging=false`,
-                    { cache: 'no-store' }
+                    { cache: 'no-store', signal }
                 )
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`)
@@ -723,25 +771,69 @@ export const BulkFixDialog = ({
         // all four were still enabled through the entire read.
         checkInFlightRef.current = true
         setCheckingFreshness(true)
+        const generation = ++checkGenerationRef.current
+        const isCurrent = () => checkGenerationRef.current === generation
+        const abort = new AbortController()
+        checkAbortRef.current = abort
+        let timer: ReturnType<typeof setTimeout> | undefined
         try {
-            const completeMembers = await readPatchRouteGroups(
-                referencePlan.changes
-            )
-            await client.call(
-                'setGroupMembers',
-                set.objectType,
-                Array.from(completeMembers, ([groupId, memberIds]) => ({
-                    groupId,
-                    memberIds,
-                }))
-            )
-            const recomputed = await client.call<AssignmentPlan>(
-                'planAssignment',
-                set.id,
-                scope,
-                populationFilter,
-                targetGroupId
-            )
+            // The deadline covers the whole check, not just the fetch. The
+            // re-read is only the first of three ways this can hang: both
+            // `client.call`s below are worker round-trips with no timeout of
+            // their own, and a terminated or wedged worker never answers, so
+            // an AbortController on the HTTP request alone would leave two
+            // of the three cases exactly as stuck as before.
+            const deadline = new Promise<never>((_, reject) => {
+                timer = setTimeout(() => {
+                    abort.abort()
+                    reject(new Error(CHECK_TIMEOUT))
+                }, CHECK_TIMEOUT_MS)
+            })
+            const work = (async () => {
+                const completeMembers = await readPatchRouteGroups(
+                    referencePlan.changes,
+                    abort.signal
+                )
+                await client.call(
+                    'setGroupMembers',
+                    set.objectType,
+                    Array.from(completeMembers, ([groupId, memberIds]) => ({
+                        groupId,
+                        memberIds,
+                    }))
+                )
+                const recomputed = await client.call<AssignmentPlan>(
+                    'planAssignment',
+                    set.id,
+                    scope,
+                    populationFilter,
+                    targetGroupId
+                )
+                return { completeMembers, recomputed }
+            })()
+            // Once the deadline wins, `work` is still running and will
+            // reject when its aborted fetch does. `Promise.race` stops
+            // listening at that point, so without a handler of its own that
+            // rejection surfaces as an unhandled promise rejection --
+            // noise in the console at best, a failed test run at worst.
+            // This handler only swallows it; the race still sees the
+            // rejection through its own.
+            work.catch(() => undefined)
+            const { completeMembers, recomputed } = await Promise.race([
+                work,
+                deadline,
+            ])
+            // Not what stops a timed-out check from writing -- the
+            // deadline's rejection does that on its own, by making
+            // everything below unreachable for that invocation. This is
+            // for the case the rejection cannot cover: the dialog
+            // unmounting mid-check. The read and both engine calls carry
+            // on regardless, and without this their continuation would
+            // write, and set state, on behalf of a dialog that is no
+            // longer on screen.
+            if (!isCurrent()) {
+                return
+            }
             const unchanged =
                 recomputed.affected === referencePlan.affected &&
                 JSON.stringify(recomputed.changes) ===
@@ -755,6 +847,9 @@ export const BulkFixDialog = ({
                 })
             }
         } catch (e) {
+            if (!isCurrent()) {
+                return
+            }
             // Fix round 1, finding 2: the check itself failed -- nothing
             // was written (nothing above this line ever calls
             // `performWrite`), so this must never be confused with
@@ -762,8 +857,14 @@ export const BulkFixDialog = ({
             // that did happen but could not be confirmed.
             setCheckError(e instanceof Error ? e.message : String(e))
         } finally {
-            setCheckingFreshness(false)
-            checkInFlightRef.current = false
+            if (timer !== undefined) {
+                clearTimeout(timer)
+            }
+            if (isCurrent()) {
+                checkAbortRef.current = null
+                setCheckingFreshness(false)
+                checkInFlightRef.current = false
+            }
         }
     }
 
@@ -970,18 +1071,32 @@ export const BulkFixDialog = ({
                             which only ever renders on the apply step and
                             means the opposite (a write happened but could
                             not be confirmed). Nothing was written here. */}
-                        {checkError && !checkingFreshness && (
+                        {checkError === CHECK_TIMEOUT && !checkingFreshness && (
                             <NoticeBox
                                 error
                                 title={i18n.t(
-                                    'The metadata could not be checked'
+                                    'Checking the metadata took too long'
                                 )}
                             >
                                 {i18n.t(
-                                    'Reading the latest metadata before applying failed, so nothing was written — try Apply again'
+                                    'The check was stopped because it did not finish in time, so nothing was written — try Apply again'
                                 )}
                             </NoticeBox>
                         )}
+                        {checkError &&
+                            checkError !== CHECK_TIMEOUT &&
+                            !checkingFreshness && (
+                                <NoticeBox
+                                    error
+                                    title={i18n.t(
+                                        'The metadata could not be checked'
+                                    )}
+                                >
+                                    {i18n.t(
+                                        'Reading the latest metadata before applying failed, so nothing was written — try Apply again'
+                                    )}
+                                </NoticeBox>
+                            )}
                         {/* Task 9 (spec 5.3): the recomputed plan disagreed
                             with the one just previewed -- rendered in place
                             of the checking indicator above, never together

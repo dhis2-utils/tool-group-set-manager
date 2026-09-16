@@ -1690,7 +1690,7 @@ describe('BulkFixDialog apply step', () => {
         // here would silently discard whichever scenario the caller just set
         // up.
         async function renderAndReachApply() {
-            render(
+            const rendered = render(
                 <BulkFixDialog
                     set={setForApply}
                     scope={scope}
@@ -1704,6 +1704,9 @@ describe('BulkFixDialog apply step', () => {
             )
             fireEvent.click(screen.getByRole('button', { name: /next/i }))
             await screen.findByRole('button', { name: /^apply/i })
+            // Returned so a test can unmount mid-check; every other caller
+            // ignores it.
+            return rendered
         }
 
         beforeEach(() => {
@@ -2236,6 +2239,84 @@ describe('BulkFixDialog apply step', () => {
             expect(
                 screen.queryByText(/write may have reached the server/i)
             ).not.toBeInTheDocument()
+            expect(mockWrite).not.toHaveBeenCalled()
+        })
+
+        // Carried forward from Plan 8, closed here: `checkingFreshness`
+        // disables Cancel, Back and the modal's own close affordance, so a
+        // check that never settles used to leave the dialog with no way out
+        // at all -- a page reload was the only escape. The deadline is the
+        // escape hatch, and it has to cover the whole check rather than
+        // only the fetch (both `client.call`s hang the same way).
+        it('gives up on a freshness check that never settles, re-enabling the dialog without writing', async () => {
+            mockFetcher.mockImplementation(() => new Promise(() => undefined))
+            await renderAndReachApply()
+            jest.useFakeTimers()
+            try {
+                await act(async () => {
+                    fireEvent.click(
+                        screen.getByRole('button', { name: /Apply/ })
+                    )
+                })
+                // Mid-check: still locked down, exactly as before.
+                expect(
+                    screen.getByRole('button', { name: /Cancel/ })
+                ).toBeDisabled()
+
+                await act(async () => {
+                    jest.advanceTimersByTime(60_000)
+                })
+
+                expect(
+                    screen.getByText('Checking the metadata took too long')
+                ).toBeInTheDocument()
+                // The point of the whole change: the dialog is usable again.
+                expect(
+                    screen.getByRole('button', { name: /Cancel/ })
+                ).toBeEnabled()
+                expect(mockWrite).not.toHaveBeenCalled()
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        // The generation guard's real job. A timed-out check is already
+        // barred from writing by the deadline's own rejection, but nothing
+        // stops the abandoned read and the two engine calls behind it from
+        // running to completion -- and if the dialog has since unmounted,
+        // that continuation would write, and set state, for a dialog that
+        // is no longer on screen.
+        it('never writes from a check whose dialog has since unmounted', async () => {
+            let resolveFetch!: (value: unknown) => void
+            mockFetcher.mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        resolveFetch = resolve
+                    })
+            )
+            const { unmount } = await renderAndReachApply()
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            expect(mockFetcher).toHaveBeenCalledTimes(1)
+
+            unmount()
+
+            // The read the dialog is no longer waiting for answers anyway,
+            // and the chain behind it is given every chance to run on.
+            await act(async () => {
+                resolveFetch({
+                    ok: true,
+                    json: async () => ({
+                        organisationUnits: [{ id: 'm0' }],
+                    }),
+                })
+            })
+            for (let i = 0; i < 10; i++) {
+                await act(async () => {
+                    await new Promise((r) => setTimeout(r, 0))
+                })
+            }
             expect(mockWrite).not.toHaveBeenCalled()
         })
 

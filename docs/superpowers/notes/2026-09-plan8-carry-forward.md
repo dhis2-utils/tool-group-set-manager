@@ -33,7 +33,27 @@ Nothing in this list is a known-broken behaviour except where it says so.
   landed. **One verify-style run against an invalid member id closes this, and
   it should happen before this path is pointed at national-scale data.**
 
-- **A hung re-read leaves the bulk fix modal genuinely unclosable.** The
+- ~~**A hung re-read leaves the bulk fix modal genuinely unclosable.**~~
+  **CLOSED.** The whole check is now bounded by a 60s deadline
+  (`CHECK_TIMEOUT_MS`), not just the fetch — which is what the warning below
+  was about: `Promise.race` around the entire `try` body covers the re-read
+  and both `client.call`s uniformly, where an `AbortController` alone would
+  have left two of the three hang points untouched. On the deadline the read
+  is aborted, the dialog reports "Checking the metadata took too long" and
+  Cancel/Back/close come back; nothing was written, so Apply can be pressed
+  again. Cancel stays disabled *during* the check, preserving the fix that
+  closed the cancel-during-read defect.
+
+  Two things that fell out of building it, both worth knowing:
+  **the deadline's rejection is what stops a timed-out check from writing** —
+  everything after `await Promise.race` is unreachable once it throws, so the
+  generation guard is *not* load-bearing there. The guard earns its place on a
+  different case: the dialog unmounting mid-check, where the abandoned read and
+  its two engine calls would otherwise run to completion and write on behalf of
+  a dialog that is gone. That is the case its test pins, and the test was
+  confirmed to fail without it. Original text follows.
+
+  **A hung re-read leaves the bulk fix modal genuinely unclosable.** The
   fetcher sets no timeout or abort, and `checkingFreshness` disables Cancel,
   Back and the modal's own close affordance for the duration — which is the
   correct fix for the double-write and cancel-during-read defects it was added
