@@ -520,4 +520,128 @@ describe('writeMemberships', () => {
             expect(calls).toEqual([`${endpoint.groups}/g1/${endpoint.members}`])
         }
     )
+
+    describe('write shape by change size (spec 6.1)', () => {
+        const bigChange = (n: number) => ({
+            groupId: 'g1',
+            additions: Array.from({ length: n }, (_, i) => `ou${i}`),
+            deletions: [] as string[],
+        })
+
+        it('uses the collection endpoint for a change at the threshold', async () => {
+            const calls: string[] = []
+            const fetcher = async (path: string, init?: RequestInit) => {
+                calls.push(path)
+                const body = JSON.parse(String(init?.body)) as {
+                    additions: unknown[]
+                }
+                return okStats(body.additions.length)
+            }
+            await writeMemberships(
+                fetcher,
+                'organisationUnit',
+                [bigChange(DEFAULT_BATCH_SIZE)],
+                () => undefined,
+                DEFAULT_BATCH_SIZE,
+                new Map([['g1', []]])
+            )
+            expect(calls).toEqual(['organisationUnitGroups/g1/organisationUnits'])
+        })
+
+        it('uses a metadata import for a change above the threshold', async () => {
+            const calls: { path: string; body: unknown }[] = []
+            const fetcher = async (path: string, init?: RequestInit) => {
+                calls.push({ path, body: JSON.parse(String(init?.body)) })
+                return json({ status: 'OK', stats: { updated: 1 } })
+            }
+            await writeMemberships(
+                fetcher,
+                'organisationUnit',
+                [bigChange(DEFAULT_BATCH_SIZE + 1)],
+                () => undefined,
+                DEFAULT_BATCH_SIZE,
+                new Map([['g1', ['existing1']]])
+            )
+            expect(calls).toHaveLength(1)
+            expect(calls[0].path).toBe('metadata?importStrategy=UPDATE')
+        })
+
+        it('sends the complete intended membership, not a delta', async () => {
+            let body:
+                | {
+                      organisationUnitGroups: {
+                          organisationUnits: { id: string }[]
+                      }[]
+                  }
+                | undefined
+            const fetcher = async (_path: string, init?: RequestInit) => {
+                body = JSON.parse(String(init?.body))
+                return json({ status: 'OK', stats: { updated: 1 } })
+            }
+            await writeMemberships(
+                fetcher,
+                'organisationUnit',
+                [
+                    {
+                        groupId: 'g1',
+                        additions: Array.from(
+                            { length: DEFAULT_BATCH_SIZE + 1 },
+                            (_, i) => `new${i}`
+                        ),
+                        deletions: ['gone1'],
+                    },
+                ],
+                () => undefined,
+                DEFAULT_BATCH_SIZE,
+                new Map([['g1', ['keep1', 'gone1']]])
+            )
+            const sent = body!.organisationUnitGroups[0].organisationUnits.map(
+                (o) => o.id
+            )
+            expect(sent).toContain('keep1')
+            expect(sent).toContain('new0')
+            expect(sent).not.toContain('gone1')
+            expect(sent).toHaveLength(DEFAULT_BATCH_SIZE + 2)
+        })
+
+        // The structural safety property: no fresh membership, no replace-all.
+        it('falls back to batched above the threshold when no complete membership is given', async () => {
+            const calls: string[] = []
+            const fetcher = async (path: string, init?: RequestInit) => {
+                calls.push(path)
+                const body = JSON.parse(String(init?.body)) as {
+                    additions: unknown[]
+                }
+                return okStats(body.additions.length)
+            }
+            await writeMemberships(
+                fetcher,
+                'organisationUnit',
+                [bigChange(DEFAULT_BATCH_SIZE + 1)],
+                () => undefined
+            )
+            expect(calls.every((p) => !p.startsWith('metadata'))).toBe(true)
+            expect(calls).toHaveLength(2)
+        })
+
+        it('reports an import group in WriteResult exactly as a batched one', async () => {
+            const fetcher = async () =>
+                json({ status: 'OK', stats: { updated: 1 } })
+            const result = await writeMemberships(
+                fetcher,
+                'organisationUnit',
+                [bigChange(DEFAULT_BATCH_SIZE + 1)],
+                () => undefined,
+                DEFAULT_BATCH_SIZE,
+                new Map([['g1', []]])
+            )
+            expect(result.applied).toHaveLength(1)
+            expect(result.unaccounted).toHaveLength(0)
+            expect(result.outcomes[0]).toMatchObject({
+                groupId: 'g1',
+                requested: DEFAULT_BATCH_SIZE + 1,
+                accepted: DEFAULT_BATCH_SIZE + 1,
+            })
+        })
+    })
 })

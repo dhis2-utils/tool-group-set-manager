@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import React from 'react'
 import { useMembershipWrite } from './useMembershipWrite'
+import { DEFAULT_BATCH_SIZE } from '@/data/writes'
 import { GroupSetMeta } from '@/engine/types'
 
 jest.mock('@dhis2/app-runtime', () => ({
@@ -34,6 +35,7 @@ jest.mock('./useIntegrity', () => ({
 
 let mockWriteMembershipsImpl: jest.Mock
 jest.mock('@/data/writes', () => ({
+    ...jest.requireActual('@/data/writes'),
     writeMemberships: (...args: unknown[]) => mockWriteMembershipsImpl(...args),
 }))
 
@@ -367,6 +369,40 @@ it('marks the checks stale for the written object type after a successful write'
 
     expect(mockMarkStale).toHaveBeenCalledWith('organisationUnit')
     expect(mockMarkStale).toHaveBeenCalledTimes(1)
+})
+
+// Task 8 step 4: `completeMembers` is threaded straight through as the
+// sixth argument to writeMemberships (in the fifth, DEFAULT_BATCH_SIZE,
+// position) -- and, since it's optional, every existing caller that omits
+// it must keep writing exactly as before, via the batched path.
+
+it('passes completeMembers through to writeMemberships as the sixth argument', async () => {
+    const completeMembers = new Map([['g1', ['existing1']]])
+
+    await doWrite([change], { completeMembers })
+
+    expect(mockWriteMembershipsImpl).toHaveBeenCalledWith(
+        expect.anything(),
+        'organisationUnit',
+        [change],
+        expect.any(Function),
+        DEFAULT_BATCH_SIZE,
+        completeMembers
+    )
+})
+
+it('still writes when completeMembers is omitted, passing undefined through', async () => {
+    const writeResult = await doWrite()
+
+    expect(mockWriteMembershipsImpl).toHaveBeenCalledWith(
+        expect.anything(),
+        'organisationUnit',
+        [change],
+        expect.any(Function),
+        DEFAULT_BATCH_SIZE,
+        undefined
+    )
+    expect(writeResult.changeSet).toBeDefined()
 })
 
 it('still resolves the write when markStale throws', async () => {

@@ -4,7 +4,7 @@ import { useEngine } from './useEngine'
 import { useIntegrity } from './useIntegrity'
 import { saveChangeSet } from '@/data/datastore'
 import { createFetcher } from '@/data/fetcher'
-import { WriteResult, writeMemberships } from '@/data/writes'
+import { DEFAULT_BATCH_SIZE, WriteResult, writeMemberships } from '@/data/writes'
 import { ChangeSet, GroupChange } from '@/engine/changeSet'
 import { GroupSetMeta } from '@/engine/types'
 import { useApiDataQuery } from '@/utils/useApiDataQuery'
@@ -33,6 +33,16 @@ export interface MembershipWriteInput {
      * every existing caller keeps working unchanged.
      */
     onProgress?: (done: number, total: number) => void
+    /**
+     * The current complete membership of each group in `changes`, by group
+     * id, read fresh immediately before this call. Supplying it is what
+     * makes `writeMemberships`'s import route available for a large
+     * per-group change -- and withholding it is what makes that route
+     * unreachable for a caller that has not re-read (spec 2026-09-16
+     * section 6.3). Optional, so every existing caller keeps working and
+     * keeps the batched path.
+     */
+    completeMembers?: Map<string, string[]>
 }
 
 export interface MembershipWriteResult extends WriteResult {
@@ -138,7 +148,9 @@ export function useMembershipWrite(): {
                     fetcher,
                     objectType,
                     input.changes,
-                    input.onProgress ?? (() => undefined)
+                    input.onProgress ?? (() => undefined),
+                    DEFAULT_BATCH_SIZE,
+                    input.completeMembers
                 )
 
                 let engineError: string | undefined

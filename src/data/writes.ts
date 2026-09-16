@@ -157,8 +157,86 @@ function splitChange(change: GroupChange, batchSize: number): GroupChange[] {
 }
 
 /**
- * Writes membership changes to DHIS2, one request per group per batch,
- * strictly sequential -- a national fix can be a hundred thousand
+ * Builds one group's complete intended membership -- the current list plus
+ * this change's additions, minus its deletions -- and sends it as a single
+ * metadata import replacing that group's whole collection. Reports back as
+ * exactly one `BatchOutcome`, so `WriteResult` cannot be told apart from the
+ * batched route by a caller.
+ */
+async function importChange(
+    fetcher: Fetcher,
+    objectType: ObjectType,
+    change: GroupChange,
+    current: string[]
+): Promise<{ outcome: BatchOutcome; ok: boolean }> {
+    const endpoint = ENDPOINTS[objectType]
+    const requested = change.additions.length + change.deletions.length
+    const deletions = new Set(change.deletions)
+    const intended = [
+        ...current.filter((id) => !deletions.has(id)),
+        ...change.additions.filter((id) => !current.includes(id)),
+    ]
+    try {
+        const response = await fetcher('metadata?importStrategy=UPDATE', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                [endpoint.groups]: [
+                    {
+                        id: change.groupId,
+                        [endpoint.members]: intended.map((id) => ({ id })),
+                    },
+                ],
+            }),
+        })
+        if (!response.ok) {
+            return {
+                outcome: {
+                    groupId: change.groupId,
+                    requested,
+                    accepted: 0,
+                    error: `HTTP ${response.status}`,
+                },
+                ok: false,
+            }
+        }
+        const body = (await response.json()) as { status?: string }
+        // An import reports objects touched, never memberships, so its
+        // stats cannot be reconciled against `requested` the way a
+        // collection response is. A non-OK status is the only failure
+        // signal available, so that is what is trusted -- and the caller
+        // re-reads this group before the next write anyway (section 5).
+        const ok = body.status === 'OK' || body.status === 'SUCCESS'
+        return {
+            outcome: {
+                groupId: change.groupId,
+                requested,
+                accepted: ok ? requested : 0,
+                error: ok ? undefined : UNPARSEABLE_RESPONSE,
+            },
+            ok,
+        }
+    } catch (error) {
+        return {
+            outcome: {
+                groupId: change.groupId,
+                requested,
+                accepted: 0,
+                error: error instanceof Error ? error.message : String(error),
+            },
+            ok: false,
+        }
+    }
+}
+
+/**
+ * Writes membership changes to DHIS2. Per group, a change at or below
+ * `batchSize` goes to the collection endpoint as one request per batch,
+ * strictly sequential; a change above `batchSize` goes as a single metadata
+ * import carrying that group's complete intended membership instead --
+ * see the routing note above `takesImport` inside this function, and spec
+ * 2026-09-16 section 6.1. Both routes are sequential across groups and
+ * batches alike -- a national fix can be a hundred thousand
  * memberships, and a burst of parallel requests against a shared production
  * instance is not neighbourly.
  *
@@ -199,11 +277,43 @@ export async function writeMemberships(
     objectType: ObjectType,
     changes: GroupChange[],
     onProgress: (done: number, total: number) => void,
-    batchSize = DEFAULT_BATCH_SIZE
+    batchSize = DEFAULT_BATCH_SIZE,
+    completeMembers?: Map<string, string[]>
 ): Promise<WriteResult> {
     const endpoint = ENDPOINTS[objectType]
-    const batches = changes.flatMap((change) => splitChange(change, batchSize))
-    const total = batches.length
+
+    // Spec 2026-09-16 section 6.1. DHIS2 re-reads a group's whole collection
+    // on every collection write, so the batched path costs roughly (requests
+    // x collection size) while an import costs one pass. The two are equal
+    // at one request -- which is `batchSize` ids -- and the import wins
+    // beyond it. Below it, batched costs the same single re-read and sends
+    // far fewer ids, so a small fix must never take the import route.
+    //
+    // The `completeMembers` requirement is the safety property, not a
+    // convenience: an import replaces the group's whole collection, which is
+    // only sound when the membership it is built from was just re-read
+    // (section 5). A caller that has not done that refresh has no entry
+    // here and therefore cannot reach this route at all.
+    const takesImport = (change: GroupChange): boolean =>
+        change.additions.length + change.deletions.length > batchSize &&
+        completeMembers?.has(change.groupId) === true
+
+    // Each change is routed once, in the order given: an import change
+    // counts as one unit of `onProgress`'s total (the same as one batch),
+    // and a batched change contributes the batches `splitChange` produces
+    // for it (zero for a no-op change).
+    type Unit =
+        | { kind: 'import'; change: GroupChange }
+        | { kind: 'batch'; batch: GroupChange }
+    const units: Unit[] = changes.flatMap((change): Unit[] =>
+        takesImport(change)
+            ? [{ kind: 'import', change }]
+            : splitChange(change, batchSize).map((batch) => ({
+                  kind: 'batch',
+                  batch,
+              }))
+    )
+    const total = units.length
 
     const outcomes: BatchOutcome[] = []
     const applied: GroupChange[] = []
@@ -211,11 +321,27 @@ export async function writeMemberships(
     // A group whose first batch came back 401/403: every later batch for it
     // is skipped rather than retried, but still recorded (see the doc
     // comment above), keyed by groupId so a hundred-way split only ever
-    // costs one real request. Any other failure is not added here.
+    // costs one real request. Any other failure is not added here. Not
+    // consulted for an import change, which is always a single request per
+    // group and has no "remaining batches" to skip.
     const failedGroups = new Map<string, string>()
 
     let done = 0
-    for (const batch of batches) {
+    for (const unit of units) {
+        if (unit.kind === 'import') {
+            const { outcome, ok } = await importChange(
+                fetcher,
+                objectType,
+                unit.change,
+                completeMembers!.get(unit.change.groupId)!
+            )
+            outcomes.push(outcome)
+            ;(ok ? applied : unaccounted).push(unit.change)
+            done += 1
+            onProgress(done, total)
+            continue
+        }
+        const batch = unit.batch
         const requested = batch.additions.length + batch.deletions.length
         const priorFailure = failedGroups.get(batch.groupId)
         if (priorFailure !== undefined) {
