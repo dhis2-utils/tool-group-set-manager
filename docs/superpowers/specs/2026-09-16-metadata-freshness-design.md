@@ -3,7 +3,9 @@
 **Status:** approved in brainstorming, 2026-09-16. Implementation plan to follow.
 
 **Supersedes:** `2026-09-15-manual-review-1-design.md` §6.3 and §6.4 (see §8
-below). Repairs a defect in that document's §4.4.
+below). Repairs a defect in **`2026-09-10-group-set-integrity-tool-design.md`
+§4.4 ("Cache and refresh")** — that document, not the 2026-09-15 one, whose
+own §4.4 is an unrelated UI section.
 
 ---
 
@@ -15,7 +17,8 @@ unbounded time ago, and it does not say which.
 
 Three separate findings converge on this:
 
-1. **The cache cannot detect the change this tool watches.** Spec §4.4 reuses
+1. **The cache cannot detect the change this tool watches.**
+   `2026-09-10-group-set-integrity-tool-design.md` §4.4 reuses
    a cached payload when the group ids, the object total **and** every group's
    `lastUpdated` match the server. The first two are blind to an object moving
    between groups by construction, and `lastUpdated` was added specifically to
@@ -102,7 +105,8 @@ if (Date.now() - cached.savedAt > CACHE_TTL_MS) return undefined
 One exported constant, deliberately easy to change; 10 minutes is a starting
 value, not a tuned one.
 
-The TTL does not make §4.4's `lastUpdated` gate work — nothing can, on
+The TTL does not make the 2026-09-10 spec's §4.4 `lastUpdated` gate work —
+nothing can, on
 2.41–2.43. It **bounds how long that gate can be wrong**, which is the
 available remedy.
 
@@ -344,10 +348,13 @@ Jest maps `.css` imports to an empty object, so CSS-module class names are
 
 ---
 
-## 8. Amendments to `2026-09-15-manual-review-1-design.md`
+## 8. Amendments to the earlier specs
 
-- **§4.4** — record that the `lastUpdated` gate cannot see a membership move on
-  2.41–2.43, and that the TTL bounds rather than fixes this.
+- **`2026-09-10-group-set-integrity-tool-design.md` §4.4** ("Cache and
+  refresh") — record that the `lastUpdated` gate cannot see a membership move
+  on 2.41–2.43, and that the TTL bounds rather than fixes this. Recorded via
+  the 2026-09-15 spec's §9 running list of edits to that earlier document,
+  which is the established mechanism.
 - **§6.3** — the concurrency guard is no longer a `lastUpdated` re-check. It is
   the §5 freshness check: re-read the affected groups, recompute, and require
   re-confirmation if the plan changed. Version-independent, and it observes
