@@ -617,6 +617,30 @@ describe('background reload indicator (Task 7, carried forward from Plan 1)', ()
     })
 })
 
+describe('metadata freshness indicator (Task 6)', () => {
+    // The group set page shows exactly one object type at a time, so the
+    // age shown must be that set's own type -- never another type's, even
+    // if another type happens to be staler or fresher.
+    it("shows the age of this set's own object type", async () => {
+        mockEngine.status = {
+            phase: 'done',
+            type: null,
+            progress: null,
+            fromCache: {},
+            errors: {},
+            namesErrors: {},
+            loadedAt: {
+                organisationUnit: Date.now() - 3 * 60_000,
+                dataElement: Date.now() - 90 * 60_000,
+            },
+        }
+        renderDetail({ objectType: 'organisationUnit' })
+        expect(
+            await screen.findByText('Metadata from 3 minutes ago')
+        ).toBeInTheDocument()
+    })
+})
+
 describe('drilling into a matrix row (Task 6)', () => {
     // The review's complaint: "rows should be clickable to drill down --
     // this was intended in v1 but does not appear to work for orgunits,

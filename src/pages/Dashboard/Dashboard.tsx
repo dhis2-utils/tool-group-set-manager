@@ -5,13 +5,14 @@ import {
     SingleSelectField,
     SingleSelectOption,
 } from '@dhis2/ui'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import styles from './Dashboard.module.css'
 import { FilterBar, FilterBarField } from '@/components/FilterBar/FilterBar'
 import { OrgUnitField } from '@/components/FilterBar/OrgUnitField'
 import { GroupSetCard } from '@/components/GroupSetCard/GroupSetCard'
 import { LoadProgress } from '@/components/LoadProgress/LoadProgress'
+import { MetadataFreshness } from '@/components/MetadataFreshness/MetadataFreshness'
 import { usageApplies } from '@/data/sources/usageSqlView'
 import { DashboardEntry } from '@/engine/store'
 import { OBJECT_TYPES, ObjectType } from '@/engine/types'
@@ -199,9 +200,19 @@ export const Dashboard = () => {
         (type) => typeFilter === 'all' || type === typeFilter
     )
 
+    // The oldest of the loaded types, not the newest: a dashboard built from
+    // four snapshots is only as current as its stalest one, and reporting
+    // the freshest would overstate the page as a whole.
+    const oldestLoadedAt = useMemo(() => {
+        const stamps = Object.values(status?.loadedAt ?? {}).filter(
+            (n): n is number => typeof n === 'number'
+        )
+        return stamps.length > 0 ? Math.min(...stamps) : null
+    }, [status])
+
     return (
         <div className={styles.page}>
-            <FilterBar>
+            <FilterBar status={<MetadataFreshness loadedAt={oldestLoadedAt} />}>
                 <OrgUnitField />
                 <FilterBarField label={i18n.t('Object type')}>
                     <SingleSelectField

@@ -31,6 +31,24 @@ const mockCallOverrides: {
     usageDefaultOrderSets: false,
 }
 
+// Task 6: a mutable status, same treatment as mockCallOverrides above -- a
+// test overrides `loadedAt` to pin which type's age the freshness indicator
+// should be showing. `baseStatus` itself is never referenced inside the
+// jest.mock() factory below (only `mockStatus`, which starts with "mock",
+// may be), so it exists purely for tests and afterEach to reset from.
+const baseStatus = {
+    phase: 'done',
+    type: null,
+    progress: null,
+    fromCache: {},
+    errors: {},
+    namesErrors: {},
+    loadedAt: {},
+}
+let mockStatus: typeof baseStatus & {
+    loadedAt: Partial<Record<string, number>>
+} = baseStatus
+
 const cleanSet = (id: string, name: string) => ({
     set: {
         id,
@@ -166,14 +184,7 @@ jest.mock('@/hooks/useEngine', () => ({
                 return entries[scope.objectType]
             },
         },
-        status: {
-            phase: 'done',
-            type: null,
-            progress: null,
-            fromCache: {},
-            errors: {},
-            namesErrors: {},
-        },
+        status: mockStatus,
         groupSets: [],
         sourceKind: 'metadata',
         get fellBack() {
@@ -243,6 +254,7 @@ afterEach(() => {
     mockCallOverrides.usageSortSets = false
     mockCallOverrides.usageDefaultOrderSets = false
     mockUsage.mockReturnValue(defaultUsageState)
+    mockStatus = baseStatus
 })
 
 it('shows the SQL view repair notice after a real fallback', async () => {
@@ -850,4 +862,26 @@ it('keeps worst-first as the default order', async () => {
         .filter((t) => t.includes('order set'))
     expect(names[0]).toContain('Broken order set')
     expect(names[1]).toContain('Clean order set')
+})
+
+describe('metadata freshness indicator (Task 6)', () => {
+    it("shows the oldest type's age, never the newest", async () => {
+        // A dashboard is only as current as its stalest section; reporting
+        // the freshest would overstate the whole page.
+        mockStatus = {
+            ...baseStatus,
+            loadedAt: {
+                organisationUnit: Date.now() - 2 * 60_000,
+                dataElement: Date.now() - 45 * 60_000,
+            },
+        }
+        render(
+            <MemoryRouter>
+                <Dashboard />
+            </MemoryRouter>
+        )
+        expect(
+            await screen.findByText(/45 minutes ago/)
+        ).toBeInTheDocument()
+    })
 })

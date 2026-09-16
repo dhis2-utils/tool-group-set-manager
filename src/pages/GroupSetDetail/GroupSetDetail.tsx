@@ -18,6 +18,7 @@ import { BulkFixDialog } from '@/components/BulkFixDialog/BulkFixDialog'
 import { FilterBar, FilterBarField } from '@/components/FilterBar/FilterBar'
 import { OrgUnitField } from '@/components/FilterBar/OrgUnitField'
 import { LoadProgress } from '@/components/LoadProgress/LoadProgress'
+import { MetadataFreshness } from '@/components/MetadataFreshness/MetadataFreshness'
 import { SetPropertiesDialog } from '@/components/SetPropertiesDialog/SetPropertiesDialog'
 import { MatrixColumn } from '@/components/SummaryMatrix/SummaryMatrix'
 import { ObjectFilter } from '@/engine/queries'
@@ -242,7 +243,13 @@ export const GroupSetDetail = () => {
     return (
         <div className={styles.page}>
             <Link to="/">{i18n.t('Dashboard')}</Link>
-            <FilterBar>
+            <FilterBar
+                status={
+                    <MetadataFreshness
+                        loadedAt={status?.loadedAt[set.objectType] ?? null}
+                    />
+                }
+            >
                 {set.objectType === 'organisationUnit' && <OrgUnitField />}
                 {set.objectType === 'organisationUnit' &&
                     tab === 'overview' &&
