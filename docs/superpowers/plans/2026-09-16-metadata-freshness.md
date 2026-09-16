@@ -484,15 +484,19 @@ describe('metadataAge', () => {
         )
     })
 
+    // NOTE: anything an hour or more old is necessarily past a ten-minute
+    // TTL, so these assert the STALE sentence. The granularity wording and
+    // the fresh/stale split are independent axes; only the granularity is
+    // under test here.
     it('switches to hours at sixty minutes', () => {
         expect(metadataAge(NOW - 60 * 60_000, NOW).label).toBe(
-            'Metadata from 1 hour ago'
+            'Metadata from 1 hour ago and may be out of date'
         )
     })
 
     it('stops at over a day rather than counting days', () => {
         expect(metadataAge(NOW - 50 * 60 * 60_000, NOW).label).toBe(
-            'Metadata from over a day ago'
+            'Metadata from over a day ago and may be out of date'
         )
     })
 
