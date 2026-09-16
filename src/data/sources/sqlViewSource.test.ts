@@ -25,6 +25,26 @@ describe('sqlViewSource', () => {
         expect(payload.parentIds).toEqual([null, 'r'])
     })
 
+    // Plan 7 Task 1: `cacheStrategy` on the definitions only fixes views
+    // this version creates. An installation whose views were created by an
+    // earlier build still advertises `Cache-Control: max-age=1209600,
+    // public`, and an administrator can re-edit a view at any time -- so
+    // the app must not depend on a server object it does not re-check to
+    // get its own writes back. `no-store` makes the read bypass the
+    // browser HTTP cache regardless of what the view says.
+    it('reads view data with the browser HTTP cache bypassed', async () => {
+        const inits: (RequestInit | undefined)[] = []
+        const fetcher = async (_path: string, init?: RequestInit) => {
+            inits.push(init)
+            return csvResponse('uid,level,parent\nr,1,\n')
+        }
+        await createSqlViewSource(fetcher, views).loadObjects(
+            'organisationUnit',
+            () => undefined
+        )
+        expect(inits[0]?.cache).toBe('no-store')
+    })
+
     // Level 0 is impossible in DHIS2 (the root sits at level 1), so a
     // malformed level column (blank, non-numeric, or anything Number()
     // cannot parse) must never silently coerce to 0 -- Uint8Array.from
@@ -93,6 +113,21 @@ describe('sqlViewSource', () => {
 })
 
 describe('SQL_VIEW_DEFINITIONS', () => {
+    it('pins every definition to NO_CACHE', () => {
+        // Plan 7 Task 1: without this the server applies
+        // RESPECT_SYSTEM_SETTING, which defers to `keyCacheStrategy` --
+        // CACHE_TWO_WEEKS on a stock instance. The browser then answers
+        // every post-write membership read from its own HTTP cache for a
+        // fortnight, so a user's own fix vanishes on the next load and
+        // History offers a Revert that reports "nothing to revert". See
+        // docs/superpowers/notes/2026-09-plan7-e2e-write-flows.md.
+        expect(SQL_VIEW_DEFINITIONS.map((d) => d.cacheStrategy)).toEqual([
+            'NO_CACHE',
+            'NO_CACHE',
+            'NO_CACHE',
+        ])
+    })
+
     it('pins every definition to a plain view', () => {
         // The app declines to read a MATERIALIZED_VIEW (see selectSource), so
         // the creation code a later plan writes must not inherit whatever

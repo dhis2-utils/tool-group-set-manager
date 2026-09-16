@@ -49,11 +49,28 @@ export const SQL_VIEW_CODES = {
  * MATERIALIZED_VIEW (see selectSource.ts -- it serves whatever was last
  * written, with no signal of its age), so the creation code a later plan
  * writes must not inherit whatever the server would default to.
+ *
+ * `cacheStrategy` is pinned for the same reason, one layer further out.
+ * Left unset, DHIS2 applies `RESPECT_SYSTEM_SETTING`, which defers to the
+ * instance's `keyCacheStrategy` -- `CACHE_TWO_WEEKS` on a stock install.
+ * `/api/sqlViews/<id>/data` is then served with `Cache-Control:
+ * max-age=1209600, public`, and `max-age` without `must-revalidate` means
+ * the browser answers from its own cache without contacting the server at
+ * all. The app would keep serving a fortnight-old membership set: a user's
+ * own fix vanishes on the next load, and History offers them a Revert that
+ * correctly reports "nothing to revert" against data that never moved.
+ * Measured and proved in
+ * docs/superpowers/notes/2026-09-plan7-e2e-write-flows.md -- it is what
+ * three e2e write/revert flows had been failing on.
+ *
+ * Pinning this here only covers views *this* version creates. `fetchCsv`
+ * below carries the other half, for views an earlier build already made.
  */
 export const SQL_VIEW_DEFINITIONS = [
     {
         code: SQL_VIEW_CODES.orgUnits,
         type: 'VIEW',
+        cacheStrategy: 'NO_CACHE',
         name: 'GSI org unit hierarchy',
         sqlQuery:
             'select ou.uid, ou.hierarchylevel as level, p.uid as parent from organisationunit ou left join organisationunit p on p.organisationunitid = ou.parentid',
@@ -61,6 +78,7 @@ export const SQL_VIEW_DEFINITIONS = [
     {
         code: SQL_VIEW_CODES.orgUnitNames,
         type: 'VIEW',
+        cacheStrategy: 'NO_CACHE',
         name: 'GSI org unit names',
         // Returns the raw, untranslated `name` column by design: resolving a
         // caller's locale inside a SQL view is not practical, and this
@@ -72,6 +90,7 @@ export const SQL_VIEW_DEFINITIONS = [
     {
         code: SQL_VIEW_CODES.orgUnitMemberships,
         type: 'VIEW',
+        cacheStrategy: 'NO_CACHE',
         name: 'GSI org unit group memberships',
         sqlQuery:
             'select g.uid as groupid, ou.uid as ouid from orgunitgroupmembers m join orgunitgroup g on g.orgunitgroupid = m.orgunitgroupid join organisationunit ou on ou.organisationunitid = m.organisationunitid where g.orgunitgroupid in (select orgunitgroupid from orgunitgroupsetmembers)',
@@ -105,8 +124,23 @@ function parseLevels(rows: string[][]): Uint8Array {
     return Uint8Array.from(levels)
 }
 
+/**
+ * `cache: 'no-store'` is the half of the caching fix that `cacheStrategy`
+ * on the definitions above cannot cover. That pin only applies to views
+ * this version creates; an installation whose `GSI_*` views were made by an
+ * earlier build still advertises `Cache-Control: max-age=1209600, public`,
+ * and an administrator may edit a view's `cacheStrategy` at any time
+ * afterwards. Since the whole point of this source is to show the user the
+ * server's current state -- including the write they just made -- the app
+ * must not depend on a server object it does not re-check to get its own
+ * writes back. `no-store` bypasses the browser HTTP cache whatever the view
+ * says, at the cost of one real request per load, which is what this source
+ * was always meant to be doing.
+ */
 async function fetchCsv(fetcher: Fetcher, viewId: string): Promise<string[][]> {
-    const response = await fetcher(`sqlViews/${viewId}/data.csv?paging=false`)
+    const response = await fetcher(`sqlViews/${viewId}/data.csv?paging=false`, {
+        cache: 'no-store',
+    })
     if (!response.ok) {
         throw new Error(
             `SQL view ${viewId} failed with HTTP ${response.status}`

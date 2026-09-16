@@ -249,6 +249,23 @@ describe('createOrRepairSqlViews', () => {
         })
     })
 
+    // Plan 7 Task 1: the definition carrying `cacheStrategy` is only half
+    // the fix -- it has to reach the server. Left off the create body, DHIS2
+    // applies RESPECT_SYSTEM_SETTING and the browser may serve this view's
+    // data for a fortnight without asking again.
+    it('sends NO_CACHE as the created view cacheStrategy', async () => {
+        let body: Record<string, unknown> | undefined
+        const fetcher = async (path: string, init?: RequestInit) => {
+            if (init?.method === 'POST' && path === 'sqlViews') {
+                body = JSON.parse(String(init.body))
+                return jsonResponse({ response: { uid: 'newId1' } }, 201)
+            }
+            return jsonResponse({ status: 'OK' }, 201)
+        }
+        await createOrRepairSqlViews(fetcher, [missingChecks()[0]])
+        expect(body).toMatchObject({ cacheStrategy: 'NO_CACHE' })
+    })
+
     it('treats a failed execute as a failed creation, not a partial success', async () => {
         const fetcher = async (path: string, init?: RequestInit) => {
             if (init?.method === 'POST' && path === 'sqlViews') {

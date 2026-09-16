@@ -123,6 +123,28 @@ describe('installUsageView', () => {
         ])
     })
 
+    // Plan 7 Task 1: the same gap the GSI_* views had. Refusing
+    // MATERIALIZED_VIEW (above) stops the *database* serving stale counts;
+    // without this, the *browser* serves them instead -- for as long as the
+    // instance's keyCacheStrategy says, a fortnight on a stock install.
+    it('creates the view with NO_CACHE, so the browser cannot serve stale counts', async () => {
+        let body: Record<string, unknown> | undefined
+        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
+            if (path === 'sqlViews' && init?.method === 'POST') {
+                body = JSON.parse(String(init.body)) as Record<string, unknown>
+                return created('new1')
+            }
+            return ok({ listGrid: { headers: [], rows: [] } })
+        }) as unknown as Fetcher
+        await installUsageView(fetcher, {
+            id: null,
+            type: undefined,
+            readable: false,
+            usable: false,
+        })
+        expect(body).toMatchObject({ cacheStrategy: 'NO_CACHE' })
+    })
+
     it('deletes the view it just created when that view will not execute, then tries the next candidate', async () => {
         const calls: string[] = []
         let createCount = 0

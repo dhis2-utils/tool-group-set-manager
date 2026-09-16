@@ -87,6 +87,15 @@ async function createView(
             // Never MATERIALIZED_VIEW: it would serve arbitrarily old counts
             // with nothing in the response to say how old (spec 3.4).
             type: 'VIEW',
+            // The same guarantee, one layer further out. Pinning `type`
+            // stops the *database* serving stale counts; left unset,
+            // `cacheStrategy` defaults to RESPECT_SYSTEM_SETTING and the
+            // *browser* serves them instead, for as long as the instance's
+            // `keyCacheStrategy` says -- a fortnight on a stock install,
+            // with nothing in the response to say how old either. Same
+            // omission, same consequence, as the GSI_* views had; see
+            // docs/superpowers/notes/2026-09-plan7-e2e-write-flows.md.
+            cacheStrategy: 'NO_CACHE',
             sqlQuery: candidate.sqlQuery,
             sharing: { public: 'r-------' },
         }),

@@ -134,6 +134,12 @@ async function createView(
             name: def.name,
             code: def.code,
             type: def.type,
+            // Pinned, never left to the server's default: see
+            // SQL_VIEW_DEFINITIONS' own doc comment. Unset, DHIS2 applies
+            // RESPECT_SYSTEM_SETTING and the instance's keyCacheStrategy
+            // decides how long a browser may serve this view's data without
+            // asking again -- a fortnight on a stock install.
+            cacheStrategy: def.cacheStrategy,
             sqlQuery: def.sqlQuery,
             // Public read sharing (brief): every user who can use this app
             // must be able to read the view's data, not just its creator.
