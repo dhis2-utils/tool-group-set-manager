@@ -87,4 +87,123 @@ In this order, **one broker instance running at a time**:
 
 ## Results
 
-*(fill in as the pass runs)*
+### 2.41.10, Sierra Leone v41 seed (`agent-gsi-p8-41`) — 9/9
+
+Full suite green in 2.6 min. Instance deleted after the run.
+
+**One finding, and it is about the instance, not the app.** On the freshly
+created-and-seeded instance, three legacy list endpoints reported an empty
+collection although the rows were there:
+
+```
+GET /api/organisationUnitGroupSets  -> {"pager":{"total":0}, ...:[]}
+GET /api/organisationUnitGroups     -> total 0   (18 rows in the database)
+GET /api/categoryOptionGroupSets    -> total 0   (2 rows)
+GET /api/dataElementGroupSets       -> total 5   (fine)
+GET /api/indicatorGroupSets         -> total 8   (fine)
+GET /api/organisationUnits          -> total 1332 (fine)
+```
+
+The app therefore rendered "No group sets of this type" for organisation
+units, and every flow that needs the `Area` set failed.
+
+What it was not: the rows exist; `sharing` is byte-identical in shape to
+`dataElementGroupSet`'s (`{"owner": "GOLswS44mh8", "public": "rw------",
+"external": false}`); the owner FK resolves; `orgunitgroupsetmembers` is
+intact; the same query fails for `admin` as for `local_admin`. Two things
+separated the working path from the broken one: `GET /api/…/<uid>` returned
+the object fine, and `GET /api/organisationUnitGroupSets/gist` returned all
+four. Only the legacy list query — the one that builds a SQL count — saw
+nothing, even filtered by `filter=id:eq:<uid>`.
+
+`POST /api/maintenance/cacheClear` did **not** fix it. A Tomcat stop/start
+through the broker did, immediately and completely. 2.42 created the same
+way never showed it.
+
+So: a fresh-boot artifact of a seeded instance, in the same family as the
+known "`/api/authorities` 500s until something loads the legacy web layer"
+quirk. **Before concluding that a freshly seeded instance is missing
+metadata, restart it** — or cross-check with `/gist`, which does not share
+the broken path. Nothing here is an app defect and nothing was changed in
+the app because of it.
+
+The run also re-confirmed the instance-state hazard this brief warns about
+from the other direction: the pre-restart failing run installed the usage
+SQL view and failed before removing it, so the first post-restart run failed
+that one flow on a dirty precondition (`Remove usage SQL view` where it
+expected `Install usage SQL view`). Cleaned, re-run, green.
+
+### 2.42.6, Sierra Leone v42 seed (`agent-gsi-p8-42`) — 9/9
+
+Full suite green in 57 s, first try, no findings. Legacy list endpoints were
+correct from first boot. Instance deleted after the run.
+
+### EMIS (266,396 organisation units, DHIS2 2.41.10) — one real defect, fixed
+
+The feature works at scale, and the numbers are comfortable. Measured on the
+installed build, data coming from the `GSI_*` SQL views:
+
+| | |
+| --- | --- |
+| cold dashboard load to indicator visible | 5.0 s |
+| opening a group set detail page | 5.2 s |
+| warm reload inside the TTL (cache reused) | ~5 s |
+| forced Refresh, whole reload | 5.0 s |
+
+All seven organisation unit group sets render, and the buckets reconcile
+against the population exactly (School Level: 16,136 conflicts + 60,881
+missing + 189,379 ok = 266,396).
+
+**The defect.** Clicking Refresh made the age label *and the Refresh button
+itself* disappear from the filter bar for the whole reload, then reappear.
+Instrumented on the dashboard: gone 117 ms after the click, back at
+5,678 ms.
+
+Cause: `MetadataFreshness` opened with
+
+```tsx
+if (loadedAt === null) {
+    return null
+}
+```
+
+and a forced reload clears `loadedAt` for its duration. So the component
+unmounted mid-refresh, losing its own `busy` state — which is also why the
+`Reloading metadata…` label and the disabled button, both of which the
+component already implemented, were unreachable in practice.
+
+Why four green versions missed it: on the Sierra Leone seed the reload
+finishes fast enough that the busy render lands before `loadedAt` clears, so
+`flows.spec.ts`'s `toBeDisabled` → `toBeEnabled` assertion passes. It is a
+race the small seed happens to win and the large one loses. This is exactly
+the class of bug the EMIS leg exists to find, and it would not have been
+found by any amount of further testing on Sierra Leone data.
+
+Fix: only "nothing has loaded yet" renders nothing —
+
+```tsx
+if (loadedAt === null && !busy) {
+    return null
+}
+const age = loadedAt === null ? null : metadataAge(loadedAt, now)
+```
+
+Two regression tests pin it at the unit level (the deterministic layer for a
+race like this): the control stays mounted, disabled and showing
+`Reloading metadata…` while a reload is in flight with `loadedAt` null, and
+still renders nothing when an idle reload leaves no data. Re-verified live
+on EMIS afterwards: indicator never disappears, button disables, busy label
+shows, 5.0 s refresh.
+
+## Status: complete
+
+| leg | result |
+| --- | --- |
+| 2.41.10, SL v41 seed | 9/9 — one instance-boot artifact, not an app defect |
+| 2.42.6, SL v42 seed | 9/9 first try |
+| EMIS, 266k org units | one real defect found and fixed |
+| 2.43.1 re-run with the fix | 9/9 |
+
+`pnpm test` 691 tests / 62 suites; `tsc --noEmit` and `eslint src` clean.
+`agent-gsi-p8-41` and `agent-gsi-p8-42` deleted; every other instance left
+stopped.

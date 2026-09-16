@@ -65,5 +65,31 @@ export default defineConfig({
                 baseURL: 'http://dhis2-agent-gsi-p2-40:8080',
             },
         },
+        // The two middle versions. Added when a multi-version pass found the
+        // suite had only ever run on the ends of the supported range, so
+        // anything that broke on 2.41 or 2.42 alone would have shipped
+        // unnoticed -- and 2.41 is where DHIS2 changed both `mergeMode` and
+        // whether a group's `lastUpdated` moves on a collection write, so it
+        // is the least safe version to have been guessing about.
+        //
+        // These instances are created for a verification pass rather than
+        // kept running, so a project whose instance is stopped fails at the
+        // fixture's session gate rather than mid-flow. Run one project at a
+        // time with `--project`, matching the one instance that is up; the
+        // broker cannot afford four DHIS2 instances at once.
+        {
+            name: '2.41',
+            use: {
+                ...devices['Desktop Chrome'],
+                baseURL: 'http://dhis2-agent-gsi-p8-41:8080',
+            },
+        },
+        {
+            name: '2.42',
+            use: {
+                ...devices['Desktop Chrome'],
+                baseURL: 'http://dhis2-agent-gsi-p8-42:8080',
+            },
+        },
     ],
 })

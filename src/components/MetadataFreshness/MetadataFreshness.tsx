@@ -30,10 +30,21 @@ export const MetadataFreshness = ({ loadedAt }: { loadedAt: number | null }) => 
         return () => clearInterval(id)
     }, [])
 
-    if (loadedAt === null) {
+    // Only "nothing has loaded yet" renders nothing. A forced reload clears
+    // `loadedAt` for its duration, so returning null on that alone unmounts
+    // this control mid-refresh -- taking the Refresh button and the
+    // "Reloading metadata…" state off screen at the one moment they are
+    // wanted, and leaving the busy branch below unreachable in practice.
+    // Measured against the EMIS database (266,396 organisation units): the
+    // whole indicator disappeared 117ms after the click and came back 5.6s
+    // later. On the Sierra Leone seed the same reload finishes fast enough
+    // that the busy render lands first, which is why the end-to-end flow
+    // passed on every version while the control was still vanishing.
+    if (loadedAt === null && !busy) {
         return null
     }
-    const { label, stale } = metadataAge(loadedAt, now)
+    const age = loadedAt === null ? null : metadataAge(loadedAt, now)
+    const stale = age?.stale ?? false
 
     const onRefresh = async () => {
         setBusy(true)
@@ -52,7 +63,7 @@ export const MetadataFreshness = ({ loadedAt }: { loadedAt: number | null }) => 
                 }`}
             />
             <span className={stale ? styles.staleText : undefined}>
-                {busy ? i18n.t('Reloading metadata…') : label}
+                {busy ? i18n.t('Reloading metadata…') : age?.label}
             </span>
             <Button small disabled={busy} onClick={() => void onRefresh()}>
                 {i18n.t('Refresh')}
