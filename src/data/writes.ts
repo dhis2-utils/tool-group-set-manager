@@ -192,10 +192,18 @@ function splitChange(change: GroupChange, batchSize: number): GroupChange[] {
  * needed the owner-field read on top of its own two requests.
  *
  * There is no analogue here of the import shape's "200 OK but the report
- * says ERROR" case: a single-object JSON Patch has no import report to
- * carry a `status` field, so `response.ok` is the whole success signal --
- * the same convention `setGroupSetProperties` (metadataWrites.ts) already
- * uses for this app's other JSON Patch call.
+ * says ERROR" case, and that is measured rather than assumed. Every way
+ * this patch can be refused was induced against live instances on all four
+ * supported versions -- a well-formed id no object has, that same id mixed
+ * among valid ones, a malformed id, and a user without the authority to
+ * change the group -- and each answered 409 (or 403) with the group's
+ * membership completely unchanged; duplicates in one payload dedupe
+ * honestly. No case returned 2xx without the sent membership landing, so
+ * `response.ok` really is the whole success signal here, the same
+ * convention `setGroupSetProperties` (metadataWrites.ts) already uses for
+ * this app's other JSON Patch call. See
+ * docs/superpowers/notes/2026-09-plan9-json-patch-rejection.md; reproduce
+ * with scripts/probe/json-patch-rejection.js.
  */
 async function patchChange(
     fetcher: Fetcher,
@@ -230,12 +238,35 @@ async function patchChange(
             }
         )
         if (!response.ok) {
+            // A rejected members patch answers with an ObjectReport whose
+            // `message` and `errorReports` say exactly what was wrong
+            // ("Invalid reference [Zz9GhOsT000]", "You don't have the
+            // proper permissions to update this object"). That is worth
+            // far more than the bare status to anyone diagnosing a failed
+            // write, but it is DHIS2's own English and `error` is spliced
+            // into translated sentences, so it goes to `rawError` and the
+            // console -- the same split the unparseable-body path above
+            // already makes. Reading the body cannot itself fail the
+            // write: the request already has.
+            let rawMessage: string | undefined
+            try {
+                rawMessage = (await response.text()).slice(0, 500)
+            } catch {
+                rawMessage = undefined
+            }
+            if (rawMessage) {
+                console.warn(
+                    `writeMemberships: JSON Patch for group ${change.groupId} was rejected`,
+                    rawMessage
+                )
+            }
             return {
                 outcome: {
                     groupId: change.groupId,
                     requested,
                     accepted: 0,
                     error: `HTTP ${response.status}`,
+                    rawError: rawMessage,
                 },
                 ok: false,
             }

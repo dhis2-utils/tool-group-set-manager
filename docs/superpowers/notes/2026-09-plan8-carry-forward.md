@@ -10,7 +10,16 @@ Nothing in this list is a known-broken behaviour except where it says so.
 
 ## 1. The two with teeth
 
-- **No failing JSON Patch was ever observed, so `response.ok` is an unproven
+- ~~**No failing JSON Patch was ever observed, so `response.ok` is an unproven
+  success signal.**~~ **CLOSED** by
+  `2026-09-plan9-json-patch-rejection.md`: every refusal was induced on all
+  four supported versions and each is atomic (409, or 403 for authority,
+  with the membership unchanged). No case returned 2xx without the sent
+  membership landing, so `response.ok` is sound. The rejection body is now
+  captured onto `rawError`, which also closes §3's "the patch response body
+  is never consumed". Original text follows.
+
+  **No failing JSON Patch was ever observed, so `response.ok` is an unproven
   success signal.** The measurement that adopted JSON Patch
   (`2026-09-plan8-json-patch.md`) only ever induced *successful* patches — no
   bad member id, no insufficient authority — so the status code DHIS2 returns
@@ -80,9 +89,10 @@ notice a regression.
 - **`JSON.stringify(changes)` equality in the freshness check is
   order-sensitive**, so a reordered but equivalent plan triggers a spurious
   re-confirmation. Fails safe.
-- **The patch response body is never consumed** (matching
-  `setGroupSetProperties`), so `rawError` can no longer carry a server
-  explanation for a failed large write — only `HTTP <status>`.
+- ~~**The patch response body is never consumed**~~ **CLOSED** alongside §1's
+  first item: `patchChange` now reads a rejected patch's body onto
+  `rawError` and logs it, so a failed large write carries DHIS2's own
+  explanation again rather than only `HTTP <status>`.
 - **`writeMemberships` still takes `batchSize` as a parameter** while
   `BulkFixDialog` hardcodes `DEFAULT_BATCH_SIZE` in its own copy of the route
   predicate. They agree only because `useMembershipWrite` passes the constant

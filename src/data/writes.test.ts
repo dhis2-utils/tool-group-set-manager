@@ -625,6 +625,11 @@ describe('writeMemberships', () => {
         // sync and nothing to fail fetching. The only failure surface left
         // is the patch request itself.
         it('fails the group cleanly when the JSON Patch request fails, with no other request attempted', async () => {
+            // patchChange logs the rejection body it now captures; this
+            // response has one, so silence the expected diagnostic.
+            const warn = jest.spyOn(console, 'warn').mockImplementation(() => {
+                // silence the expected diagnostic log
+            })
             const calls: string[] = []
             const fetcher = async (path: string) => {
                 calls.push(path)
@@ -642,6 +647,50 @@ describe('writeMemberships', () => {
             expect(result.applied).toHaveLength(0)
             expect(result.unaccounted).toHaveLength(1)
             expect(result.outcomes[0].error).toBe('HTTP 404')
+            warn.mockRestore()
+        })
+
+        // Plan 9 induced every way DHIS2 refuses a members patch, on all
+        // four supported versions: each answers 409 (or 403 for authority)
+        // with an ObjectReport saying exactly what was wrong, and with the
+        // membership untouched. That explanation used to be discarded,
+        // leaving a failed large write diagnosable only as "HTTP 409" --
+        // see docs/superpowers/notes/2026-09-plan9-json-patch-rejection.md.
+        // It belongs on `rawError`, not `error`: `error` is spliced into
+        // translated sentences and must stay locale-neutral.
+        it('keeps the server explanation for a rejected patch on rawError, never on error', async () => {
+            const warn = jest.spyOn(console, 'warn').mockImplementation(() => {
+                // silence the expected diagnostic log
+            })
+            const fetcher = async () =>
+                new Response(
+                    JSON.stringify({
+                        httpStatus: 'Conflict',
+                        httpStatusCode: 409,
+                        status: 'ERROR',
+                        message:
+                            'One or more errors occurred, please see full details in import report.',
+                        response: {
+                            errorReports: [
+                                { message: 'Invalid reference [Zz9GhOsT000]' },
+                            ],
+                        },
+                    }),
+                    { status: 409 }
+                )
+            const result = await writeMemberships(
+                fetcher,
+                'organisationUnit',
+                [bigChange(DEFAULT_BATCH_SIZE + 1)],
+                () => undefined,
+                DEFAULT_BATCH_SIZE,
+                new Map([['g1', []]])
+            )
+            const [outcome] = result.outcomes
+            expect(outcome.error).toBe('HTTP 409')
+            expect(outcome.rawError).toContain('Invalid reference')
+            expect(warn).toHaveBeenCalled()
+            warn.mockRestore()
         })
 
         // The structural safety property: no fresh membership, no replace-all.
