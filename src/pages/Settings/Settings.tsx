@@ -9,21 +9,20 @@ import {
     SingleSelectOption,
     Tag,
 } from '@dhis2/ui'
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import styles from './Settings.module.css'
+import { useAdminSection } from './useAdminSection'
 import { createFetcher } from '@/data/fetcher'
 import {
     canCreateSqlViews,
     checkSqlViews,
     createOrRepairSqlViews,
-    SqlViewCheck,
 } from '@/data/sources/sqlViewAdmin'
 import {
     checkUsageView,
     installUsageView,
     removeUsageView,
     InstallUsageResult,
-    UsageViewCheck,
 } from '@/data/sources/usageAdmin'
 import { useEngine } from '@/hooks/useEngine'
 import { useGsiConfig } from '@/hooks/useGsiConfig'
@@ -75,22 +74,10 @@ export const Settings = () => {
     // it (Dashboard, GroupSetCard, UsageTab) that the view just changed.
     const refreshUsageReaders = useUsageRefresh()
 
-    const [checks, setChecks] = useState<SqlViewCheck[] | null>(null)
-    // D5: null means "not yet known" (still checking, or the check itself
-    // failed) -- only `true` ever shows the create/repair button.
-    const [canManage, setCanManage] = useState<boolean | null>(null)
-    const [checking, setChecking] = useState(true)
-    // I1: a failing status check is itself a real, distinct state -- never
-    // conflated with "still checking" (which would spin forever) or with
-    // "checked and found nothing usable" (which would offer a create button
-    // that may just repeat the same failure).
-    const [checkError, setCheckError] = useState<string | null>(null)
-    const [creating, setCreating] = useState(false)
     const [createSummary, setCreateSummary] = useState<string | null>(null)
     const [createFailures, setCreateFailures] = useState<
         { code: string; message: string }[]
     >([])
-    const [createError, setCreateError] = useState<string | null>(null)
     const [clearingCache, setClearingCache] = useState(false)
     // I3: every saver below reports its own failure into one of these,
     // rather than the write vanishing silently. Keyed by which control
@@ -99,76 +86,29 @@ export const Settings = () => {
     const [catchAllError, setCatchAllError] = useState<string | null>(null)
     const [trackerError, setTrackerError] = useState<string | null>(null)
 
-    const [usageCheck, setUsageCheck] = useState<UsageViewCheck | null>(null)
-    const [usageChecking, setUsageChecking] = useState(true)
-    const [usageBusy, setUsageBusy] = useState(false)
     const [usageResult, setUsageResult] = useState<InstallUsageResult | null>(
         null
     )
-    // Split the way `checkError`/`createError` are split above: a failing
-    // status check gates the whole section (there is nothing to show), but
-    // an install/remove failure must not -- a 403 on remove, or a view
-    // someone else deleted mid-session, would otherwise wipe the tag and
-    // both buttons with no way back except reloading the page.
-    const [usageCheckError, setUsageCheckError] = useState<string | null>(null)
-    const [usageActionError, setUsageActionError] = useState<string | null>(
-        null
-    )
 
-    const refreshUsage = useCallback(async () => {
-        setUsageChecking(true)
-        setUsageCheckError(null)
-        try {
-            setUsageCheck(await checkUsageView(fetcher))
-        } catch (e) {
-            setUsageCheck(null)
-            setUsageCheckError(e instanceof Error ? e.message : String(e))
-        } finally {
-            setUsageChecking(false)
-        }
-    }, [fetcher])
+    const sqlViews = useAdminSection(async () => {
+        const [checks, canManage] = await Promise.all([
+            checkSqlViews(fetcher),
+            canCreateSqlViews(fetcher),
+        ])
+        return { checks, canManage }
+    })
 
-    useEffect(() => {
-        void refreshUsage()
-    }, [refreshUsage])
+    const usage = useAdminSection(() => checkUsageView(fetcher))
 
-    const refreshStatus = useCallback(async () => {
-        setChecking(true)
-        setCheckError(null)
-        try {
-            const [nextChecks, nextCanManage] = await Promise.all([
-                checkSqlViews(fetcher),
-                canCreateSqlViews(fetcher),
-            ])
-            setChecks(nextChecks)
-            setCanManage(nextCanManage)
-        } catch (e) {
-            // I1: `checkSqlViews` (unlike `canCreateSqlViews`) can reject --
-            // a 403, a 500 with an HTML body, a dropped connection -- and
-            // without this the section would spin forever on an unhandled
-            // rejection instead of telling the user anything.
-            setChecks(null)
-            setCanManage(null)
-            setCheckError(e instanceof Error ? e.message : String(e))
-        } finally {
-            setChecking(false)
-        }
-    }, [fetcher])
-
-    useEffect(() => {
-        void refreshStatus()
-    }, [refreshStatus])
-
-    const handleCreate = async () => {
-        if (!checks) {
-            return
-        }
-        setCreating(true)
-        setCreateError(null)
-        setCreateSummary(null)
-        setCreateFailures([])
-        try {
-            const result = await createOrRepairSqlViews(fetcher, checks)
+    const handleCreate = () =>
+        sqlViews.run(async () => {
+            if (!sqlViews.check) {
+                return
+            }
+            const result = await createOrRepairSqlViews(
+                fetcher,
+                sqlViews.check.checks
+            )
             const parts: string[] = []
             if (result.created.length > 0) {
                 parts.push(createdSummary(result.created.length))
@@ -178,7 +118,6 @@ export const Settings = () => {
             }
             setCreateSummary(parts.length > 0 ? parts.join(' — ') : null)
             setCreateFailures(result.failed)
-            await refreshStatus()
             // I2: on the very instances that motivate this feature, staying
             // on the metadata API until a manual reload would make this
             // button appear to do nothing. Any view this call actually
@@ -188,12 +127,7 @@ export const Settings = () => {
             if (result.created.length > 0 || result.repaired.length > 0) {
                 await reload(true)
             }
-        } catch (e) {
-            setCreateError(e instanceof Error ? e.message : String(e))
-        } finally {
-            setCreating(false)
-        }
-    }
+        })
 
     const handleClearCache = async () => {
         setClearingCache(true)
@@ -205,54 +139,33 @@ export const Settings = () => {
         }
     }
 
-    const handleInstallUsage = async () => {
-        if (!usageCheck) {
-            return
-        }
-        setUsageBusy(true)
-        setUsageActionError(null)
-        try {
-            const result = await installUsageView(fetcher, usageCheck)
+    const handleInstallUsage = () =>
+        usage.run(async () => {
+            if (!usage.check) {
+                return
+            }
+            const result = await installUsageView(fetcher, usage.check)
             setUsageResult(result)
             if (result.installed) {
                 // Only on a real change: a failed install leaves the
                 // instance exactly as `useUsage()`'s readers already saw it.
                 refreshUsageReaders()
             }
-        } catch (e) {
-            setUsageActionError(e instanceof Error ? e.message : String(e))
-        } finally {
-            // Fix round 2 (Minor folded in): was inside the `try`, so an
-            // unexpected throw skipped it and left `usageCheck` stale --
-            // Settings could keep reporting "Missing" while the view
-            // actually existed on the server. Runs on both paths now, so
-            // the tag always reflects the server's real state regardless
-            // of how the call above ended.
-            await refreshUsage()
-            setUsageBusy(false)
-        }
-    }
+        })
 
-    const handleRemoveUsage = async () => {
-        if (!usageCheck?.id) {
-            return
-        }
-        setUsageBusy(true)
-        setUsageActionError(null)
-        try {
-            await removeUsageView(fetcher, usageCheck.id)
+    const handleRemoveUsage = () =>
+        usage.run(async () => {
+            if (!usage.check?.id) {
+                return
+            }
+            await removeUsageView(fetcher, usage.check.id)
             // The install report belongs to a view that no longer exists.
             setUsageResult(null)
             refreshUsageReaders()
-        } catch (e) {
-            setUsageActionError(e instanceof Error ? e.message : String(e))
-        } finally {
-            // Same shape as handleInstallUsage above, same fix.
-            await refreshUsage()
-            setUsageBusy(false)
-        }
-    }
+        })
 
+    const checks = sqlViews.check?.checks ?? null
+    const canManage = sqlViews.check?.canManage ?? null
     const allUsable = checks !== null && checks.every((c) => c.usable)
     const anyUnusable = checks !== null && checks.some((c) => !c.usable)
 
@@ -260,23 +173,26 @@ export const Settings = () => {
         <div className={styles.page}>
             <div className={styles.section}>
                 <h2 className={styles.heading}>{i18n.t('SQL views')}</h2>
-                {checking && checks === null ? (
+                {sqlViews.checking && sqlViews.check === null ? (
                     <CircularLoader small />
-                ) : checkError ? (
+                ) : sqlViews.checkError ? (
                     // I1: without this, a failing checkSqlViews (a 403, a
                     // 500 with an HTML body, a dropped connection) left the
                     // spinner above running forever with an unhandled
                     // rejection behind it, and no way for the user to know
-                    // why. `refreshStatus` is safe to call again -- it does
-                    // not create or execute anything -- so retrying is a
-                    // plain reload, not a repair attempt.
+                    // why. `sqlViews.refresh` is safe to call again -- it
+                    // does not create or execute anything -- so retrying is
+                    // a plain reload, not a repair attempt.
                     <NoticeBox
                         error
                         title={i18n.t('Could not check SQL view status')}
                     >
-                        {checkError}
+                        {sqlViews.checkError}
                         <div>
-                            <Button small onClick={() => void refreshStatus()}>
+                            <Button
+                                small
+                                onClick={() => void sqlViews.refresh()}
+                            >
                                 {i18n.t('Try again')}
                             </Button>
                         </div>
@@ -312,8 +228,8 @@ export const Settings = () => {
                         {anyUnusable && canManage === true && (
                             <Button
                                 onClick={handleCreate}
-                                disabled={creating}
-                                loading={creating}
+                                disabled={sqlViews.busy}
+                                loading={sqlViews.busy}
                             >
                                 {i18n.t('Create SQL views')}
                             </Button>
@@ -328,16 +244,18 @@ export const Settings = () => {
                                 )}
                             </NoticeBox>
                         )}
-                        {anyUnusable && canManage === null && !checking && (
-                            <NoticeBox
-                                warning
-                                title={i18n.t('SQL views are not set up')}
-                            >
-                                {i18n.t(
-                                    'The app could not determine whether you can create SQL views.'
-                                )}
-                            </NoticeBox>
-                        )}
+                        {anyUnusable &&
+                            canManage === null &&
+                            !sqlViews.checking && (
+                                <NoticeBox
+                                    warning
+                                    title={i18n.t('SQL views are not set up')}
+                                >
+                                    {i18n.t(
+                                        'The app could not determine whether you can create SQL views.'
+                                    )}
+                                </NoticeBox>
+                            )}
                         {(createSummary || createFailures.length > 0) && (
                             <NoticeBox
                                 title={i18n.t('SQL view update complete')}
@@ -348,12 +266,12 @@ export const Settings = () => {
                                 ))}
                             </NoticeBox>
                         )}
-                        {createError && (
+                        {sqlViews.actionError && (
                             <NoticeBox
                                 error
                                 title={i18n.t('SQL view update failed')}
                             >
-                                {createError}
+                                {sqlViews.actionError}
                             </NoticeBox>
                         )}
                     </>
@@ -367,16 +285,16 @@ export const Settings = () => {
                         'An optional SQL view that counts the saved favourites referencing each group set, and how often they were viewed in the last 12 months. Without it the app works exactly as before, only with no usage figures.'
                     )}
                 </p>
-                {usageChecking && usageCheck === null ? (
+                {usage.checking && usage.check === null ? (
                     <CircularLoader small />
-                ) : usageCheckError ? (
+                ) : usage.checkError ? (
                     <NoticeBox
                         error
                         title={i18n.t('Could not check the usage SQL view')}
                     >
-                        {usageCheckError}
+                        {usage.checkError}
                         <div>
-                            <Button small onClick={() => void refreshUsage()}>
+                            <Button small onClick={() => void usage.refresh()}>
                                 {i18n.t('Try again')}
                             </Button>
                         </div>
@@ -387,37 +305,37 @@ export const Settings = () => {
                             <span className={styles.viewName}>
                                 {i18n.t('Group set usage view')}
                             </span>
-                            {usageCheck?.usable ? (
+                            {usage.check?.usable ? (
                                 <Tag positive>{i18n.t('Usable')}</Tag>
-                            ) : usageCheck?.id ? (
+                            ) : usage.check?.id ? (
                                 <Tag neutral>{i18n.t('Not usable yet')}</Tag>
                             ) : (
                                 <Tag negative>{i18n.t('Missing')}</Tag>
                             )}
                         </div>
-                        {usageCheck &&
-                            !usageCheck.usable &&
+                        {usage.check &&
+                            !usage.check.usable &&
                             canManage === true && (
                                 <Button
                                     onClick={handleInstallUsage}
-                                    disabled={usageBusy}
-                                    loading={usageBusy}
+                                    disabled={usage.busy}
+                                    loading={usage.busy}
                                 >
                                     {i18n.t('Install usage SQL view')}
                                 </Button>
                             )}
-                        {usageCheck?.usable && canManage === true && (
+                        {usage.check?.usable && canManage === true && (
                             <Button
                                 secondary
                                 onClick={handleRemoveUsage}
-                                disabled={usageBusy}
-                                loading={usageBusy}
+                                disabled={usage.busy}
+                                loading={usage.busy}
                             >
                                 {i18n.t('Remove usage SQL view')}
                             </Button>
                         )}
-                        {usageCheck &&
-                            !usageCheck.usable &&
+                        {usage.check &&
+                            !usage.check.usable &&
                             canManage === false && (
                                 // Fix round 2 (Important 3): mirrors the SQL
                                 // views section's own `canManage === false`
@@ -436,10 +354,10 @@ export const Settings = () => {
                                     )}
                                 </NoticeBox>
                             )}
-                        {usageCheck &&
-                            !usageCheck.usable &&
+                        {usage.check &&
+                            !usage.check.usable &&
                             canManage === null &&
-                            !usageChecking && (
+                            !usage.checking && (
                                 <NoticeBox
                                     warning
                                     title={i18n.t('SQL views are not set up')}
@@ -508,14 +426,14 @@ export const Settings = () => {
                                 )}
                             </NoticeBox>
                         )}
-                        {usageActionError && (
+                        {usage.actionError && (
                             <NoticeBox
                                 error
                                 title={i18n.t(
                                     'The usage SQL view action failed'
                                 )}
                             >
-                                {usageActionError}
+                                {usage.actionError}
                             </NoticeBox>
                         )}
                     </>
