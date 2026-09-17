@@ -1762,6 +1762,34 @@ describe('BulkFixDialog apply step', () => {
             })
         })
 
+        it('writes without re-confirmation when the recomputed plan is the same delta in a different order', async () => {
+            const reordered = [
+                {
+                    ...PATCH_CHANGE[0],
+                    additions: [...PATCH_CHANGE[0].additions].reverse(),
+                },
+            ]
+            mockClientCall.mockImplementation((method: string) => {
+                if (method === 'planAssignment') {
+                    return Promise.resolve(
+                        plan({
+                            changes: reordered,
+                            affected: reordered[0].additions.length,
+                        })
+                    )
+                }
+                return Promise.resolve(undefined)
+            })
+            await renderAndReachApply()
+            fireEvent.click(screen.getByRole('button', { name: /^apply/i }))
+            await waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1))
+            expect(
+                screen.queryByText(
+                    'The metadata changed while you were reviewing'
+                )
+            ).not.toBeInTheDocument()
+        })
+
         it('writes straight through, with no re-read at all, when nothing crosses the patch threshold', async () => {
             // The common case by far: a few hundred violations, every group
             // taking the batched delta route. A delta cannot silently drop

@@ -1,4 +1,4 @@
-import { ChangeSet, GroupChange, invert } from './changeSet'
+import { ChangeSet, GroupChange, invert, sameChanges } from './changeSet'
 
 const base: ChangeSet = {
     id: 'cs1',
@@ -37,5 +37,47 @@ describe('invert', () => {
             { groupId: 'source', additions: ['obj1'], deletions: [] },
             { groupId: 'target', additions: [], deletions: ['obj1'] },
         ])
+    })
+})
+
+describe('sameChanges', () => {
+    const a: GroupChange[] = [
+        { groupId: 'g1', additions: ['x', 'y'], deletions: ['z'] },
+        { groupId: 'g2', additions: [], deletions: ['w'] },
+    ]
+
+    it('is true for the same delta listed in a different order', () => {
+        const reordered: GroupChange[] = [
+            { groupId: 'g2', additions: [], deletions: ['w'] },
+            { groupId: 'g1', additions: ['y', 'x'], deletions: ['z'] },
+        ]
+        expect(sameChanges(a, reordered)).toBe(true)
+    })
+
+    it('is false when one id differs', () => {
+        const other: GroupChange[] = [
+            { groupId: 'g1', additions: ['x', 'q'], deletions: ['z'] },
+            { groupId: 'g2', additions: [], deletions: ['w'] },
+        ]
+        expect(sameChanges(a, other)).toBe(false)
+    })
+
+    it('is false when a group is missing or extra', () => {
+        expect(sameChanges(a, a.slice(0, 1))).toBe(false)
+        expect(
+            sameChanges(a, [
+                ...a,
+                { groupId: 'g3', additions: ['n'], deletions: [] },
+            ])
+        ).toBe(false)
+    })
+
+    it('is false when an addition became a deletion', () => {
+        expect(
+            sameChanges(
+                [{ groupId: 'g1', additions: ['x'], deletions: [] }],
+                [{ groupId: 'g1', additions: [], deletions: ['x'] }]
+            )
+        ).toBe(false)
     })
 })

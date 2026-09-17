@@ -25,8 +25,8 @@ import {
     PreviewRow,
 } from '@/components/ChangeSetPreview/ChangeSetPreview'
 import { toCsv } from '@/data/csv'
-import { ENDPOINTS } from '@/data/endpoints'
 import { createFetcher } from '@/data/fetcher'
+import { readGroupMembers } from '@/data/groupMembers'
 import {
     createCatchAllGroup,
     generateCatchAllNames,
@@ -38,7 +38,7 @@ import {
     outcomeText,
 } from '@/data/writeOutcomes'
 import { BatchOutcome, takesPatchRoute } from '@/data/writes'
-import { ChangeSet, GroupChange } from '@/engine/changeSet'
+import { ChangeSet, GroupChange, sameChanges } from '@/engine/changeSet'
 import { ObjectFilter } from '@/engine/queries'
 import { AssignmentPlan, ObjectsResult, ScopeRef } from '@/engine/store'
 import { GroupSetMeta, Status } from '@/engine/types'
@@ -615,55 +615,22 @@ export const BulkFixDialog = ({
     ]
 
     /**
-     * The membership of the groups this plan will write by JSON Patch,
-     * read fresh from the server.
-     *
-     * Only those groups. A JSON Patch replaces a group's whole members
-     * collection, so a member someone else added since our snapshot is
-     * absent from the list we send and is silently dropped -- that is the
-     * hazard this read exists to remove. A batched delta touches only the
-     * ids it names and cannot do it, so re-reading a group about to receive
-     * a delta buys no safety and costs 1-2s
-     * (docs/superpowers/notes/2026-09-plan8-reread-cost.md).
-     *
-     * Returns an empty map when nothing crosses the threshold, which is the
-     * common case -- though by the time `handleApply` calls this, it has
-     * already checked that with `takesPatchRoute` itself (see the fix
-     * round 1 note there on why that check has to happen before this
-     * function is even called, not just inside it).
+     * The membership of only the groups this plan will write by JSON Patch,
+     * read fresh -- see `readGroupMembers` for why, and spec 5.1 for why
+     * only those groups. Returns an empty map when nothing crosses the
+     * threshold, which `runFreshnessCheck` has already ruled out before
+     * calling this.
      */
-    const readPatchRouteGroups = async (
+    const readPatchRouteGroups = (
         planChanges: GroupChange[],
         signal?: AbortSignal
-    ): Promise<Map<string, string[]>> => {
-        const endpoint = ENDPOINTS[set.objectType]
-        const ids = planChanges
-            .filter((c) => takesPatchRoute(c))
-            .map((c) => c.groupId)
-        if (ids.length === 0) {
-            return new Map()
-        }
-        const entries = await Promise.all(
-            ids.map(async (groupId) => {
-                const response = await fetcher(
-                    `${endpoint.groups}/${groupId}/${endpoint.members}?fields=id&paging=false`,
-                    { cache: 'no-store', signal }
-                )
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`)
-                }
-                const body = (await response.json()) as Record<
-                    string,
-                    { id: string }[]
-                >
-                return [
-                    groupId,
-                    (body[endpoint.members] ?? []).map((o) => o.id),
-                ] as const
-            })
+    ) =>
+        readGroupMembers(
+            fetcher,
+            set.objectType,
+            planChanges.filter((c) => takesPatchRoute(c)).map((c) => c.groupId),
+            signal
         )
-        return new Map(entries)
-    }
 
     // D5, extended by Task 9: the plan the preview rendered is the plan
     // applied -- `plan.changes` is read once here and never recomputed from
@@ -839,8 +806,7 @@ export const BulkFixDialog = ({
             }
             const unchanged =
                 recomputed.affected === referencePlan.affected &&
-                JSON.stringify(recomputed.changes) ===
-                    JSON.stringify(referencePlan.changes)
+                sameChanges(recomputed.changes, referencePlan.changes)
             if (unchanged) {
                 performWrite(recomputed.changes, completeMembers)
             } else {

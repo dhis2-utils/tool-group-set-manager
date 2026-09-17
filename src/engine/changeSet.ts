@@ -40,3 +40,35 @@ export function invert(changeSet: ChangeSet): GroupChange[] {
         deletions: change.additions,
     }))
 }
+
+/**
+ * Whether two change lists describe the same membership delta, regardless
+ * of the order groups or ids are listed in. The bulk fix's pre-write check
+ * compares the previewed plan with the one recomputed from fresh
+ * membership, and a `JSON.stringify` comparison there asked the user to
+ * re-confirm a plan that had merely been reordered. Assumes each group
+ * appears once per list, which `planAssignment` guarantees.
+ */
+export function sameChanges(a: GroupChange[], b: GroupChange[]): boolean {
+    if (a.length !== b.length) {
+        return false
+    }
+    const byGroup = new Map(b.map((change) => [change.groupId, change]))
+    return a.every((change) => {
+        const other = byGroup.get(change.groupId)
+        return (
+            other !== undefined &&
+            sameIds(change.additions, other.additions) &&
+            sameIds(change.deletions, other.deletions)
+        )
+    })
+}
+
+function sameIds(x: string[], y: string[]): boolean {
+    if (x.length !== y.length) {
+        return false
+    }
+    const sortedX = [...x].sort()
+    const sortedY = [...y].sort()
+    return sortedX.every((id, i) => id === sortedY[i])
+}

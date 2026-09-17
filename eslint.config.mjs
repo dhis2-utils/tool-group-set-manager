@@ -32,4 +32,12 @@ export default defineConfig([
             'max-params': 'off',
         },
     },
+    {
+        // readGroupMembers' signature (fetcher, objectType, groupIds,
+        // signal) is the fixed contract task-10-brief.md specifies.
+        files: ['src/data/groupMembers.ts'],
+        rules: {
+            'max-params': 'off',
+        },
+    },
 ])
