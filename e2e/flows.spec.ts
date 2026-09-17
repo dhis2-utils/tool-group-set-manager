@@ -988,9 +988,11 @@ test.describe('Group Set Integrity Tool', () => {
         // "0 objects" -- rather than a stale list left over from the
         // previous, matching query.
         await inputField(root, 'Search').fill(SEARCH_NO_MATCH_TERM)
-        await expect(root.getByText('0 objects', { exact: true })).toBeVisible({
-            timeout: 5_000,
-        })
+        // Scoped like the two count assertions above: GroupsPanel renders
+        // "0 objects" for an empty group on the Overview tab, so a bare text
+        // match is a strict-mode violation waiting for the first test that
+        // switches tabs mid-flow.
+        await expect(countText).toHaveText('0 objects', { timeout: 5_000 })
         // Fix round 1 (Minor 1): `[class*="row"]` was a CSS-module
         // substring selector, the one locator in this file without a
         // `data-test` hook -- it breaks silently if that module class is
