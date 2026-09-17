@@ -37,7 +37,7 @@ import {
     mergeOutcomes,
     outcomeText,
 } from '@/data/writeOutcomes'
-import { BatchOutcome, DEFAULT_BATCH_SIZE } from '@/data/writes'
+import { BatchOutcome, takesPatchRoute } from '@/data/writes'
 import { ChangeSet, GroupChange } from '@/engine/changeSet'
 import { ObjectFilter } from '@/engine/queries'
 import { AssignmentPlan, ObjectsResult, ScopeRef } from '@/engine/store'
@@ -615,24 +615,6 @@ export const BulkFixDialog = ({
     ]
 
     /**
-     * A group change large enough to take the patch route (spec 6.1) --
-     * shared between the synchronous pre-check in `handleApply` (which
-     * decides whether to touch any of this machinery at all) and
-     * `readPatchRouteGroups` below (which decides which ids to re-read),
-     * so the two can never disagree about where the threshold sits.
-     *
-     * Finding 5 (fix round 2): this is its own copy of the same route
-     * predicate `writeMemberships` (writes.ts) computes internally against
-     * its `batchSize` parameter. The two agree today only because
-     * `useMembershipWrite.ts` passes `DEFAULT_BATCH_SIZE` explicitly rather
-     * than relying on that parameter's default -- a future caller passing a
-     * different `batchSize` would silently widen or narrow which groups get
-     * re-read for freshness here, with no test to catch the mismatch.
-     */
-    const takesPatchRoute = (c: GroupChange): boolean =>
-        c.additions.length + c.deletions.length > DEFAULT_BATCH_SIZE
-
-    /**
      * The membership of the groups this plan will write by JSON Patch,
      * read fresh from the server.
      *
@@ -655,7 +637,9 @@ export const BulkFixDialog = ({
         signal?: AbortSignal
     ): Promise<Map<string, string[]>> => {
         const endpoint = ENDPOINTS[set.objectType]
-        const ids = planChanges.filter(takesPatchRoute).map((c) => c.groupId)
+        const ids = planChanges
+            .filter((c) => takesPatchRoute(c))
+            .map((c) => c.groupId)
         if (ids.length === 0) {
             return new Map()
         }
@@ -767,7 +751,7 @@ export const BulkFixDialog = ({
         // here, before `checkingFreshness` is ever touched, is what keeps
         // the common case (no group crosses the threshold) genuinely inert
         // -- no field read, no progress message, nothing to race.
-        const needsCheck = referencePlan.changes.some(takesPatchRoute)
+        const needsCheck = referencePlan.changes.some((c) => takesPatchRoute(c))
         if (!needsCheck) {
             performWrite(referencePlan.changes)
             return

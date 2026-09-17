@@ -294,7 +294,7 @@ async function patchChange(
  * `batchSize` goes to the collection endpoint as one request per batch,
  * strictly sequential; a change above `batchSize` goes as a single JSON
  * Patch carrying that group's complete intended membership instead -- see
- * the routing note above `takesPatchRoute` inside this function, and spec
+ * the routing note above `routesToPatch` inside this function, and spec
  * 2026-09-16 section 6.1. Both routes are sequential across groups and
  * batches alike -- a national fix can be a hundred thousand
  * memberships, and a burst of parallel requests against a shared production
@@ -332,20 +332,39 @@ async function patchChange(
  * it has to settle that display itself rather than waiting on a callback
  * that will not come.
  */
+/**
+ * Options `writeMemberships` takes beyond the change list. `batchSize` is a
+ * test seam: production always writes at `DEFAULT_BATCH_SIZE`, and
+ * `useMembershipWrite.test.tsx` pins that the hook never passes one,
+ * because `takesPatchRoute`'s default below is also what `BulkFixDialog`
+ * decides its pre-write re-read with. Five tests use a batch size of one or
+ * two so that a three-id change splits into batches an assertion can read.
+ */
+export interface WriteOptions {
+    batchSize?: number
+    completeMembers?: Map<string, string[]>
+}
+
+/**
+ * Whether a group's change is large enough to take the JSON Patch route
+ * (spec 2026-09-16 section 6.1). The one predicate both the writer below
+ * and `BulkFixDialog`'s freshness check use, so the two cannot disagree
+ * about where the threshold sits -- they used to be two copies that agreed
+ * only because the hook between them passed the constant explicitly.
+ */
+export function takesPatchRoute(
+    change: GroupChange,
+    batchSize: number = DEFAULT_BATCH_SIZE
+): boolean {
+    return change.additions.length + change.deletions.length > batchSize
+}
+
 export async function writeMemberships(
     fetcher: Fetcher,
     objectType: ObjectType,
     changes: GroupChange[],
     onProgress: (done: number, total: number) => void,
-    // Finding 5 (fix round 2): `BulkFixDialog.tsx`'s own `takesPatchRoute`
-    // hardcodes `DEFAULT_BATCH_SIZE` rather than reading this parameter --
-    // the two agree today only because `useMembershipWrite.ts` always
-    // passes `DEFAULT_BATCH_SIZE` here explicitly. A caller passing a
-    // different `batchSize` would silently desync which groups the dialog
-    // re-reads for freshness from which groups actually take the patch
-    // route, with nothing to fail.
-    batchSize = DEFAULT_BATCH_SIZE,
-    completeMembers?: Map<string, string[]>
+    { batchSize = DEFAULT_BATCH_SIZE, completeMembers }: WriteOptions = {}
 ): Promise<WriteResult> {
     const endpoint = ENDPOINTS[objectType]
 
@@ -361,8 +380,8 @@ export async function writeMemberships(
     // collection, which is only sound when the membership it is built from
     // was just re-read (section 5). A caller that has not done that refresh
     // has no entry here and therefore cannot reach this route at all.
-    const takesPatchRoute = (change: GroupChange): boolean =>
-        change.additions.length + change.deletions.length > batchSize &&
+    const routesToPatch = (change: GroupChange): boolean =>
+        takesPatchRoute(change, batchSize) &&
         completeMembers?.has(change.groupId) === true
 
     // Each change is routed once, in the order given: a patch change
@@ -373,7 +392,7 @@ export async function writeMemberships(
         | { kind: 'patch'; change: GroupChange }
         | { kind: 'batch'; batch: GroupChange }
     const units: Unit[] = changes.flatMap((change): Unit[] =>
-        takesPatchRoute(change)
+        routesToPatch(change)
             ? [{ kind: 'patch', change }]
             : splitChange(change, batchSize).map((batch) => ({
                   kind: 'batch',

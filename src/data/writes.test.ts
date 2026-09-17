@@ -2,6 +2,7 @@ import { ENDPOINTS } from './endpoints'
 import {
     DEFAULT_BATCH_SIZE,
     UNPARSEABLE_RESPONSE,
+    takesPatchRoute,
     writeMemberships,
 } from './writes'
 import { GroupChange } from '@/engine/changeSet'
@@ -98,7 +99,7 @@ describe('writeMemberships', () => {
             'organisationUnit',
             changes,
             (done, total) => progress.push([done, total]),
-            2
+            { batchSize: 2 }
         )
 
         expect(calls).toEqual([
@@ -362,7 +363,7 @@ describe('writeMemberships', () => {
             'organisationUnit',
             changes,
             () => undefined,
-            1
+            { batchSize: 1 }
         )
 
         expect(calls).toEqual([
@@ -405,7 +406,7 @@ describe('writeMemberships', () => {
             'organisationUnit',
             changes,
             () => undefined,
-            1
+            { batchSize: 1 }
         )
 
         expect(calls).toEqual([
@@ -451,7 +452,7 @@ describe('writeMemberships', () => {
             'organisationUnit',
             changes,
             (done, total) => progress.push([done, total]),
-            1
+            { batchSize: 1 }
         )
 
         // Only the first of g1's three one-id batches ever goes over the
@@ -495,7 +496,7 @@ describe('writeMemberships', () => {
             'organisationUnit',
             changes,
             () => undefined,
-            1
+            { batchSize: 1 }
         )
         expect(result.outcomes).toHaveLength(4)
         expect(result.outcomes.filter((o) => o.groupId === 'g1')).toHaveLength(
@@ -542,8 +543,7 @@ describe('writeMemberships', () => {
                 'organisationUnit',
                 [bigChange(DEFAULT_BATCH_SIZE)],
                 () => undefined,
-                DEFAULT_BATCH_SIZE,
-                new Map([['g1', []]])
+                { completeMembers: new Map([['g1', []]]) }
             )
             expect(calls).toEqual([
                 'organisationUnitGroups/g1/organisationUnits',
@@ -575,8 +575,7 @@ describe('writeMemberships', () => {
                 'organisationUnit',
                 [bigChange(DEFAULT_BATCH_SIZE + 1)],
                 () => undefined,
-                DEFAULT_BATCH_SIZE,
-                new Map([['g1', ['existing1']]])
+                { completeMembers: new Map([['g1', ['existing1']]]) }
             )
             expect(calls).toEqual([
                 {
@@ -609,8 +608,7 @@ describe('writeMemberships', () => {
                     },
                 ],
                 () => undefined,
-                DEFAULT_BATCH_SIZE,
-                new Map([['g1', ['keep1', 'gone1']]])
+                { completeMembers: new Map([['g1', ['keep1', 'gone1']]]) }
             )
             expect(body).toEqual([
                 {
@@ -647,8 +645,7 @@ describe('writeMemberships', () => {
                 'organisationUnit',
                 [bigChange(DEFAULT_BATCH_SIZE + 1)],
                 () => undefined,
-                DEFAULT_BATCH_SIZE,
-                new Map([['g1', []]])
+                { completeMembers: new Map([['g1', []]]) }
             )
             expect(calls).toEqual(['organisationUnitGroups/g1'])
             expect(result.applied).toHaveLength(0)
@@ -690,8 +687,7 @@ describe('writeMemberships', () => {
                 'organisationUnit',
                 [bigChange(DEFAULT_BATCH_SIZE + 1)],
                 () => undefined,
-                DEFAULT_BATCH_SIZE,
-                new Map([['g1', []]])
+                { completeMembers: new Map([['g1', []]]) }
             )
             const [outcome] = result.outcomes
             expect(outcome.error).toBe('HTTP 409')
@@ -727,8 +723,7 @@ describe('writeMemberships', () => {
                 'organisationUnit',
                 [bigChange(DEFAULT_BATCH_SIZE + 1)],
                 () => undefined,
-                DEFAULT_BATCH_SIZE,
-                new Map([['g1', []]])
+                { completeMembers: new Map([['g1', []]]) }
             )
             expect(result.applied).toHaveLength(1)
             expect(result.unaccounted).toHaveLength(0)
@@ -738,5 +733,68 @@ describe('writeMemberships', () => {
                 accepted: DEFAULT_BATCH_SIZE + 1,
             })
         })
+
+        it('routes exactly the changes takesPatchRoute flags, when every group has a complete membership', async () => {
+            const patched: string[] = []
+            const fetcher = async (path: string, init?: RequestInit) => {
+                if (init?.method === 'PATCH') {
+                    patched.push(path)
+                    return json({})
+                }
+                const body = JSON.parse(String(init?.body)) as {
+                    additions: unknown[]
+                }
+                return okStats(body.additions.length)
+            }
+            const changes = [
+                bigChange(DEFAULT_BATCH_SIZE),
+                { ...bigChange(DEFAULT_BATCH_SIZE + 1), groupId: 'g2' },
+            ]
+            await writeMemberships(
+                fetcher,
+                'organisationUnit',
+                changes,
+                () => undefined,
+                {
+                    completeMembers: new Map([
+                        ['g1', []],
+                        ['g2', []],
+                    ]),
+                }
+            )
+            expect(patched).toEqual(
+                changes
+                    .filter((c) => takesPatchRoute(c))
+                    .map((c) => `organisationUnitGroups/${c.groupId}`)
+            )
+        })
+    })
+})
+
+describe('takesPatchRoute', () => {
+    const change = (n: number): GroupChange => ({
+        groupId: 'g',
+        additions: Array.from({ length: n }, (_, i) => `o${i}`),
+        deletions: [],
+    })
+
+    it('is false at the threshold and true one above it', () => {
+        expect(takesPatchRoute(change(DEFAULT_BATCH_SIZE))).toBe(false)
+        expect(takesPatchRoute(change(DEFAULT_BATCH_SIZE + 1))).toBe(true)
+    })
+
+    it('counts additions and deletions together', () => {
+        expect(
+            takesPatchRoute({
+                groupId: 'g',
+                additions: Array.from({ length: 3000 }, (_, i) => `a${i}`),
+                deletions: Array.from({ length: 2001 }, (_, i) => `d${i}`),
+            })
+        ).toBe(true)
+    })
+
+    it('honours an explicit batch size, which only tests pass', () => {
+        expect(takesPatchRoute(change(3), 2)).toBe(true)
+        expect(takesPatchRoute(change(2), 2)).toBe(false)
     })
 })

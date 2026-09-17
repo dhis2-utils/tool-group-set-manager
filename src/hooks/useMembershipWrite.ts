@@ -4,11 +4,7 @@ import { useEngine } from './useEngine'
 import { useIntegrity } from './useIntegrity'
 import { saveChangeSet } from '@/data/datastore'
 import { createFetcher } from '@/data/fetcher'
-import {
-    DEFAULT_BATCH_SIZE,
-    WriteResult,
-    writeMemberships,
-} from '@/data/writes'
+import { WriteResult, writeMemberships } from '@/data/writes'
 import { ChangeSet, GroupChange } from '@/engine/changeSet'
 import { GroupSetMeta } from '@/engine/types'
 import { useApiDataQuery } from '@/utils/useApiDataQuery'
@@ -153,8 +149,7 @@ export function useMembershipWrite(): {
                     objectType,
                     input.changes,
                     input.onProgress ?? (() => undefined),
-                    DEFAULT_BATCH_SIZE,
-                    input.completeMembers
+                    { completeMembers: input.completeMembers }
                 )
 
                 let engineError: string | undefined

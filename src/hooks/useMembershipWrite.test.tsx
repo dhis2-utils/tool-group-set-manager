@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import React from 'react'
 import { useMembershipWrite } from './useMembershipWrite'
-import { DEFAULT_BATCH_SIZE } from '@/data/writes'
 import { GroupSetMeta } from '@/engine/types'
 
 jest.mock('@dhis2/app-runtime', () => ({
@@ -371,12 +370,11 @@ it('marks the checks stale for the written object type after a successful write'
     expect(mockMarkStale).toHaveBeenCalledTimes(1)
 })
 
-// Task 8 step 4: `completeMembers` is threaded straight through as the
-// sixth argument to writeMemberships (in the fifth, DEFAULT_BATCH_SIZE,
-// position) -- and, since it's optional, every existing caller that omits
-// it must keep writing exactly as before, via the batched path.
-
-it('passes completeMembers through to writeMemberships as the sixth argument', async () => {
+// The hook never chooses a batch size. `writeMemberships`' default is also
+// what `takesPatchRoute` (and so BulkFixDialog's freshness re-read) uses,
+// so a batchSize appearing here would silently desync the two -- this pair
+// of tests is what would fail.
+it('passes completeMembers through, and no batch size', async () => {
     const completeMembers = new Map([['g1', ['existing1']]])
 
     await doWrite([change], { completeMembers })
@@ -386,22 +384,19 @@ it('passes completeMembers through to writeMemberships as the sixth argument', a
         'organisationUnit',
         [change],
         expect.any(Function),
-        DEFAULT_BATCH_SIZE,
-        completeMembers
+        { completeMembers }
     )
 })
 
-it('still writes when completeMembers is omitted, passing undefined through', async () => {
+it('still writes when completeMembers is omitted, passing none through', async () => {
     const writeResult = await doWrite()
 
-    expect(mockWriteMembershipsImpl).toHaveBeenCalledWith(
-        expect.anything(),
-        'organisationUnit',
-        [change],
-        expect.any(Function),
-        DEFAULT_BATCH_SIZE,
-        undefined
-    )
+    const options = mockWriteMembershipsImpl.mock.calls[0][4] as Record<
+        string,
+        unknown
+    >
+    expect(options).toEqual({ completeMembers: undefined })
+    expect(Object.keys(options)).not.toContain('batchSize')
     expect(writeResult.changeSet).toBeDefined()
 })
 
