@@ -376,9 +376,9 @@ describe('createCatchAllGroup', () => {
                 () => json({}, 200),
         })
 
-        await expect(
-            createCatchAllGroup(fetcher, set)
-        ).resolves.toMatchObject({ id: 'g9' })
+        await expect(createCatchAllGroup(fetcher, set)).resolves.toMatchObject({
+            id: 'g9',
+        })
     })
 
     it('reuses an existing group with the same name instead of creating a duplicate', async () => {

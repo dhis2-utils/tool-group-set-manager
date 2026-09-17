@@ -221,22 +221,19 @@ async function patchChange(
         ...change.additions.filter((id) => !currentIds.has(id)),
     ]
     try {
-        const response = await fetcher(
-            `${endpoint.groups}/${change.groupId}`,
-            {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json-patch+json',
+        const response = await fetcher(`${endpoint.groups}/${change.groupId}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json-patch+json',
+            },
+            body: JSON.stringify([
+                {
+                    op: 'replace',
+                    path: `/${endpoint.members}`,
+                    value: intended.map((id) => ({ id })),
                 },
-                body: JSON.stringify([
-                    {
-                        op: 'replace',
-                        path: `/${endpoint.members}`,
-                        value: intended.map((id) => ({ id })),
-                    },
-                ]),
-            }
-        )
+            ]),
+        })
         if (!response.ok) {
             // A rejected members patch answers with an ObjectReport whose
             // `message` and `errorReports` say exactly what was wrong

@@ -88,7 +88,9 @@ async function apiJson(path, init) {
     const response = await api(path, init)
     const text = await response.text()
     if (!response.ok) {
-        throw new Error(`HTTP ${response.status} on ${path}: ${text.slice(0, 300)}`)
+        throw new Error(
+            `HTTP ${response.status} on ${path}: ${text.slice(0, 300)}`
+        )
     }
     return text ? JSON.parse(text) : {}
 }
@@ -199,7 +201,9 @@ async function main() {
             ops.push({ op: 'add', path: '/symbol', value: symbol })
         }
         if (ops.length === 0) {
-            throw new Error('set-props needs at least one of description/color/symbol')
+            throw new Error(
+                'set-props needs at least one of description/color/symbol'
+            )
         }
         const response = await api(`organisationUnitGroups/${groupId}`, {
             method: 'PATCH',
@@ -208,7 +212,9 @@ async function main() {
         })
         const text = await response.text()
         if (!response.ok) {
-            throw new Error(`set-props failed: HTTP ${response.status}: ${text.slice(0, 500)}`)
+            throw new Error(
+                `set-props failed: HTTP ${response.status}: ${text.slice(0, 500)}`
+            )
         }
         const after = await readGroupProps(groupId)
         console.log(JSON.stringify({ before, after }))
@@ -220,7 +226,9 @@ async function main() {
         await jsonPatchReplaceMembers(groupId, [])
         const seconds = (Date.now() - started) / 1000
         const after = await readMembers(groupId)
-        console.log(JSON.stringify({ mode: 'empty', seconds, actual: after.length }))
+        console.log(
+            JSON.stringify({ mode: 'empty', seconds, actual: after.length })
+        )
         return
     }
 

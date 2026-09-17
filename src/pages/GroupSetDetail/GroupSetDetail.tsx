@@ -225,17 +225,11 @@ export const GroupSetDetail = () => {
     // chosen row level is already the deepest the hierarchy offers --
     // `onDrillDown` stays undefined and SummaryMatrix leaves row labels as
     // plain text, the same treatment it already gives a flat object type.
-    const nextRowLevel = levels.find(
-        (l) => l.level > effectiveRowLevel
-    )?.level
+    const nextRowLevel = levels.find((l) => l.level > effectiveRowLevel)?.level
     const onDrillDown =
         set.objectType === 'organisationUnit' && nextRowLevel !== undefined
             ? (row: ObjectRef) => {
-                  setRoot(
-                      row.id,
-                      row.displayName ?? row.id,
-                      effectiveRowLevel
-                  )
+                  setRoot(row.id, row.displayName ?? row.id, effectiveRowLevel)
                   setRowLevel(nextRowLevel)
               }
             : undefined

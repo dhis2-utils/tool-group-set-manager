@@ -130,8 +130,7 @@ export const Dashboard = () => {
      * zero with the genuinely unreferenced ones.
      */
     const byLeastUsed = (a: DashboardEntry, b: DashboardEntry) => {
-        const applicable = (e: DashboardEntry) =>
-            usageApplies(e.set.objectType)
+        const applicable = (e: DashboardEntry) => usageApplies(e.set.objectType)
         // Defensive, not reachable: this component renders one section per
         // ObjectType and never sorts a mixed-type array, so the two sides
         // always agree. Kept so the comparator stays total if a caller ever
@@ -452,10 +451,9 @@ export const Dashboard = () => {
                                             navigate(`/sets/${entry.set.id}`)
                                         }
                                         onOpenUsage={() =>
-                                            navigate(
-                                                `/sets/${entry.set.id}`,
-                                                { state: { tab: 'usage' } }
-                                            )
+                                            navigate(`/sets/${entry.set.id}`, {
+                                                state: { tab: 'usage' },
+                                            })
                                         }
                                     />
                                 ))}

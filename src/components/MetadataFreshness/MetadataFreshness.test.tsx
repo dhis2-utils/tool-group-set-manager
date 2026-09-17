@@ -28,9 +28,7 @@ it('shows the age of the data', () => {
 
 it('says the data may be out of date once past the TTL', () => {
     render(<MetadataFreshness loadedAt={Date.now() - CACHE_TTL_MS - 60_000} />)
-    expect(
-        screen.getByText(/may be out of date/)
-    ).toBeInTheDocument()
+    expect(screen.getByText(/may be out of date/)).toBeInTheDocument()
 })
 
 it('forces a reload when refreshed -- never a cache-reusing one', async () => {

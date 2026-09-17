@@ -51,9 +51,9 @@ export async function checkUsageView(
     const readable = Boolean(view?.access.data?.read)
     const metadataUsable = Boolean(
         view &&
-            readable &&
-            view.type !== undefined &&
-            USABLE_SQL_VIEW_TYPES.includes(view.type)
+        readable &&
+        view.type !== undefined &&
+        USABLE_SQL_VIEW_TYPES.includes(view.type)
     )
     return {
         id: view?.id ?? null,

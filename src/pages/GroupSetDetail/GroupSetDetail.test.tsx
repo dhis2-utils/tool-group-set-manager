@@ -411,7 +411,9 @@ describe('one fix entry point (§5.1)', () => {
     it("opens the bulk fix dialog from the Objects tab, against that tab's filter", async () => {
         renderDetail()
         fireEvent.click(await screen.findByText('Objects'))
-        fireEvent.click(await screen.findByRole('button', { name: 'Bulk fix…' }))
+        fireEvent.click(
+            await screen.findByRole('button', { name: 'Bulk fix…' })
+        )
         expect(await screen.findByText('mock-dialog-close')).toBeInTheDocument()
     })
 })
@@ -684,7 +686,9 @@ describe('drilling into a matrix row (Task 6)', () => {
         // Seeded at scopeLevel (1) + 1 -- the fixture's own level list
         // (National=1, District=2, Chiefdom=3, Facility=4) -- so the row
         // level starts at District (2), matching the fixture row above.
-        expect(await screen.findByText('District (level 2)')).toBeInTheDocument()
+        expect(
+            await screen.findByText('District (level 2)')
+        ).toBeInTheDocument()
 
         fireEvent.click(await screen.findByRole('button', { name: 'Badjia' }))
 

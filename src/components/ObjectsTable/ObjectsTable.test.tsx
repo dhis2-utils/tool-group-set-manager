@@ -857,9 +857,7 @@ describe('interactive membership control', () => {
         )
         // ...and the user is told the write landed, so a successful write
         // can never look like a failure.
-        expect(
-            screen.getByText('Item 0 is now in Private')
-        ).toBeInTheDocument()
+        expect(screen.getByText('Item 0 is now in Private')).toBeInTheDocument()
     })
 
     // M2: `engineError`/`historyError` mean the server change is real --

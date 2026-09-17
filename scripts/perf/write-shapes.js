@@ -63,7 +63,9 @@ async function apiJson(path, init) {
     const response = await api(path, init)
     const text = await response.text()
     if (!response.ok) {
-        throw new Error(`HTTP ${response.status} on ${path}: ${text.slice(0, 300)}`)
+        throw new Error(
+            `HTTP ${response.status} on ${path}: ${text.slice(0, 300)}`
+        )
     }
     return JSON.parse(text)
 }
@@ -117,7 +119,9 @@ async function metadataImport(group, memberIds) {
     })
     const text = await response.text()
     if (!response.ok) {
-        throw new Error(`import failed: HTTP ${response.status}: ${text.slice(0, 300)}`)
+        throw new Error(
+            `import failed: HTTP ${response.status}: ${text.slice(0, 300)}`
+        )
     }
     const body = JSON.parse(text)
     const status = body.status ?? body.response?.status
@@ -151,7 +155,10 @@ async function metadataImportAsync(group, memberIds) {
         await new Promise((r) => setTimeout(r, 1000))
         const poll = await api(`system/tasks/METADATA_IMPORT/${job.id}`)
         const notifications = JSON.parse(await poll.text())
-        if (Array.isArray(notifications) && notifications.some((n) => n.completed)) {
+        if (
+            Array.isArray(notifications) &&
+            notifications.some((n) => n.completed)
+        ) {
             return notifications
         }
     }

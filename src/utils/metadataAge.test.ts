@@ -45,9 +45,7 @@ describe('metadataAge', () => {
     it('is stale past the TTL, and says so in one whole sentence', () => {
         const { label, stale } = metadataAge(NOW - 2 * 60 * 60_000, NOW)
         expect(stale).toBe(true)
-        expect(label).toBe(
-            'Metadata from 2 hours ago and may be out of date'
-        )
+        expect(label).toBe('Metadata from 2 hours ago and may be out of date')
     })
 
     // A clock skew, or a savedAt written by a machine slightly ahead, must

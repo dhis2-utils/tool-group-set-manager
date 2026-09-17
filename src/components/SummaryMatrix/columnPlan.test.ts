@@ -37,7 +37,9 @@ describe('planColumns', () => {
         expect(plan.other).toHaveLength(12 - MAX_GROUP_COLUMNS)
         // nothing is lost: shown + other is every group, once each
         expect(
-            [...plan.shown, ...plan.other].map((s) => s.index).sort((a, b) => a - b)
+            [...plan.shown, ...plan.other]
+                .map((s) => s.index)
+                .sort((a, b) => a - b)
         ).toEqual(perGroup.map((_, i) => i))
     })
 
@@ -45,8 +47,24 @@ describe('planColumns', () => {
         const result = {
             groups: [g(0), g(1)],
             rows: [
-                { object: 0, row: null, perGroup: [1, 9], missing: 0, unassigned: 0, conflict: 0, total: 10 },
-                { object: 1, row: null, perGroup: [9, 0], missing: 0, unassigned: 0, conflict: 0, total: 9 },
+                {
+                    object: 0,
+                    row: null,
+                    perGroup: [1, 9],
+                    missing: 0,
+                    unassigned: 0,
+                    conflict: 0,
+                    total: 10,
+                },
+                {
+                    object: 1,
+                    row: null,
+                    perGroup: [9, 0],
+                    missing: 0,
+                    unassigned: 0,
+                    conflict: 0,
+                    total: 9,
+                },
             ],
         }
         const plan = planColumns(result)

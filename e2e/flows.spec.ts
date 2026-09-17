@@ -182,7 +182,9 @@ interface AreaGroupState {
 async function readAreaGroups(
     request: ApiRequest,
     baseURL: string
-): Promise<{ id: string; name: string; members: { id: string; level: number }[] }[]> {
+): Promise<
+    { id: string; name: string; members: { id: string; level: number }[] }[]
+> {
     const response = await request.get(
         `${baseURL}/api/organisationUnitGroupSets/${AREA_SET_ID}` +
             `?fields=organisationUnitGroups[id,name,organisationUnits[id,level]]`,
@@ -986,9 +988,9 @@ test.describe('Group Set Integrity Tool', () => {
         // "0 objects" -- rather than a stale list left over from the
         // previous, matching query.
         await inputField(root, 'Search').fill(SEARCH_NO_MATCH_TERM)
-        await expect(root.getByText('0 objects', { exact: true })).toBeVisible(
-            { timeout: 5_000 }
-        )
+        await expect(root.getByText('0 objects', { exact: true })).toBeVisible({
+            timeout: 5_000,
+        })
         // Fix round 1 (Minor 1): `[class*="row"]` was a CSS-module
         // substring selector, the one locator in this file without a
         // `data-test` hook -- it breaks silently if that module class is
@@ -1184,11 +1186,9 @@ test.describe('Group Set Integrity Tool', () => {
             // Exact match on the card's own name, not a substring -- see
             // `openGroupSet`'s identical comment above: `hasText` alone would
             // also match a card whose name merely contains this one.
-            const card = root
-                .locator('[role="button"]')
-                .filter({
-                    has: root.getByText(USAGE_SET_NAME, { exact: true }),
-                })
+            const card = root.locator('[role="button"]').filter({
+                has: root.getByText(USAGE_SET_NAME, { exact: true }),
+            })
             await expect(card.first()).toBeVisible({ timeout: 20_000 })
             await card.first().click()
             root = await authedApp.root()

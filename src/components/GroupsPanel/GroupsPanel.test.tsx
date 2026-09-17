@@ -68,9 +68,7 @@ it('explains a filter that matches nothing, then restores the full list once cle
     expect(screen.getByText('No groups match "zzz"')).toBeInTheDocument()
     expect(screen.queryByText('Group 0')).not.toBeInTheDocument()
     await userEvent.clear(input)
-    expect(
-        screen.queryByText('No groups match "zzz"')
-    ).not.toBeInTheDocument()
+    expect(screen.queryByText('No groups match "zzz"')).not.toBeInTheDocument()
     expect(screen.getByText('Group 0')).toBeInTheDocument()
     expect(screen.getByText('Group 8')).toBeInTheDocument()
 })

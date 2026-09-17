@@ -307,7 +307,7 @@ export const SummaryMatrix = ({
                                                 {r.row.displayName ?? r.row.id}
                                             </button>
                                         ) : (
-                                            r.row.displayName ?? r.row.id
+                                            (r.row.displayName ?? r.row.id)
                                         )
                                     ) : flat ? (
                                         i18n.t('All objects')
@@ -428,9 +428,7 @@ export const SummaryMatrix = ({
                         </p>
                         <div className={styles.pickerList}>
                             {plan.ranked.map((g) => {
-                                const checked = draftSelected.includes(
-                                    g.index
-                                )
+                                const checked = draftSelected.includes(g.index)
                                 return (
                                     <div
                                         key={g.group.id}

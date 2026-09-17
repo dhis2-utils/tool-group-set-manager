@@ -305,9 +305,7 @@ it('shows the indicative-counts caveat once usage data is ready, and not before'
     await waitFor(() =>
         expect(screen.getByText('Ownership')).toBeInTheDocument()
     )
-    expect(
-        screen.getByText(/Usage counts are indicative/)
-    ).toBeInTheDocument()
+    expect(screen.getByText(/Usage counts are indicative/)).toBeInTheDocument()
 })
 
 it('shows no indicative-counts caveat when there is no usage data to caveat', async () => {
@@ -880,8 +878,6 @@ describe('metadata freshness indicator (Task 6)', () => {
                 <Dashboard />
             </MemoryRouter>
         )
-        expect(
-            await screen.findByText(/45 minutes ago/)
-        ).toBeInTheDocument()
+        expect(await screen.findByText(/45 minutes ago/)).toBeInTheDocument()
     })
 })

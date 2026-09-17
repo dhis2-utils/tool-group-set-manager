@@ -32,8 +32,16 @@ describe('UsageTab', () => {
                 favourites: 42,
                 views12m: 100,
                 byFavouriteType: [
-                    { favouriteType: 'visualization', favourites: 37, views12m: 89 },
-                    { favouriteType: 'eventVisualization', favourites: 4, views12m: 11 },
+                    {
+                        favouriteType: 'visualization',
+                        favourites: 37,
+                        views12m: 89,
+                    },
+                    {
+                        favouriteType: 'eventVisualization',
+                        favourites: 4,
+                        views12m: 11,
+                    },
                     { favouriteType: 'map', favourites: 1, views12m: 0 },
                 ],
             })
@@ -57,7 +65,11 @@ describe('UsageTab', () => {
                 favourites: 38,
                 views12m: 89,
                 byFavouriteType: [
-                    { favouriteType: 'visualization', favourites: 37, views12m: 89 },
+                    {
+                        favouriteType: 'visualization',
+                        favourites: 37,
+                        views12m: 89,
+                    },
                     { favouriteType: 'map', favourites: 1, views12m: 0 },
                 ],
             })

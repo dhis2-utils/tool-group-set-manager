@@ -320,9 +320,7 @@ it('opens a picker on the Other groups cell instead of calling onCell', async ()
     render(<SummaryMatrix result={manyGroupsResult} onCell={onCell} />)
     await userEvent.click(screen.getByText('12'))
     expect(onCell).not.toHaveBeenCalled()
-    expect(
-        screen.getByText('Choose which groups to show')
-    ).toBeInTheDocument()
+    expect(screen.getByText('Choose which groups to show')).toBeInTheDocument()
     // Every group, including the twelfth, is offered in the picker -- the
     // panel that shares this same ranking (Task 5) must see them all too.
     expect(screen.getByText('Group 11')).toBeInTheDocument()

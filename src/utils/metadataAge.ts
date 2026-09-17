@@ -75,7 +75,9 @@ function staleLabel(elapsed: number): string {
         return count === 1
             ? i18n.t('Metadata from 1 minute ago and may be out of date')
             : interpolate(
-                  i18n.t('Metadata from {count} minutes ago and may be out of date'),
+                  i18n.t(
+                      'Metadata from {count} minutes ago and may be out of date'
+                  ),
                   { count }
               )
     }
@@ -84,7 +86,9 @@ function staleLabel(elapsed: number): string {
         return count === 1
             ? i18n.t('Metadata from 1 hour ago and may be out of date')
             : interpolate(
-                  i18n.t('Metadata from {count} hours ago and may be out of date'),
+                  i18n.t(
+                      'Metadata from {count} hours ago and may be out of date'
+                  ),
                   { count }
               )
     }

@@ -557,10 +557,17 @@ describe('writeMemberships', () => {
         // of the group's fields: a patch scoped to the members path cannot
         // touch anything else, so there is nothing to read first.
         it('uses a JSON Patch replacing the members collection for a change above the threshold', async () => {
-            const calls: { path: string; method?: string; headers?: unknown }[] =
-                []
+            const calls: {
+                path: string
+                method?: string
+                headers?: unknown
+            }[] = []
             const fetcher = async (path: string, init?: RequestInit) => {
-                calls.push({ path, method: init?.method, headers: init?.headers })
+                calls.push({
+                    path,
+                    method: init?.method,
+                    headers: init?.headers,
+                })
                 return json({})
             }
             await writeMemberships(

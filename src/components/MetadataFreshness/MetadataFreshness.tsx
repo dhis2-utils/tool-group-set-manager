@@ -18,7 +18,11 @@ const TICK_MS = 30_000
  * an honest label. Correctness at the point it matters is the bulk fix's own
  * pre-write check (section 5), not this.
  */
-export const MetadataFreshness = ({ loadedAt }: { loadedAt: number | null }) => {
+export const MetadataFreshness = ({
+    loadedAt,
+}: {
+    loadedAt: number | null
+}) => {
     const { reload } = useEngine()
     const [busy, setBusy] = useState(false)
     // Re-render on a timer so "2 minutes ago" does not sit there reading

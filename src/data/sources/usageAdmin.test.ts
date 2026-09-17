@@ -1,9 +1,5 @@
 import { Fetcher } from './DataSource'
-import {
-    checkUsageView,
-    installUsageView,
-    removeUsageView,
-} from './usageAdmin'
+import { checkUsageView, installUsageView, removeUsageView } from './usageAdmin'
 import { USAGE_SQL_CANDIDATES } from './usageSqlView'
 
 const ok = (body: unknown) =>

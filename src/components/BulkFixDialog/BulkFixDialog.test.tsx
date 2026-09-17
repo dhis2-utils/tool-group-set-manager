@@ -273,7 +273,10 @@ describe('BulkFixDialog action step', () => {
         expect(mockCreateCatchAllGroup).toHaveBeenCalledWith(
             expect.anything(),
             set,
-            { displayName: 'Unclassified facilities', shortName: 'Unclassified' }
+            {
+                displayName: 'Unclassified facilities',
+                shortName: 'Unclassified',
+            }
         )
     })
 
@@ -1663,10 +1666,7 @@ describe('BulkFixDialog apply step', () => {
         const PATCH_CHANGE = [
             {
                 groupId: 'g2',
-                additions: Array.from(
-                    { length: 5001 },
-                    (_, i) => `m${i}`
-                ),
+                additions: Array.from({ length: 5001 }, (_, i) => `m${i}`),
                 deletions: [],
             },
         ]
@@ -1769,7 +1769,11 @@ describe('BulkFixDialog apply step', () => {
             // and nothing to pay.
             mockUseEngineQuery.mockImplementation((method: string) =>
                 method === 'planAssignment'
-                    ? { data: plan({ affected: 3 }), isLoading: false, error: null }
+                    ? {
+                          data: plan({ affected: 3 }),
+                          isLoading: false,
+                          error: null,
+                      }
                     : {
                           data: { total: 0, offset: 0, items: [] },
                           isLoading: false,
@@ -1825,7 +1829,11 @@ describe('BulkFixDialog apply step', () => {
         it('writes once for two clicks in one tick when nothing crosses the patch threshold', async () => {
             mockUseEngineQuery.mockImplementation((method: string) =>
                 method === 'planAssignment'
-                    ? { data: plan({ affected: 3 }), isLoading: false, error: null }
+                    ? {
+                          data: plan({ affected: 3 }),
+                          isLoading: false,
+                          error: null,
+                      }
                     : {
                           data: { total: 0, offset: 0, items: [] },
                           isLoading: false,
@@ -1941,10 +1949,7 @@ describe('BulkFixDialog apply step', () => {
             const PATCH_CHANGE_STILL_LARGE = [
                 {
                     groupId: 'g2',
-                    additions: Array.from(
-                        { length: 5010 },
-                        (_, i) => `n${i}`
-                    ),
+                    additions: Array.from({ length: 5010 }, (_, i) => `n${i}`),
                     deletions: [],
                 },
             ]
@@ -1976,8 +1981,7 @@ describe('BulkFixDialog apply step', () => {
                           plan({
                               changes: PATCH_CHANGE_STILL_LARGE,
                               affected:
-                                  PATCH_CHANGE_STILL_LARGE[0].additions
-                                      .length,
+                                  PATCH_CHANGE_STILL_LARGE[0].additions.length,
                           })
                       )
                     : Promise.resolve(undefined)
@@ -2007,9 +2011,7 @@ describe('BulkFixDialog apply step', () => {
             // nothing happens here except time; the read above must not be
             // reused when Apply is finally clicked below.
             await act(async () => {
-                fireEvent.click(
-                    screen.getByRole('button', { name: /^Apply/ })
-                )
+                fireEvent.click(screen.getByRole('button', { name: /^Apply/ }))
             })
             expect(mockFetcher).toHaveBeenCalledTimes(2)
             expect(mockWrite).toHaveBeenCalledTimes(1)
@@ -2019,9 +2021,7 @@ describe('BulkFixDialog apply step', () => {
             // (triggered by clicking Apply), not the first (captured before
             // the pause) -- this is the property finding 1 exists to
             // restore.
-            expect(written.completeMembers.get('g2')).toEqual([
-                'fresh-member',
-            ])
+            expect(written.completeMembers.get('g2')).toEqual(['fresh-member'])
         })
 
         // Fix round 2, finding 2: Task 9's `checkInFlightRef` guard is
@@ -2033,10 +2033,7 @@ describe('BulkFixDialog apply step', () => {
             const PATCH_CHANGE_STILL_LARGE = [
                 {
                     groupId: 'g2',
-                    additions: Array.from(
-                        { length: 5010 },
-                        (_, i) => `n${i}`
-                    ),
+                    additions: Array.from({ length: 5010 }, (_, i) => `n${i}`),
                     deletions: [],
                 },
             ]
@@ -2062,8 +2059,7 @@ describe('BulkFixDialog apply step', () => {
                           plan({
                               changes: PATCH_CHANGE_STILL_LARGE,
                               affected:
-                                  PATCH_CHANGE_STILL_LARGE[0].additions
-                                      .length,
+                                  PATCH_CHANGE_STILL_LARGE[0].additions.length,
                           })
                       )
                     : Promise.resolve(undefined)
@@ -2092,12 +2088,8 @@ describe('BulkFixDialog apply step', () => {
             // now against the re-confirmation button instead of the first
             // Apply.
             await act(async () => {
-                fireEvent.click(
-                    screen.getByRole('button', { name: /^Apply/ })
-                )
-                fireEvent.click(
-                    screen.getByRole('button', { name: /^Apply/ })
-                )
+                fireEvent.click(screen.getByRole('button', { name: /^Apply/ }))
+                fireEvent.click(screen.getByRole('button', { name: /^Apply/ }))
             })
             expect(mockFetcher).toHaveBeenCalledTimes(2)
             await act(async () => {
@@ -2286,9 +2278,7 @@ describe('BulkFixDialog apply step', () => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             expect(
-                await screen.findByText(
-                    'The metadata could not be checked'
-                )
+                await screen.findByText('The metadata could not be checked')
             ).toBeInTheDocument()
             expect(
                 screen.queryByText(/write may have reached the server/i)
@@ -2386,9 +2376,7 @@ describe('BulkFixDialog apply step', () => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             expect(
-                await screen.findByText(
-                    'The metadata could not be checked'
-                )
+                await screen.findByText('The metadata could not be checked')
             ).toBeInTheDocument()
             expect(mockWrite).not.toHaveBeenCalled()
             expect(mockFetcher).not.toHaveBeenCalled()

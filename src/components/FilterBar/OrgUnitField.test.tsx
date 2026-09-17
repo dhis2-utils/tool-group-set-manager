@@ -13,7 +13,9 @@ jest.mock('@/hooks/useScope', () => ({
     }),
 }))
 jest.mock('@/hooks/useUserScope', () => ({
-    useUserScope: () => ({ roots: [{ id: 'r1', displayName: 'Sierra Leone' }] }),
+    useUserScope: () => ({
+        roots: [{ id: 'r1', displayName: 'Sierra Leone' }],
+    }),
 }))
 // OrganisationUnitTree fetches its root org units through @dhis2/app-runtime's
 // own data engine, which this unit test wires up no provider for -- the

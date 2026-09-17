@@ -416,7 +416,11 @@ export const BulkFixDialog = ({
         setCreating(true)
         setCreateError(null)
         try {
-            const created = await createCatchAllGroup(fetcher, set, trimmedNames)
+            const created = await createCatchAllGroup(
+                fetcher,
+                set,
+                trimmedNames
+            )
             setCreatedGroup(created)
             setTargetTouched(true)
             setTargetGroupId(created.id)
@@ -651,9 +655,7 @@ export const BulkFixDialog = ({
         signal?: AbortSignal
     ): Promise<Map<string, string[]>> => {
         const endpoint = ENDPOINTS[set.objectType]
-        const ids = planChanges
-            .filter(takesPatchRoute)
-            .map((c) => c.groupId)
+        const ids = planChanges.filter(takesPatchRoute).map((c) => c.groupId)
         if (ids.length === 0) {
             return new Map()
         }

@@ -69,8 +69,7 @@ async function patch(ids, creds) {
     return { status: r.status, ok: r.ok, body: text.slice(0, 300) }
 }
 
-const sameSet = (a, b) =>
-    a.length === b.length && a.every((v, i) => v === b[i])
+const sameSet = (a, b) => a.length === b.length && a.every((v, i) => v === b[i])
 
 async function runCase({ name, ids, expectIds, creds }) {
     const before = await members()
@@ -102,7 +101,6 @@ async function runCase({ name, ids, expectIds, creds }) {
     return { name, ...res, before, after, landed, unchanged }
 }
 
-
 /**
  * Creates a role with an authority that has nothing to do with organisation
  * unit groups, a user holding only that role, and patches as them. Both are
@@ -125,7 +123,11 @@ async function authorityCase() {
         roleId = (await roleRes.json()).response?.uid
         if (!roleId) {
             console.log('CASE F skipped: could not create a user role')
-            return { name: 'F insufficient authority', ok: false, landed: false }
+            return {
+                name: 'F insufficient authority',
+                ok: false,
+                landed: false,
+            }
         }
 
         const userRes = await api('users', {
@@ -142,7 +144,11 @@ async function authorityCase() {
         userId = (await userRes.json()).response?.uid
         if (!userId) {
             console.log('CASE F skipped: could not create the probe user')
-            return { name: 'F insufficient authority', ok: false, landed: false }
+            return {
+                name: 'F insufficient authority',
+                ok: false,
+                landed: false,
+            }
         }
 
         const pool = (

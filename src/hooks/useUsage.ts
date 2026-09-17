@@ -125,16 +125,16 @@ export function useUsage(): UsageState {
     const error =
         status === 'absent'
             ? null
-            : parsed?.error ??
+            : (parsed?.error ??
               (lookup.isError || read.isError
-                  ? ((lookup.error ?? read.error) as Error | null)?.message ??
-                    null
-                  : null)
+                  ? (((lookup.error ?? read.error) as Error | null)?.message ??
+                    null)
+                  : null))
 
-    const byId = status === 'ready' ? parsed?.byId ?? null : null
+    const byId = status === 'ready' ? (parsed?.byId ?? null) : null
 
     const forSet = useCallback(
-        (groupSetId: string) => (byId ? byId.get(groupSetId) ?? EMPTY : null),
+        (groupSetId: string) => (byId ? (byId.get(groupSetId) ?? EMPTY) : null),
         [byId]
     )
 

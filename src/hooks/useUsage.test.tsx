@@ -61,10 +61,7 @@ const pending = {
  * vs 'sqlViewData'), so a stable implementation keyed on that discriminator
  * replaces the once-queue and survives any number of re-renders.
  */
-const mockQueries = (
-    lookupResult: unknown,
-    dataResult: unknown
-) => {
+const mockQueries = (lookupResult: unknown, dataResult: unknown) => {
     mockQuery.mockImplementation((args: { queryKey: unknown[] }) =>
         args.queryKey[0] === 'sqlViews' ? lookupResult : dataResult
     )
