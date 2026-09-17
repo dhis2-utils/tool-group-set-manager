@@ -62,6 +62,16 @@ export const GroupsPanel = ({
     // know that rather than see a silently blank box.
     const noMatches = expanded && trimmedFilter !== '' && rows.length === 0
 
+    // Collapsing hides the filter input, so a term left in it would narrow
+    // the next expansion invisibly. Clearing on the way out keeps "Show all"
+    // meaning all.
+    const toggleExpanded = () => {
+        if (expanded) {
+            setFilter('')
+        }
+        setExpanded(!expanded)
+    }
+
     return (
         <section className={styles.panel}>
             <h3 className={styles.heading}>{i18n.t('Groups in this set')}</h3>
@@ -99,7 +109,7 @@ export const GroupsPanel = ({
                 </ul>
             )}
             {plan.ranked.length > MAX_GROUP_COLUMNS && (
-                <Button small onClick={() => setExpanded((v) => !v)}>
+                <Button small onClick={toggleExpanded}>
                     {expanded
                         ? i18n.t('Show fewer groups')
                         : showAllLabel(plan.ranked.length)}

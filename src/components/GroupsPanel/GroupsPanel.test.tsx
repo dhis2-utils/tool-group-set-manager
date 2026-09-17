@@ -85,3 +85,17 @@ it('does not offer Show all or a filter for a set with eight or fewer groups', (
         screen.queryByPlaceholderText('Filter groups by name')
     ).not.toBeInTheDocument()
 })
+
+it('forgets the filter term when collapsed, so re-expanding shows every group again', async () => {
+    render(<GroupsPanel plan={plan} total={4500} />)
+    await userEvent.click(screen.getByText('Show all 9 groups'))
+    await userEvent.type(
+        screen.getByPlaceholderText('Filter groups by name'),
+        'Group 3'
+    )
+    expect(screen.queryByText('Group 8')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByText('Show fewer groups'))
+    await userEvent.click(screen.getByText('Show all 9 groups'))
+    expect(screen.getByPlaceholderText('Filter groups by name')).toHaveValue('')
+    expect(screen.getByText('Group 8')).toBeInTheDocument()
+})
