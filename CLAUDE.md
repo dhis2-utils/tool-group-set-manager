@@ -2,6 +2,10 @@
 
 DHIS2 App Platform app (TypeScript, Vite, pnpm). Spec: docs/superpowers/specs/2026-09-10-group-set-integrity-tool-design.md. Plans: docs/superpowers/plans/.
 
+Known and not fixed: **docs/superpowers/notes/OPEN-ITEMS.md** — the single
+current index. The per-plan `*-carry-forward.md` notes hold the reasoning
+behind each entry. Close an item in both, in the same commit.
+
 ## Commands
 
 - `pnpm start` dev server (bind to `$SANDBOX_HOST_PORT` in the sandbox: `pnpm start --port $SANDBOX_HOST_PORT --proxy http://dhis2-<instance>:8080`)

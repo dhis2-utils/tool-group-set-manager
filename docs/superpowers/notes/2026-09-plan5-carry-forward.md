@@ -1,5 +1,18 @@
 # Carried forward from Plans 4 and 5: found, recorded, not fixed
 
+
+> ## Status after the Plan 9 cleanup pass
+>
+> **Closed:** §1 (Plan 7), §2 (the cleanup net, Plan 9), §3 (Plan 7).
+>
+> **Still open:** §4 -- the `@dhis2/ui` `align` no-op. The workaround and its
+> canary are both still in place (`SummaryMatrix.module.css`,
+> `SummaryMatrix.test.tsx`); what is outstanding is reporting it upstream.
+> §5, the latent `'0 objects'` locator collision, which has now drifted to
+> `e2e/flows.spec.ts:989` (674 when written, 728 at Plan 6) -- search for the
+> locator rather than trusting any line number here. §6's five smaller items
+> stand unchanged.
+
 Plan 4 (correctness and simplification) and Plan 5 (navigation and layout)
 are complete. These items were found during them, confirmed, and
 deliberately left — each is either outside the plan that found it or needs

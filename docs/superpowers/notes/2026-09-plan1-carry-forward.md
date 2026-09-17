@@ -1,5 +1,35 @@
 # Carried forward from Plan 1 into the plans that follow
 
+
+> ## Status after the Plan 9 cleanup pass
+>
+> This file was written before Plans 2-8 and most of it is now history. Every
+> item was re-checked against the code; **two** are still open.
+>
+> **Closed — "Blocks Plan 2":** `setConfig` calls `evaluate()` itself. The
+> required-levels contradiction is moot -- the per-set policy was removed
+> entirely in Plan 4 and `requiredLevels` appears nowhere in `src/`. The
+> cache-reuse branch has `commitOrRollback` (`loadAll.ts`).
+>
+> **Closed — "Plan 2's own scope":** the parent column is back, with resolved
+> parents. A failed page fetch is the one that is *not* closed; see below.
+>
+> **Closed — "Smaller, any time":** a malformed level is handled explicitly
+> rather than coerced to 0 (`parseLevels`, with the reasoning in
+> `sqlViewSource.ts`); a names failure lands on its own `nameError` rather
+> than the type's `errors`; `queries.test.ts` now combines two filters in one
+> call and covers the flat-type branch; `OverviewTab.test.tsx` exists.
+>
+> **Also closed, and worth naming because this file still asserts the
+> opposite:** "the detail page shows no indication that a reload is running;
+> only the dashboard does". Both carry the freshness indicator now, and since
+> Plan 9 it stays on screen showing "Reloading metadata…" for the whole
+> reload. Read the line below as history, not as current behaviour.
+>
+> **Still open:** the unmount-cancellation item (`generationRef` is bumped per
+> `reload` call but not on unmount) and the failed-page-fetch item (an error
+> replaces the loaded rows, with no retry). Both are in `OPEN-ITEMS.md`.
+
 Plan 1's reviews deferred these deliberately. The final whole-branch review
 triaged each one; this is that triage, plus the items later reviews raised.
 Anything marked **blocks Plan 2** must be settled before the work it names.
