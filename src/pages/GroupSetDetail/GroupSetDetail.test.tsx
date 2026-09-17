@@ -151,6 +151,17 @@ jest.mock('@/hooks/useScope', () => ({
 // inspect the actual params sent for the organisation unit levels lookup
 // rather than only the (unconditionally full) mocked response.
 const mockApiDataQueryCalls: { resource: string; params?: unknown }[] = []
+// Mutable, and reset in the `afterEach` below, so a test can put a gap in
+// the hierarchy (Task 13) without leaking it into every test after it --
+// every other fixture in this file is contiguous, so `levels.find((l) =>
+// l.level > current)` was never distinguished from `current + 1`.
+const DEFAULT_LEVELS = [
+    { level: 1, displayName: 'National' },
+    { level: 2, displayName: 'District' },
+    { level: 3, displayName: 'Chiefdom' },
+    { level: 4, displayName: 'Facility' },
+]
+let mockLevels = DEFAULT_LEVELS
 jest.mock('@/utils/useApiDataQuery', () => ({
     useApiDataQuery: (options: {
         query: { resource: string; params?: unknown }
@@ -158,12 +169,7 @@ jest.mock('@/utils/useApiDataQuery', () => ({
         mockApiDataQueryCalls.push(options.query)
         return {
             data: {
-                organisationUnitLevels: [
-                    { level: 1, displayName: 'National' },
-                    { level: 2, displayName: 'District' },
-                    { level: 3, displayName: 'Chiefdom' },
-                    { level: 4, displayName: 'Facility' },
-                ],
+                organisationUnitLevels: mockLevels,
             },
             isLoading: false,
         }
@@ -230,6 +236,7 @@ afterEach(() => {
     mockScope.rootName = 'Root'
     mockScope.rootLevel = null
     mockApiDataQueryCalls.length = 0
+    mockLevels = DEFAULT_LEVELS
     mockReload.mockClear()
     mockSetRoot.mockClear()
     mockIntegrity.available = false
@@ -648,7 +655,11 @@ describe('drilling into a matrix row (Task 6)', () => {
     // this was intended in v1 but does not appear to work for orgunits,
     // only groups." Numeric cells already opened the Objects tab; the row
     // label itself did nothing.
-    it('drills into a row, moving the scope and the row level down together', async () => {
+    // What this exercises: `setRoot` is asked to move the scope to the row
+    // (pinned by the spy), and the Rows field moves one level deeper. The
+    // scope itself is a static mock here, so its own move is not observed
+    // -- that belongs to useScope's tests.
+    it('drills into a row: asks the scope to move to it and moves the row level down', async () => {
         // A level known up front (rather than the null default) so the
         // matrix can render immediately, with no `levelOf` round trip.
         mockScope.rootLevel = 1
@@ -701,6 +712,56 @@ describe('drilling into a matrix row (Task 6)', () => {
             await screen.findByText('Chiefdom (level 3)')
         ).toBeInTheDocument()
         expect(screen.queryByText('District (level 2)')).not.toBeInTheDocument()
+    })
+
+    it('drills to the next level that exists, not to the current level plus one', async () => {
+        // A hierarchy with no level 3 at all. DHIS2 levels are contiguous in
+        // practice, so every other fixture here is blind to the difference
+        // between `levels.find((l) => l.level > current)` and `current + 1`.
+        mockLevels = [
+            { level: 1, displayName: 'National' },
+            { level: 2, displayName: 'District' },
+            { level: 4, displayName: 'Facility' },
+        ]
+        mockScope.rootLevel = 1
+        mockEngine.client = {
+            call: async (method: string) => {
+                if (method === 'matrixFor') {
+                    return {
+                        groups: [
+                            { id: 'g1', displayName: 'G1', canWrite: true },
+                        ],
+                        rows: [
+                            {
+                                object: 1,
+                                row: {
+                                    index: 1,
+                                    id: 'ou-badjia',
+                                    displayName: 'Badjia',
+                                    level: 2,
+                                    parentId: 'root1',
+                                },
+                                perGroup: [5],
+                                missing: 0,
+                                unassigned: 0,
+                                conflict: 0,
+                                total: 5,
+                            },
+                        ],
+                    }
+                }
+                return null
+            },
+        }
+        renderDetail({ objectType: 'organisationUnit' })
+        expect(
+            await screen.findByText('District (level 2)')
+        ).toBeInTheDocument()
+        fireEvent.click(await screen.findByRole('button', { name: 'Badjia' }))
+        expect(
+            await screen.findByText('Facility (level 4)')
+        ).toBeInTheDocument()
+        expect(screen.queryByText(/level 3/)).not.toBeInTheDocument()
     })
 
     it('does not offer drilling on the deepest available row level', async () => {

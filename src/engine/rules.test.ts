@@ -36,9 +36,21 @@ describe('evaluateSet', () => {
         expect(s[3]).toBe(Status.NotApplicable)
     })
 
+    // Spec 2026-09-15 §2.1: the rule takes no level. `evaluateSet` has no
+    // level argument at all, so two objects with the same membership get
+    // the same status wherever they sit in the hierarchy -- that is a
+    // property of the signature, not something a test can vary. This test
+    // evaluates two objects so the duplicated-status shape is at least
+    // exercised; a test once named "wherever it sits" claimed more than it
+    // could show and was folded in here.
     it('missing is a warning when the set is a dimension but not compulsory', () => {
-        const s = evaluateSet(set({ dataDimension: true }), m, population)
-        expect(s[2]).toBe(Status.MissingWarning)
+        const s = evaluateSet(
+            set({ dataDimension: true }),
+            buildSetMembership(2, [Int32Array.from([])]),
+            Uint8Array.from([1, 1])
+        )
+        expect(s[0]).toBe(Status.MissingWarning)
+        expect(s[1]).toBe(Status.MissingWarning)
     })
 
     it('compulsory wins over data dimension', () => {
@@ -48,21 +60,5 @@ describe('evaluateSet', () => {
             population
         )
         expect(s[2]).toBe(Status.MissingError)
-    })
-
-    // Spec 2026-09-15 §2.1: the rule no longer varies by organisation unit
-    // level -- `evaluateSet` no longer even takes a level argument. An
-    // object at level 2 and an object at level 4 with the same membership
-    // get the same status, for every kind of set. This is the case the
-    // deleted required-levels tests used to own.
-    it('a missing object in a data dimension set is a warning wherever it sits', () => {
-        const deep = buildSetMembership(2, [Int32Array.from([])])
-        const s = evaluateSet(
-            set({ dataDimension: true }),
-            deep,
-            Uint8Array.from([1, 1])
-        )
-        expect(s[0]).toBe(Status.MissingWarning)
-        expect(s[1]).toBe(Status.MissingWarning)
     })
 })
