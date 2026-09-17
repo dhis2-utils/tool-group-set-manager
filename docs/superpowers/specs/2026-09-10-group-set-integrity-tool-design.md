@@ -381,10 +381,16 @@ unit names are translated, the two paths therefore show different names for
 the same unit. Counts, statuses and every fix are unaffected, since those
 key on ids.
 
-This is accepted for now rather than fixed: making the view translation
-aware would mean resolving the caller's locale inside SQL, and org unit
-name translations are rare in practice. The app states which source it
-used, so a user seeing untranslated names has a way to explain them. If an
+This is accepted permanently (maintainer decision, Plan 10, 2026-09-17): this
+is an administrative tool, and untranslated names on the fast path are not
+worth the cost of a locale-aware view. Should that change, DHIS2's
+`QUERY`-type SQL views take `${variable}` substitution on 2.40 through 2.43
+(`/api/sqlViews/<id>/data?var=locale:fr`), so a names view could `coalesce`
+the matching entry of the `translations` JSONB column over `name`, with the
+app passing the user's `keyDbLocale`; that would also require the status
+probe and the create/repair path to handle a view that cannot be read
+without its variable, and a per-locale cache key. The app states which
+source it used, so a user seeing untranslated names has a way to explain them. If an
 instance needs translated names, the remedy is to remove the
 `GSI_ORGUNIT_NAMES` view, which drops only names back to the metadata API
 while keeping the hierarchy and membership views.
@@ -417,5 +423,6 @@ while keeping the hierarchy and membership views.
   `docs/superpowers/notes/2026-09-plan4-version-verifications.md`.
 - Whether resolving org unit name translations inside the names SQL view is
   practical on 2.40 to 2.43, which would remove the divergence in 8a.
-  **Still open** — out of scope for Plans 1-3; a future plan should
-  investigate whether locale-aware resolution is possible inside the view.
+  **Closed, accepted** (Plan 10, 2026-09-17): not worth building for an
+  administrative tool; see §8a for the remedy and for how it could be
+  built if the decision is reversed.
