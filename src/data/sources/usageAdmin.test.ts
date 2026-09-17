@@ -88,6 +88,25 @@ describe('checkUsageView', () => {
             usable: false,
         })
     })
+
+    it('costs one request, not two, when the metadata already rules the view out', async () => {
+        const fetcher = jest.fn(async () =>
+            ok({
+                sqlViews: [
+                    {
+                        id: 'v1',
+                        code: 'GSI_GROUPSET_USAGE',
+                        type: 'MATERIALIZED_VIEW',
+                        access: { data: { read: true } },
+                    },
+                ],
+            })
+        ) as unknown as Fetcher
+        await checkUsageView(fetcher)
+        // No read probe: a view the metadata already refuses is not worth a
+        // second round trip to confirm.
+        expect(fetcher).toHaveBeenCalledTimes(1)
+    })
 })
 
 describe('installUsageView', () => {
@@ -211,5 +230,13 @@ describe('removeUsageView', () => {
     it('deletes by id and reports a refusal', async () => {
         const fetcher = jest.fn(async () => failed(403)) as unknown as Fetcher
         await expect(removeUsageView(fetcher, 'v1')).rejects.toThrow(/403/)
+    })
+
+    it('deletes the view by id and resolves when the server accepts', async () => {
+        const fetcher = jest.fn(async () => ok({})) as unknown as Fetcher
+        await expect(removeUsageView(fetcher, 'v1')).resolves.toBeUndefined()
+        expect(fetcher).toHaveBeenCalledWith('sqlViews/v1', {
+            method: 'DELETE',
+        })
     })
 })

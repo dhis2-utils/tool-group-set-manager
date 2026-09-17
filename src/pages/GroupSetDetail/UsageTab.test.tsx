@@ -153,6 +153,26 @@ describe('UsageTab', () => {
         ).toHaveAttribute('href', '/settings')
     })
 
+    it('shows a loader, not the install prompt, while the usage lookup is still in flight', () => {
+        mockUsage.mockReturnValue({
+            status: 'loading',
+            error: null,
+            forSet: () => null,
+            refresh: jest.fn(),
+        })
+        render(
+            <MemoryRouter>
+                <UsageTab set={set()} />
+            </MemoryRouter>
+        )
+        expect(
+            screen.getByTestId('dhis2-uicore-circularloader')
+        ).toBeInTheDocument()
+        expect(
+            screen.queryByText('Go to Settings to install it')
+        ).not.toBeInTheDocument()
+    })
+
     it('shows the error rather than an empty page when the view cannot be read', () => {
         mockUsage.mockReturnValue({
             status: 'error',
