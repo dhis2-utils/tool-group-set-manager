@@ -234,6 +234,58 @@ describe('SQL view status', () => {
         expect(mockReload).toHaveBeenCalledWith(true)
     })
 
+    // Regression: the hook extraction (25798e0) folded handleCreate's body
+    // into sqlViews.run and dropped the setCreateSummary(null) /
+    // setCreateFailures([]) that used to run before the try block, so a
+    // previous run's green summary survived next to a later run's failure.
+    it('clears a previous run’s success summary when a later create fails, rather than showing both', async () => {
+        mockCheckSqlViews.mockResolvedValue(ALL_MISSING)
+        mockCreateOrRepairSqlViews.mockResolvedValueOnce({
+            created: [
+                'GSI_ORGUNITS',
+                'GSI_ORGUNIT_NAMES',
+                'GSI_ORGUNIT_MEMBERSHIPS',
+            ],
+            repaired: [],
+            failed: [],
+        })
+        renderSettings({ canManage: true })
+        const button = await screen.findByRole('button', {
+            name: /create sql views/i,
+        })
+        await act(async () => {
+            fireEvent.click(button)
+        })
+        await waitFor(() =>
+            expect(screen.getByText(/created 3 sql views/i)).toBeInTheDocument()
+        )
+
+        // The re-create button is still offered (the views the mocked
+        // check reports are still missing), and this run fails outright.
+        mockCreateOrRepairSqlViews.mockRejectedValueOnce(new Error('HTTP 500'))
+        const buttonAgain = await screen.findByRole('button', {
+            name: /create sql views/i,
+        })
+        await act(async () => {
+            fireEvent.click(buttonAgain)
+        })
+
+        await waitFor(() =>
+            expect(
+                screen.getByText(/sql view update failed/i)
+            ).toBeInTheDocument()
+        )
+        expect(screen.getByText('HTTP 500')).toBeInTheDocument()
+        // The stale success report from the first run must be gone, not
+        // sitting next to the failure claiming views were created.
+        expect(
+            screen.queryByText(/created 3 sql views/i)
+        ).not.toBeInTheDocument()
+        expect(
+            screen.queryByText(/sql view update complete/i)
+        ).not.toBeInTheDocument()
+    })
+
     it('does not reload when nothing was created or repaired', async () => {
         mockCheckSqlViews.mockResolvedValue(ALL_MISSING)
         mockCreateOrRepairSqlViews.mockResolvedValue({

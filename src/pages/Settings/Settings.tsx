@@ -105,6 +105,13 @@ export const Settings = () => {
             if (!sqlViews.check) {
                 return
             }
+            // A previous run's report must not survive this one: if
+            // `createOrRepairSqlViews` rejects below, `sqlViews.actionError`
+            // takes over the section, and a stale green "SQL view update
+            // complete" box must not still be sitting above it claiming
+            // views were created when none were on this run.
+            setCreateSummary(null)
+            setCreateFailures([])
             const result = await createOrRepairSqlViews(
                 fetcher,
                 sqlViews.check.checks
