@@ -41,6 +41,33 @@ const EMPTY: SetUsage = { favourites: 0, views12m: 0, byFavouriteType: [] }
 const PAGE_SIZE = 5000
 
 /**
+ * Every query this feature issues sits under this prefix, and `refresh`
+ * invalidates the prefix and nothing else. It used to invalidate
+ * `['sqlViewData']`, an app-wide name that was correct only while no other
+ * SQL-view-backed query existed -- a second one would have been invalidated
+ * by every usage install or removal.
+ */
+export const USAGE_QUERY_PREFIX = 'usage'
+const LOOKUP_KEY = [USAGE_QUERY_PREFIX, 'sqlViews', USAGE_SQL_VIEW_CODE]
+const dataKey = (viewId: string) => [USAGE_QUERY_PREFIX, 'sqlViewData', viewId]
+
+/**
+ * Tells every mounted reader of `useUsage()` that the view changed, without
+ * reading anything itself. Settings uses this: it installs and removes the
+ * view but never displays usage, and mounting the full hook there cost a
+ * lookup plus an up-to-5000-row read for data it threw away.
+ *
+ * Invalidation rather than refetch, and by prefix rather than by id: the
+ * reasoning is in `useUsage`'s own comment on `refresh`.
+ */
+export function useUsageRefresh(): () => void {
+    const queryClient = useQueryClient()
+    return useCallback(() => {
+        void queryClient.invalidateQueries({ queryKey: [USAGE_QUERY_PREFIX] })
+    }, [queryClient])
+}
+
+/**
  * Reads the usage SQL view (Task 1's `USAGE_SQL_VIEW_CODE`) and aggregates
  * it per group set. Deliberately not a provider -- see the plan: TanStack
  * Query already dedupes by queryKey across the dashboard's cards and the
@@ -54,9 +81,8 @@ const PAGE_SIZE = 5000
  * is broken.
  */
 export function useUsage(): UsageState {
-    const queryClient = useQueryClient()
     const lookup = useApiDataQuery<LookupResponse>({
-        queryKey: ['sqlViews', USAGE_SQL_VIEW_CODE],
+        queryKey: LOOKUP_KEY,
         query: {
             resource: 'sqlViews',
             params: {
@@ -76,7 +102,7 @@ export function useUsage(): UsageState {
     )
 
     const read = useApiDataQuery<UsageListGrid>({
-        queryKey: ['sqlViewData', view?.id ?? 'none'],
+        queryKey: dataKey(view?.id ?? 'none'),
         query: {
             resource: `sqlViews/${view?.id ?? 'none'}/data`,
             params: { pageSize: PAGE_SIZE },
@@ -157,9 +183,8 @@ export function useUsage(): UsageState {
     // current key. `invalidateQueries` only refetches a query that is
     // active, so an inactive `sqlViewData/none` some other absent-state
     // reader still holds is marked stale but never actually fetched.
-    // Matching `['sqlViewData']` as a key prefix (not the full
-    // `['sqlViewData', id]`) covers whichever id is current without this
-    // callback having to know it.
+    // Invalidating the shared prefix covers both keys, whichever view id is
+    // current.
     //
     // The repair case (`installUsageView` re-executing an existing,
     // previously-unusable view) is exactly why the lookup key is
@@ -168,12 +193,7 @@ export function useUsage(): UsageState {
     // data query's key never changes either -- only invalidating it
     // (rather than relying on a key change to trigger a fresh fetch)
     // clears its 5-minute `staleTime` and forces the re-read.
-    const refresh = useCallback(() => {
-        void queryClient.invalidateQueries({
-            queryKey: ['sqlViews', USAGE_SQL_VIEW_CODE],
-        })
-        void queryClient.invalidateQueries({ queryKey: ['sqlViewData'] })
-    }, [queryClient])
+    const refresh = useUsageRefresh()
 
     return { status, error, forSet, refresh }
 }

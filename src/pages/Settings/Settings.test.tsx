@@ -11,20 +11,13 @@ jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://localhost:8080', apiVersion: 41 }),
 }))
 
-// Settings depends on @/hooks/useUsage only to reach `usage.refresh()` after
-// a successful install/remove (so the Dashboard/UsageTab's own, separately
-// mounted `useUsage()` stops reading their stale TanStack Query cache) --
-// mocked at module level the same way GroupSetDetail.test.tsx mocks it,
-// since the real hook needs a DataProvider/QueryClient this file's shallow
-// render tree doesn't have.
+// Settings depends on @/hooks/useUsage only for `useUsageRefresh` -- mocked
+// at module level the same way GroupSetDetail.test.tsx mocks it, since the
+// real hook needs a DataProvider/QueryClient this file's shallow render
+// tree doesn't have.
 const mockUsageRefresh = jest.fn()
 jest.mock('@/hooks/useUsage', () => ({
-    useUsage: () => ({
-        status: 'absent',
-        error: null,
-        forSet: () => null,
-        refresh: mockUsageRefresh,
-    }),
+    useUsageRefresh: () => mockUsageRefresh,
 }))
 
 const mockGroupSets = [

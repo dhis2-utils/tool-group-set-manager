@@ -27,7 +27,7 @@ import {
 } from '@/data/sources/usageAdmin'
 import { useEngine } from '@/hooks/useEngine'
 import { useGsiConfig } from '@/hooks/useGsiConfig'
-import { useUsage } from '@/hooks/useUsage'
+import { useUsageRefresh } from '@/hooks/useUsage'
 import { interpolate } from '@/utils/interpolate'
 
 /** Two complete strings, never a fragment glued to a number: see CLAUDE.md. */
@@ -69,15 +69,11 @@ export const Settings = () => {
         setCatchAllGroup,
         setIncludeTracker,
     } = useGsiConfig()
-    // Not a provider (see the hook's own doc comment): calling it here gets
-    // this component its own subscription to the same TanStack Query cache
-    // entries the Dashboard, GroupSetCard and UsageTab read. `usage.refresh`
-    // is what tells that shared cache the view just changed -- without it,
-    // installing or removing the view here left every other reader of
-    // `useUsage()` on the stale value from whenever they first mounted
-    // (`staleTime: Infinity` on the lookup query), reporting the view as
-    // still absent, or still present, until a full page reload.
-    const usage = useUsage()
+    // Not the full `useUsage()` hook: Settings never displays usage, and
+    // mounting the hook here issued the lookup and the data read on every
+    // visit just to reach `refresh`. This tells the readers that do display
+    // it (Dashboard, GroupSetCard, UsageTab) that the view just changed.
+    const refreshUsageReaders = useUsageRefresh()
 
     const [checks, setChecks] = useState<SqlViewCheck[] | null>(null)
     // D5: null means "not yet known" (still checking, or the check itself
@@ -221,7 +217,7 @@ export const Settings = () => {
             if (result.installed) {
                 // Only on a real change: a failed install leaves the
                 // instance exactly as `useUsage()`'s readers already saw it.
-                usage.refresh()
+                refreshUsageReaders()
             }
         } catch (e) {
             setUsageActionError(e instanceof Error ? e.message : String(e))
@@ -247,7 +243,7 @@ export const Settings = () => {
             await removeUsageView(fetcher, usageCheck.id)
             // The install report belongs to a view that no longer exists.
             setUsageResult(null)
-            usage.refresh()
+            refreshUsageReaders()
         } catch (e) {
             setUsageActionError(e instanceof Error ? e.message : String(e))
         } finally {

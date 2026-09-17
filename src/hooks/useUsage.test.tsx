@@ -1,6 +1,6 @@
 import { renderHook, waitFor } from '@testing-library/react'
 import React from 'react'
-import { useUsage } from './useUsage'
+import { USAGE_QUERY_PREFIX, useUsage, useUsageRefresh } from './useUsage'
 
 const mockQuery = jest.fn()
 jest.mock('@/utils/useApiDataQuery', () => ({
@@ -63,7 +63,7 @@ const pending = {
  */
 const mockQueries = (lookupResult: unknown, dataResult: unknown) => {
     mockQuery.mockImplementation((args: { queryKey: unknown[] }) =>
-        args.queryKey[0] === 'sqlViews' ? lookupResult : dataResult
+        args.queryKey[1] === 'sqlViews' ? lookupResult : dataResult
     )
 }
 
@@ -291,15 +291,48 @@ describe('useUsage', () => {
         await waitFor(() => expect(result.current.status).toBe('absent'))
         result.current.refresh()
 
+        expect(mockInvalidateQueries).toHaveBeenCalledTimes(1)
         expect(mockInvalidateQueries).toHaveBeenCalledWith({
-            queryKey: ['sqlViews', 'GSI_GROUPSET_USAGE'],
-        })
-        expect(mockInvalidateQueries).toHaveBeenCalledWith({
-            queryKey: ['sqlViewData'],
+            queryKey: [USAGE_QUERY_PREFIX],
         })
         // The doomed request this fix removes: neither closure-captured
         // `refetch` is called any more.
         expect(lookupRefetch).not.toHaveBeenCalled()
         expect(readRefetch).not.toHaveBeenCalled()
+    })
+
+    it('keeps both of its query keys under the usage prefix, so refresh cannot reach another feature', async () => {
+        mockQueries(
+            lookup([
+                {
+                    id: 'v1',
+                    code: 'GSI_GROUPSET_USAGE',
+                    type: 'VIEW',
+                    access: { data: { read: true } },
+                },
+            ]),
+            data([])
+        )
+        renderHook(() => useUsage())
+        const keys = mockQuery.mock.calls.map(
+            (c) => (c[0] as { queryKey: unknown[] }).queryKey
+        )
+        expect(keys.some((k) => k[1] === 'sqlViews')).toBe(true)
+        expect(keys.some((k) => k[1] === 'sqlViewData')).toBe(true)
+        keys.forEach((key) => expect(key[0]).toBe(USAGE_QUERY_PREFIX))
+    })
+})
+
+describe('useUsageRefresh', () => {
+    it('invalidates the usage prefix and nothing else, without issuing any query', () => {
+        mockQuery.mockClear()
+        mockInvalidateQueries.mockClear()
+        const { result } = renderHook(() => useUsageRefresh())
+        result.current()
+        expect(mockQuery).not.toHaveBeenCalled()
+        expect(mockInvalidateQueries).toHaveBeenCalledTimes(1)
+        expect(mockInvalidateQueries).toHaveBeenCalledWith({
+            queryKey: [USAGE_QUERY_PREFIX],
+        })
     })
 })
