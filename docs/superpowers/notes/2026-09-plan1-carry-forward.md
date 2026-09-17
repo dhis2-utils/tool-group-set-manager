@@ -1,6 +1,19 @@
 # Carried forward from Plan 1 into the plans that follow
 
 
+> ## Status after Plan 10
+>
+> **Closed, both of them.** The unmount-cancellation item: an in-flight
+> metadata load is now abandoned when the engine provider unmounts
+> (commit `631297d`, "Abandon an in-flight metadata load when the engine
+> provider unmounts"). The failed-page-fetch item: a failed object page
+> now keeps the loaded rows and offers a retry, instead of replacing them
+> with an error (commit `0724bc7`, "Keep loaded object rows when a page
+> fails, and offer to try again").
+>
+> **Nothing from this file is still open.** See
+> `docs/superpowers/notes/OPEN-ITEMS.md`.
+
 > ## Status after the Plan 9 cleanup pass
 >
 > This file was written before Plans 2-8 and most of it is now history. Every

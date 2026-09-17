@@ -1,6 +1,36 @@
 # Carried forward from Plans 4 and 5: found, recorded, not fixed
 
 
+> ## Status after Plan 10
+>
+> **§4, the `@dhis2/ui` `align` no-op — not closed, but no longer only a
+> plan to report it.** A ready-to-paste GitHub issue is drafted at
+> `docs/superpowers/notes/2026-09-dhis2-ui-align-issue.md` (commit
+> `e9635dc`, "Draft the upstream report for the @dhis2/ui column header
+> align defect"), confirming the defect is still present in the latest
+> published `@dhis2/ui` (10.17.0) and on master. The sandbox's read-only
+> token cannot file it, so it is **awaiting filing by the maintainer**
+> from the host; once filed, the URL goes in that note and the item
+> closes in `OPEN-ITEMS.md`.
+>
+> **§5, the latent `'0 objects'` locator collision — closed.** The
+> locator is now scoped to the objects table (commit `64c6c6a`, "Scope
+> the empty-search count locator to the objects table").
+>
+> **§6 — closed except one, which is accepted, not fixed:**
+> - The level-invariance test that could not demonstrate it, and the
+>   `GroupSetDetail.test.tsx` drill-test comment overclaiming what it
+>   exercises, are both closed by the same commit (`4ac188c`, "Name two
+>   tests for what they show, and cover a hierarchy with a missing
+>   level") -- which also adds a hierarchy fixture with a missing level,
+>   so the contiguous-level gap the test named is closed too.
+> - `GroupsPanel` losing its filter term on collapse is closed (commit
+>   `d96596f`, "Clear the groups filter when the panel collapses").
+> - `planColumns` computed twice per Overview render is **accepted, not
+>   fixed** — both instances are memoised on their own inputs, so it is
+>   one extra pass per result change, not per render. See
+>   `OPEN-ITEMS.md`'s "Accepted, with reasons".
+
 > ## Status after the Plan 9 cleanup pass
 >
 > **Closed:** §1 (Plan 7), §2 (the cleanup net, Plan 9), §3 (Plan 7).

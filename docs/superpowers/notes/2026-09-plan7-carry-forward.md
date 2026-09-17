@@ -1,6 +1,15 @@
 # Carried forward from Plan 7: found, recorded, not fixed
 
 
+> ## Status after Plan 10
+>
+> **§4 stays records, not work.** `lastupdated-probe.js` never
+> committed, `write-shapes.js`'s non-neutral `restore`, and the
+> `pg_stat_database` measurement caveat are not defects to fix -- they
+> are notes for whoever next needs to measure the same things. Moved
+> into `OPEN-ITEMS.md`'s "Records, not work" section verbatim; nothing
+> else in this file changed.
+
 > ## Status after the Plan 9 cleanup pass
 >
 > **Closed:** §1 (the e2e cleanup net — see

@@ -1,6 +1,36 @@
 # Carried forward from the metadata freshness work: found, recorded, not fixed
 
 
+> ## Status after Plan 10
+>
+> **§2, the `onProgress` mixed-write test gap — closed.** A test now
+> covers `onProgress` across a mixed patch-plus-batch change list
+> (commit `6388a54`, "Pin write progress across a mixed patch-and-batch
+> change list").
+>
+> **§3 — closed except the `batchSize` coupling, which is accepted.**
+> `writeMemberships` and `BulkFixDialog` now share one route predicate
+> (commits `8fe1ecf`, "Share one patch-route predicate between the
+> writer and the bulk fix dialog", and `7eec4e0`, "Plan 10: never pass
+> takesPatchRoute bare to filter"), so the two copies cannot desync.
+> `writeMemberships` still takes `batchSize` as a parameter, but that is
+> now **accepted as a deliberate test seam** --
+> `useMembershipWrite.test.tsx` fails if production code ever passes
+> one; see `OPEN-ITEMS.md`'s "Accepted, with reasons". `MetadataFreshness`'s
+> 30-second tick running while `loadedAt` is null is closed (commit
+> `67afa54`, "Tick the freshness indicator only while it shows an age").
+> The order-sensitive `JSON.stringify(changes)` plan comparison is
+> closed by comparing recomputed plans by content instead (commit
+> `c218e0c`, "Compare recomputed plans by content, and read group
+> members outside the dialog"). `BulkFixDialog.tsx`'s ~1100-line size is
+> closed by extracting its constants, catch-all group creation, and
+> apply/preview/action steps into their own modules (commit `c218e0c`
+> plus the Task 10a commits `d4bd68a`, `b94bc0c`, `abfd007`, `df59c6f`
+> and `48dd6aa`).
+>
+> **Nothing from this file is still open** beyond the accepted
+> `batchSize` seam. See `OPEN-ITEMS.md`.
+
 > ## Status after the Plan 9 cleanup pass
 >
 > **Closed:** both §1 items (JSON Patch rejection behaviour proven and the

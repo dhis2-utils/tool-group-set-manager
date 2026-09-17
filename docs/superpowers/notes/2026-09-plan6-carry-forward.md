@@ -1,6 +1,42 @@
 # Carried forward from Plan 6: found, recorded, not fixed
 
 
+> ## Status after Plan 10
+>
+> **§1, the `sqlViewData` key-prefix trap — closed.** `useUsage.ts`'s
+> `refresh()` now invalidates a namespaced key instead of claiming the
+> whole `sqlViewData` prefix (commit `c8ae408`, "Namespace the usage
+> query keys and let Settings refresh them without reading").
+>
+> **§2, the bridge-row evidence gap — closed.** The bridge-row counts
+> were measured on all four supported versions, not only 2.43.1
+> (commit `2c8d6fb`, "Measure the legacy bridge-row claim on every
+> supported version").
+>
+> **§3, the test gaps — closed except one, which is accepted.**
+> `removeUsageView`'s success path, `checkUsageView`'s short-circuit and
+> `UsageTab`'s `'loading'` state all gained tests (commit `fd68d15`,
+> "Cover the usage view removal, the check short-circuit and the
+> loading tab"). Settings' invalidation actually propagating is
+> **accepted, not tested at the unit level** — pinned instead by the
+> shared `USAGE_QUERY_PREFIX` test and the e2e usage flow; see
+> `OPEN-ITEMS.md`'s "Accepted, with reasons".
+>
+> **§4 — closed except the nested button, which is accepted.** Settings
+> mounting `useUsage()` solely for `refresh()` is closed by the same
+> commit as §1 (`c8ae408`). The unconsumed computed fields, `usageApplies`
+> written as "not indicator", and the `GroupSetCard.module.css` CSS
+> duplication are closed together (commit `b2a2e3a`, "Drop the usage
+> fields nothing reads, and allow-list the types usage applies to"). The
+> duplicated four-state check/busy/error machine is closed by extracting
+> a shared hook (commit `25798e0`, "Run both Settings admin sections on
+> one check-and-act state machine"). The real `<button>` nested inside
+> `GroupSetCard`'s `div[role="button"]` is **accepted, not fixed** —
+> judged the least-bad option for a tag that must navigate elsewhere;
+> see `OPEN-ITEMS.md`.
+>
+> §5 and §7 remain records, not work items, unchanged by Plan 10.
+
 > ## Status after the Plan 9 cleanup pass
 >
 > **Closed:** §1's `useUsage` `error`/`status` asymmetry (`error` is now

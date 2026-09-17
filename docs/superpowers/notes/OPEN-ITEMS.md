@@ -16,132 +16,175 @@ Covers three kinds of outstanding thing: scope the specs called for and was
 never built, verification the specs asked for that has not fully happened,
 and defects or gaps found and deliberately left.
 
-Last reconciled: the Plan 9 cleanup pass. Be precise about what that means,
-because the difference matters when you pick something up. The Plan 1 and
-Plan 5 entries, and the two spec items below, were **re-checked against the
-code and the specs** at that point. The Plan 6, 7 and 8 entries are
-**inherited from their own notes' triage**, written when that code was
-fresh; they were not independently re-verified. Nothing here is known stale
--- but only the first group is known current.
+Last reconciled: Plan 10, 2026-09-17, every entry re-checked against the
+code.
 
 ## The plans themselves are all executed
 
-Plans 1 through 7 and the metadata freshness plan
+Plans 1 through 7, the metadata freshness plan and Plan 10
 (`docs/superpowers/plans/`) have all been carried out. **The checkboxes in
 those files are not a completion signal** -- no plan ever had one ticked,
 including the ones long finished, so a file full of `- [ ]` says nothing
 either way. Completion lives in each plan's carry-forward note and in git
 history. Nothing below is a half-finished plan.
 
-## Specified but not built
+## Open
 
-One piece of specified scope was never built. It is a deliberate deferral,
-not an oversight -- both specs say so -- but nothing else in this file is
-scope, so it is easy to forget it exists at all.
+Plan 10's multi-version review (manual-review spec §10) drove the app
+through 2.40.12, 2.41.10, 2.42.6 and 2.43.1, each against its own,
+differently shaped database, and found four things the app or its specs
+get wrong. None is a small, test-covered fix, so none was fixed on this
+branch. Full checklist and evidence:
+`docs/superpowers/notes/2026-09-plan10-multiversion-review.md`.
 
-- **Organisation unit name translations in the names SQL view** (main spec
-  §9's one remaining open item, and §8a's divergence). The SQL view path
-  reads the raw `name` column; the metadata API path requests `displayName`,
-  which resolves the caller's locale against the object's translations. On an
-  instance with translated org unit names the two sources therefore show
-  different names for the same unit. Counts, statuses and every fix are
-  unaffected -- they key on ids -- and the app states which source it used,
-  so a user seeing untranslated names can explain them. The remedy available
-  today is to remove the `GSI_ORGUNIT_NAMES` view, which drops only names
-  back to the metadata API and keeps the hierarchy and membership views.
-  Closing it properly means answering a question first: can a caller's locale
-  be resolved inside SQL on 2.40 through 2.43? That is a spike, and only
-  becomes a plan if the answer is yes. — main spec §9, §8a; manual-review
-  spec §8
+- **No breadcrumb back from an Overview drill-down (check 11).** The
+  manual-review spec §4.3 says explicitly that "the bar's breadcrumb is
+  the way back" after a row-label click moves the scope and level down a
+  level. There is none: `grep -rn breadcrumb src/` finds nothing, run
+  independently on all four legs. The only way back is reopening the
+  organisation unit tree modal and reselecting the parent. Identical on
+  every version and database (A 2.40.12, B 2.41.10 EMIS, C 2.42.6, D
+  2.43.1). Needs an actual breadcrumb component wired to the bar's
+  scope/level state, not a one-line patch. — multi-version review, check
+  11.
+- **Removing `GSI_ORGUNIT_NAMES` drops the whole SQL view path, not only
+  names (check 27).** Design spec §8a's remedy for translated names --
+  "remove the names view, keep hierarchy and memberships on SQL" -- is
+  false as shipped, measured false on all four legs (A, B, C, D). The
+  dashboard's source label reads "Data loaded from the metadata API" and
+  the request trace shows zero `/api/sqlViews/<id>/data*` calls for any
+  of the three views once the names view is gone.
+  `src/data/sources/selectSource.ts`'s `findSqlViews` looks up all three
+  view codes and returns `null` unless every one of `orgUnits`,
+  `orgUnitNames` and `orgUnitMemberships` resolves; `null` sends
+  `selectSource` to `createMetadataSource` wholesale, with no partial
+  composition of "two views from SQL, one from the API." On leg B (EMIS,
+  266,396 org units) this turns a roughly 4-second SQL-view load into
+  the 60-70-second metadata-API path FR §4.1 itself measures at that
+  scale. Spec §8a has already been corrected to state this plainly
+  (commit `5611385`); building the actual fix -- a composed source that
+  serves two views from SQL and one field from the metadata API -- is
+  real, untested scope, not done here. — multi-version review, check 27;
+  main spec §8a.
+- **Settings offers no way to clear a catch-all mapping once set.** Every
+  leg (A, B, C, D) that set a catch-all group mapping for a group set had
+  to delete the `config-catch-all` dataStore key through the API
+  directly to restore the instance to its pre-review state; the Settings
+  select has no "none" option. Needs a real clear/unset UI affordance
+  plus a decision about what "no mapping" should mean the next time the
+  app reads it. — multi-version review, check 26 finding.
+- **No cancellable window on Apply for the common, no-drift case (check
+  22).** The freshness spec §5's check 22 describes a pre-write metadata
+  check with `Cancel` disabled during and enabled after, implying a safe
+  pause before any write. On a quiet database with no concurrent editor
+  the re-check always finds the plan unchanged, and
+  `BulkFixDialog.tsx`'s `runFreshnessCheck` calls `performWrite(...)`
+  synchronously in that branch, before `checkingFreshness` is ever set
+  back to `false` -- there is no rendered frame where `Cancel` is
+  enabled and the write has not already started. The immediate-write
+  behaviour on the no-drift path is intentional and correct (spec
+  2026-09-16 §5.1 step 4); check 22 as worded promises a window that
+  does not exist there. Only leg B (EMIS) could exercise this at all --
+  it is the only database large enough to cross the 5,000-id batch
+  threshold. Leg B's first, literal attempt found no window and wrote
+  for real (+55,097 to a Geo-Political Zone group), then reverted
+  cleanly through the app's own History, verified against the API both
+  ways. Needs either a spec correction describing the two paths
+  separately, or a genuine UI pause added to the no-drift case. —
+  multi-version review, "No cancellable window on Apply (check 22)".
+- **`@dhis2/ui`'s `DataTableColumnHeader` `align` prop is a silent
+  no-op, and the upstream report is not yet filed.** Confirmed present
+  in the latest published `@dhis2/ui` (10.17.0, this app's installed
+  version) and on the package's master branch
+  (`20e343fc9e34570dcd8678ddb449d48c5b62a140`). A ready-to-paste GitHub
+  issue is drafted at
+  `docs/superpowers/notes/2026-09-dhis2-ui-align-issue.md`; the
+  sandbox's read-only token cannot file it, so it is awaiting filing by
+  the maintainer from the host. Once filed, put the URL in that note and
+  close this item.
 
-## Verification the specs asked for, not fully done
+## Accepted, with reasons
 
-- **The §10 multi-version review.** The manual-review spec scoped one review
-  across 2.40 to 2.43 **against different databases**, to run once after
-  Plans 4-7 landed rather than four times against a moving target. Where it
-  actually stands:
-  - The **e2e half is done**: the full suite passes on 2.40.12, 2.41.10,
-    2.42.6 and 2.43.1 (`2026-09-plan8-multiversion-brief.md`), which it had
-    never done on the two middle versions before.
-  - The **"different databases" half is thin**: three of those four runs are
-    the same Sierra Leone seed at different versions. EMIS (266,396
-    organisation units) is the only genuinely different database, and only
-    the freshness feature was exercised there, manually -- `flows.spec.ts`
-    is pinned to Sierra Leone data throughout and cannot run against it.
-  - The **structured manual review** -- driving the screens the way the
-    original manual review did -- has not happened at all.
-  - Plan 8 stacked new scope on top after §10 was written, so its sweep
-    would now have to cover the freshness feature too.
-  - Whether a *second* manual review round is due is not something this repo
-    records; the source spec is named `manual-review-1`, which implies a
-    cadence the repo cannot see. — manual-review spec §10
+- Organisation unit name translations on the SQL view path --
+  maintainer decision 2026-09-17: an admin tool, so it is not critical;
+  not worth a locale-aware view. Remedy and a buildable design, if the
+  decision is ever reversed, are recorded in main spec §8a (and its
+  cost is now stated correctly there -- see the Open section above).
+- `GroupSetCard`'s real `<button>` inside `div[role="button"]` --
+  least-bad option for a tag that must navigate elsewhere; the keyboard
+  seam this created was fixed in Plan 6.
+- `planColumns` computed twice per Overview render -- both memoised on
+  their own inputs.
+- Settings' invalidation propagating -- pinned at unit level by the
+  shared `USAGE_QUERY_PREFIX` test and live by the e2e usage flow; a
+  unit test through a mocked query layer would prove nothing.
+- `writeMemberships` keeps `batchSize` as a test seam -- the duplicated
+  predicate is gone (Plan 10 Task 2) and `useMembershipWrite.test.tsx`
+  fails if production ever passes one.
 
-## With teeth
+## Records, not work
 
-These are traps for the next person rather than warts on the current code.
+- plan7 §4: `lastupdated-probe.js` never committed (its discriminating
+  part is in `2026-09-plan7-lastupdated-guard.md` §5); `write-shapes.js`'s
+  restore uses the import shape; server cost was measured with
+  `pg_stat_database`, missing Tomcat CPU.
 
-- **`writeMemberships` takes `batchSize` while `BulkFixDialog` hardcodes
-  `DEFAULT_BATCH_SIZE`** in its own copy of the route predicate. They agree
-  only because `useMembershipWrite` passes the constant explicitly. A caller
-  passing a different `batchSize` would silently change which groups get
-  re-read for freshness, **and no test would fail.** — plan8 §3
-- **`invalidateQueries({ queryKey: ['sqlViewData'] })` claims an app-wide key
-  prefix for one feature** (`useUsage.ts`). Correct today because nothing
-  else uses that prefix; wrong the moment a second SQL-view-backed query is
-  added. — plan6 §1
-- **A failed object-page fetch replaces the loaded rows with an error and
-  offers no retry** (`ObjectsTable.tsx`). Distinct from the deliberate
-  no-retry-on-write decision recorded beside it. — plan1
-- **An unmount during an in-flight load is not cancelled**: `generationRef`
-  is bumped per `reload` call but never on unmount, so the continuation sets
-  state after teardown (`useEngine.tsx`). — plan1
+## Closed in Plan 10
 
-## Evidence gaps
+- The `sqlViewData` app-wide key-prefix claim in `useUsage.ts`'s
+  `refresh()`. — c8ae408, "Namespace the usage query keys and let
+  Settings refresh them without reading"
+- A failed object-page fetch replaced loaded rows with an error and
+  offered no retry (`ObjectsTable.tsx`). — 0724bc7, "Keep loaded object
+  rows when a page fails, and offer to try again"
+- An unmount during an in-flight load was not cancelled
+  (`useEngine.tsx`'s `generationRef`). — 631297d, "Abandon an in-flight
+  metadata load when the engine provider unmounts"
+- The bridge-row claim in `usageSqlView.ts` was only measured on
+  2.43.1. — 2c8d6fb, "Measure the legacy bridge-row claim on every
+  supported version"
+- No test covered `onProgress` across a mixed patch-plus-batch write. —
+  6388a54, "Pin write progress across a mixed patch-and-batch change
+  list"
+- `removeUsageView`'s success path, `checkUsageView`'s one-request
+  short-circuit, and `UsageTab`'s `'loading'` state were untested. —
+  fd68d15, "Cover the usage view removal, the check short-circuit and
+  the loading tab"
+- The latent `'0 objects'` locator collision in `e2e/flows.spec.ts`. —
+  64c6c6a, "Scope the empty-search count locator to the objects table"
+- `BulkFixDialog.tsx`'s ~1100 lines, noted by three plans in a row. —
+  d4bd68a "Move the bulk fix dialog's constants into their own module",
+  b94bc0c "Extract catch-all group creation from the bulk fix dialog",
+  abfd007 "Extract the bulk fix dialog's apply step", df59c6f "Extract
+  the bulk fix dialog's preview step", 48dd6aa "Extract the bulk fix
+  dialog's action step"
+- `MetadataFreshness`'s 30-second tick ran even while it rendered
+  nothing (`loadedAt` null). — 67afa54, "Tick the freshness indicator
+  only while it shows an age"
+- The plan comparison was an order-sensitive `JSON.stringify`. —
+  c218e0c, "Compare recomputed plans by content, and read group members
+  outside the dialog"
+- Settings mounted `useUsage()` solely for `refresh()`, paying a full
+  lookup and an up-to-5000-row read it never displayed. — c8ae408,
+  "Namespace the usage query keys and let Settings refresh them without
+  reading"
+- Computed-but-unconsumed usage fields (`UsageViewCheck.readable` and
+  `.type`, `InstallUsageResult.id`, `UsageRow.groupSetType`,
+  `FavouriteTypeUsage.views12m`), `usageApplies` written as "not
+  indicator" rather than an allow-list, and `GroupSetCard.module.css`'s
+  `.usage`/`.meta` CSS duplication. — b2a2e3a, "Drop the usage fields
+  nothing reads, and allow-list the types usage applies to"
+- The Settings usage section duplicated the SQL views section's
+  four-state check/busy/error machine. — 25798e0, "Run both Settings
+  admin sections on one check-and-act state machine"
+- A test named for level-invariance that could not demonstrate it, and
+  contiguous-level fixtures that could not distinguish
+  `find(l => l.level > current)` from `+1`. — 4ac188c, "Name two tests
+  for what they show, and cover a hierarchy with a missing level"
+- `GroupsPanel` kept its filter term when collapsed. — d96596f, "Clear
+  the groups filter when the panel collapses"
 
-- **The bridge-row claim was only measured on 2.43.1.** `usageSqlView.ts`
-  states that the legacy `eventchart`/`eventreport` rows add up to
-  `eventvisualization`'s; the note records the uid-superset check on all four
-  versions but not the row-count comparison, which would catch a different
-  failure. One query per version closes it. — plan6 §2
-- **`@dhis2/ui`'s `DataTableColumnHeader` silently ignores its own `align`
-  prop** (10.17.0). Worked around here with a canary test; **not yet reported
-  upstream**, and it affects every app that passes the prop. — plan5 §4
-
-## Test gaps
-
-No failing tests — places a passing suite would not notice a regression.
-
-- `onProgress` across a mixed patch-plus-batch write; each route is tested
-  alone. — plan8 §2
-- `removeUsageView`'s success path; `checkUsageView`'s one-request
-  short-circuit; `UsageTab`'s `'loading'` state; Settings' invalidation
-  actually propagating (unit tests prove `refresh()` is called, not that it
-  works). — plan6 §3
-- The latent `'0 objects'` locator collision in `e2e/flows.spec.ts` — search
-  for the locator, it has drifted three times. — plan5 §5
-
-## Smaller, recorded so they are not rediscovered
-
-- `BulkFixDialog.tsx` is ~1100 lines; the third plan in a row to note it. — plan8 §3
-- `MetadataFreshness`'s 30-second tick runs even while it renders nothing. — plan8 §3
-- The plan comparison is an order-sensitive `JSON.stringify`, so a reordered
-  but equivalent plan triggers a spurious re-confirmation. Fails safe. — plan8 §3
-- Settings mounts `useUsage()` only for `refresh()`, paying a full lookup and
-  read it never displays; plus the rest of plan6 §4 (unconsumed computed
-  fields, `usageApplies` written as "not indicator", the duplicated
-  four-state machine, a CSS duplication, a real `<button>` nested inside a
-  `div[role="button"]`). — plan6 §4
-- Two tests whose names overpromise what they exercise; contiguous level
-  fixtures that cannot distinguish `find(l => l.level > current)` from `+1`;
-  `GroupsPanel` keeps its filter term when collapsed; `planColumns` computed
-  twice per Overview render. — plan5 §6
-- `lastupdated-probe.js` was never committed (its discriminating part is
-  reproduced in the note); `write-shapes.js`'s `restore` uses one of the
-  shapes under test, so it must not set up an import-specific investigation;
-  server cost was measured with `pg_stat_database`, which misses Tomcat's own
-  CPU. — plan7 §4
-
-## Closed, so nobody re-opens them
+## Closed earlier, so nobody re-opens them
 
 - Plan 3's four items — all superseded or fixed; see that file's status block.
 - The e2e cleanup net (plan5 §2), open through four plans — Plan 9.
