@@ -83,3 +83,17 @@ it('renders nothing again once an idle reload leaves no loaded data', async () =
     rerender(<MetadataFreshness loadedAt={null} />)
     expect(container).toBeEmptyDOMElement()
 })
+
+it('only ticks while it has an age to keep current', () => {
+    jest.useFakeTimers()
+    try {
+        const { rerender } = render(<MetadataFreshness loadedAt={null} />)
+        expect(jest.getTimerCount()).toBe(0)
+        rerender(<MetadataFreshness loadedAt={Date.now()} />)
+        expect(jest.getTimerCount()).toBe(1)
+        rerender(<MetadataFreshness loadedAt={null} />)
+        expect(jest.getTimerCount()).toBe(0)
+    } finally {
+        jest.useRealTimers()
+    }
+})

@@ -29,10 +29,19 @@ export const MetadataFreshness = ({
     // "just now" for the life of the page. Half a minute is well inside the
     // coarsest granularity the label has.
     const [now, setNow] = useState(() => Date.now())
+
+    // Only while there is an age on screen to keep current. While
+    // `loadedAt` is null the component renders nothing, or the busy label,
+    // neither of which reads the clock -- so a tick there is a re-render
+    // for nobody.
+    const showsAge = loadedAt !== null
     useEffect(() => {
+        if (!showsAge) {
+            return
+        }
         const id = setInterval(() => setNow(Date.now()), TICK_MS)
         return () => clearInterval(id)
-    }, [])
+    }, [showsAge])
 
     // Only "nothing has loaded yet" renders nothing. A forced reload clears
     // `loadedAt` for its duration, so returning null on that alone unmounts
@@ -47,6 +56,7 @@ export const MetadataFreshness = ({
     if (loadedAt === null && !busy) {
         return null
     }
+
     const age = loadedAt === null ? null : metadataAge(loadedAt, now)
     const stale = age?.stale ?? false
 
