@@ -217,6 +217,21 @@ Step 4 is the overwhelmingly common path, and always the path when one person
 is using the app, so the normal experience is unchanged except for the
 re-read's own latency.
 
+**Apply is the commitment point, and there is no pause after a clean check.**
+Added 2026-09-17, after the Plan 10 multi-version review read step 4 as
+promising one. While the check runs, `Cancel`, `Back` and the dialog's own
+close affordance are all disabled -- the plan must not change underneath a
+check that is about to authorise a write against it -- and the deadline in
+§5.4 is the only escape from a check that never settles. When the check
+comes back identical, step 4's "no interruption" is literal: the write
+starts in the same turn, with no rendered frame in which the write has not
+begun and `Cancel` is enabled again. On a quiet database, where nothing ever
+drifts, that is every apply. A reviewer looking for a safe window between
+pressing `Apply` and the first write will not find one, and should not: the
+window this document cares about is §5.3's re-confirmation, which exists
+precisely for the case where the authorised plan is no longer the plan that
+would be written.
+
 ### 5.2 `setGroupMembers`
 
 `planAssignment` computes against the engine's own membership, so fresh data

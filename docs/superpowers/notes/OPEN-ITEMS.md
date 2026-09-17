@@ -33,9 +33,10 @@ history. Nothing below is a half-finished plan.
 Plan 10's multi-version review (manual-review spec §10) drove the app
 through 2.40.12, 2.41.10, 2.42.6 and 2.43.1, each against its own,
 differently shaped database, and found four things the app or its specs
-get wrong. None is a small, test-covered fix, so none was fixed on this
-branch. Full checklist and evidence:
-`docs/superpowers/notes/2026-09-plan10-multiversion-review.md`.
+get wrong. They are being worked through in a follow-up branch; what is
+still listed here is what that branch has not closed yet, and the closed
+ones are below with the commit that closed each. Full checklist and
+evidence: `docs/superpowers/notes/2026-09-plan10-multiversion-review.md`.
 
 - **No breadcrumb back from an Overview drill-down (check 11).** The
   manual-review spec §4.3 says explicitly that "the bar's breadcrumb is
@@ -73,25 +74,6 @@ branch. Full checklist and evidence:
   select has no "none" option. Needs a real clear/unset UI affordance
   plus a decision about what "no mapping" should mean the next time the
   app reads it. — multi-version review, check 26 finding.
-- **No cancellable window on Apply for the common, no-drift case (check
-  22).** The freshness spec §5's check 22 describes a pre-write metadata
-  check with `Cancel` disabled during and enabled after, implying a safe
-  pause before any write. On a quiet database with no concurrent editor
-  the re-check always finds the plan unchanged, and
-  `BulkFixDialog.tsx`'s `runFreshnessCheck` calls `performWrite(...)`
-  synchronously in that branch, before `checkingFreshness` is ever set
-  back to `false` -- there is no rendered frame where `Cancel` is
-  enabled and the write has not already started. The immediate-write
-  behaviour on the no-drift path is intentional and correct (spec
-  2026-09-16 §5.1 step 4); check 22 as worded promises a window that
-  does not exist there. Only leg B (EMIS) could exercise this at all --
-  it is the only database large enough to cross the 5,000-id batch
-  threshold. Leg B's first, literal attempt found no window and wrote
-  for real (+55,097 to a Geo-Political Zone group), then reverted
-  cleanly through the app's own History, verified against the API both
-  ways. Needs either a spec correction describing the two paths
-  separately, or a genuine UI pause added to the no-drift case. —
-  multi-version review, "No cancellable window on Apply (check 22)".
 - **`@dhis2/ui`'s `DataTableColumnHeader` `align` prop is a silent
   no-op, and the upstream report is not yet filed.** Confirmed present
   in the latest published `@dhis2/ui` (10.17.0, this app's installed
@@ -128,6 +110,22 @@ branch. Full checklist and evidence:
   part is in `2026-09-plan7-lastupdated-guard.md` §5); `write-shapes.js`'s
   restore uses the import shape; server cost was measured with
   `pg_stat_database`, missing Tomcat CPU.
+
+## Closed after Plan 10, in the follow-up branch
+
+Each entry names the commit that closed it. The reasoning stays in
+`2026-09-plan10-multiversion-review.md`, where each finding now carries a
+"Closed" paragraph beside the evidence that raised it.
+
+- **No cancellable window on Apply (check 22)** -- closed as a spec
+  correction, not a code change. The app was right and the checklist row
+  was wrong: freshness spec §5.1 step 4 has always said "Identical ->
+  write immediately. No interruption, no message", and disabling `Cancel`
+  while the check runs is a deliberate Plan 8 decision with the §5.4
+  deadline as its escape hatch. §5.1 now says outright that `Apply` is the
+  commitment point and that there is no frame in which the write has not
+  started and `Cancel` is enabled again. Adding a UI pause would have
+  contradicted step 4. -- "Say plainly that Apply is the commitment point"
 
 ## Closed in Plan 10
 

@@ -213,6 +213,17 @@ exists on the drift path. Resolving it needs either a spec correction
 that describes the two paths separately, or a genuine UI pause added
 to the no-drift case — neither is a small, test-covered fix.
 
+**Closed 2026-09-17, as a spec correction.** The app was right and the
+checklist row was wrong: freshness spec §5.1 step 4 already said
+"Identical → write immediately. No interruption, no message", and
+disabling `Cancel` for the duration of the check is a deliberate Plan 8
+decision with the §5.4 deadline as its escape hatch. §5.1 now states
+outright that `Apply` is the commitment point and that no frame exists
+in which the write has not started and `Cancel` is enabled again, so the
+next reviewer reads the promise the app actually makes. No UI pause was
+added: one would contradict step 4, which the maintainer chose
+deliberately.
+
 ## Console and network hygiene
 
 No leg saw an uncaught error reach the UI (no error boundary
