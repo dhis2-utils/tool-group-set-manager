@@ -150,5 +150,11 @@ export function createMetadataSource(fetcher: Fetcher): DataSource {
         return { objectType: type, groups }
     }
 
-    return { kind: 'metadata', loadObjects, loadNames, loadMemberships }
+    return {
+        kind: 'metadata',
+        nameSource: 'metadata',
+        loadObjects,
+        loadNames,
+        loadMemberships,
+    }
 }

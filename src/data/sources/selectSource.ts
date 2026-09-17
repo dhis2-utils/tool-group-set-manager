@@ -27,6 +27,20 @@ interface SqlViewRow {
  * and falls back to the metadata API, which is always current. The list
  * itself lives in `sqlViewSource` (M4), shared with Settings' own status
  * and repair screen.
+ *
+ * The names view is the one exception to "all or nothing". The hierarchy
+ * and the membership views are what make this path worth having -- they
+ * are the large reads, and neither carries anything a locale could change.
+ * Names do: the view returns the raw `name` column while the metadata API
+ * returns `displayName` resolved against the caller's locale, so design
+ * spec §8a makes removing `GSI_ORGUNIT_NAMES` the supported way to get
+ * translated names back. Until 2026-09-17 that remedy did not work -- this
+ * function required all three views, so removing one sent the hierarchy
+ * and the memberships to the metadata API as well, which the Plan 10
+ * multi-version review measured on all four supported versions
+ * (`2026-09-plan10-multiversion-review.md`, check 27). A missing names
+ * view now leaves the other two serving and reports names as coming from
+ * the metadata API, which the dashboard says out loud.
  */
 
 export async function findSqlViews(
@@ -53,7 +67,7 @@ export async function findSqlViews(
     const orgUnits = pick(SQL_VIEW_CODES.orgUnits)
     const orgUnitNames = pick(SQL_VIEW_CODES.orgUnitNames)
     const orgUnitMemberships = pick(SQL_VIEW_CODES.orgUnitMemberships)
-    if (orgUnits && orgUnitNames && orgUnitMemberships) {
+    if (orgUnits && orgUnitMemberships) {
         return { orgUnits, orgUnitNames, orgUnitMemberships }
     }
     return null

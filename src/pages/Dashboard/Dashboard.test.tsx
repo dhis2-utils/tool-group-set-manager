@@ -19,6 +19,8 @@ const mockCallOverrides: {
     manyCleanOrgUnitSets: boolean
     usageSortSets: boolean
     usageDefaultOrderSets: boolean
+    sourceKind: 'sqlView' | 'metadata' | null
+    nameSource: 'sqlView' | 'metadata' | null
 } = {
     dataElementError: null,
     extraCleanOrgUnitSet: false,
@@ -29,6 +31,8 @@ const mockCallOverrides: {
     manyCleanOrgUnitSets: false,
     usageSortSets: false,
     usageDefaultOrderSets: false,
+    sourceKind: 'metadata',
+    nameSource: 'metadata',
 }
 
 // Task 6: a mutable status, same treatment as mockCallOverrides above -- a
@@ -186,7 +190,12 @@ jest.mock('@/hooks/useEngine', () => ({
         },
         status: mockStatus,
         groupSets: [],
-        sourceKind: 'metadata',
+        get sourceKind() {
+            return mockCallOverrides.sourceKind
+        },
+        get nameSource() {
+            return mockCallOverrides.nameSource
+        },
         get fellBack() {
             return mockCallOverrides.fellBack
         },
@@ -253,8 +262,48 @@ afterEach(() => {
     mockCallOverrides.manyCleanOrgUnitSets = false
     mockCallOverrides.usageSortSets = false
     mockCallOverrides.usageDefaultOrderSets = false
+    mockCallOverrides.sourceKind = 'metadata'
+    mockCallOverrides.nameSource = 'metadata'
     mockUsage.mockReturnValue(defaultUsageState)
     mockStatus = baseStatus
+})
+
+// Spec 8a: with GSI_ORGUNIT_NAMES removed, the views still serve the
+// hierarchy and the memberships while names come from the metadata API --
+// and names are the one part of the load a user can see the difference in,
+// so the label has to say so rather than claim one source for everything.
+it('says names came from the metadata API when only the names view is gone', async () => {
+    mockCallOverrides.sourceKind = 'sqlView'
+    mockCallOverrides.nameSource = 'metadata'
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+    expect(
+        screen.getByText(
+            'Data loaded from the GSI SQL views, with organisation unit names from the metadata API'
+        )
+    ).toBeInTheDocument()
+})
+
+it('names the views alone when all three are serving', async () => {
+    mockCallOverrides.sourceKind = 'sqlView'
+    mockCallOverrides.nameSource = 'sqlView'
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+    expect(
+        screen.getByText('Data loaded from the GSI SQL views')
+    ).toBeInTheDocument()
 })
 
 it('shows the SQL view repair notice after a real fallback', async () => {

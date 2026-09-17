@@ -6,7 +6,18 @@ import { ObjectType } from '@/engine/types'
 
 export interface SqlViewIds {
     orgUnits: string
-    orgUnitNames: string
+    /**
+     * Null when the names view is absent, unreadable or materialised, which
+     * an administrator may well have arranged on purpose: design spec §8a
+     * makes removing `GSI_ORGUNIT_NAMES` the remedy for an instance whose
+     * organisation unit names are translated, because the metadata API
+     * resolves `displayName` against the caller's locale and a SQL view
+     * reads the raw `name` column. The other two views keep serving, so
+     * that remedy costs names alone rather than the whole fast path -- on a
+     * 266k-unit instance the difference is roughly 4 seconds against the
+     * 60-70 the metadata path takes.
+     */
+    orgUnitNames: string | null
     orgUnitMemberships: string
 }
 
@@ -187,7 +198,10 @@ export function createSqlViewSource(
     }
 
     const loadNames = async (type: ObjectType) => {
-        if (type !== 'organisationUnit') {
+        // `views.orgUnitNames === null` is the §8a remedy in force, not a
+        // broken install: names come from the metadata API (translated),
+        // everything else still comes from the views (fast).
+        if (type !== 'organisationUnit' || views.orgUnitNames === null) {
             return metadata.loadNames(type)
         }
         const rows = await fetchCsv(fetcher, views.orgUnitNames)
@@ -216,5 +230,11 @@ export function createSqlViewSource(
         }
     }
 
-    return { kind: 'sqlView', loadObjects, loadNames, loadMemberships }
+    return {
+        kind: 'sqlView',
+        nameSource: views.orgUnitNames === null ? 'metadata' : 'sqlView',
+        loadObjects,
+        loadNames,
+        loadMemberships,
+    }
 }

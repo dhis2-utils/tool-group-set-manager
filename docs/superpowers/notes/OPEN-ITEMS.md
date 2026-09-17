@@ -48,25 +48,6 @@ evidence: `docs/superpowers/notes/2026-09-plan10-multiversion-review.md`.
   2.43.1). Needs an actual breadcrumb component wired to the bar's
   scope/level state, not a one-line patch. — multi-version review, check
   11.
-- **Removing `GSI_ORGUNIT_NAMES` drops the whole SQL view path, not only
-  names (check 27).** Design spec §8a's remedy for translated names --
-  "remove the names view, keep hierarchy and memberships on SQL" -- is
-  false as shipped, measured false on all four legs (A, B, C, D). The
-  dashboard's source label reads "Data loaded from the metadata API" and
-  the request trace shows zero `/api/sqlViews/<id>/data*` calls for any
-  of the three views once the names view is gone.
-  `src/data/sources/selectSource.ts`'s `findSqlViews` looks up all three
-  view codes and returns `null` unless every one of `orgUnits`,
-  `orgUnitNames` and `orgUnitMemberships` resolves; `null` sends
-  `selectSource` to `createMetadataSource` wholesale, with no partial
-  composition of "two views from SQL, one from the API." On leg B (EMIS,
-  266,396 org units) this turns a roughly 4-second SQL-view load into
-  the 60-70-second metadata-API path FR §4.1 itself measures at that
-  scale. Spec §8a has already been corrected to state this plainly
-  (commit `5611385`); building the actual fix -- a composed source that
-  serves two views from SQL and one field from the metadata API -- is
-  real, untested scope, not done here. — multi-version review, check 27;
-  main spec §8a.
 - **`@dhis2/ui`'s `DataTableColumnHeader` `align` prop is a silent
   no-op, and the upstream report is not yet filed.** Confirmed present
   in the latest published `@dhis2/ui` (10.17.0, this app's installed
@@ -109,6 +90,18 @@ evidence: `docs/superpowers/notes/2026-09-plan10-multiversion-review.md`.
 Each entry names the commit that closed it. The reasoning stays in
 `2026-09-plan10-multiversion-review.md`, where each finding now carries a
 "Closed" paragraph beside the evidence that raised it.
+
+- **Removing `GSI_ORGUNIT_NAMES` dropped the whole SQL view path** --
+  closed by making the names view optional. `findSqlViews` now requires
+  only the hierarchy and membership views, `SqlViewIds.orgUnitNames` is
+  `string | null`, and the SQL view source serves organisation unit names
+  from the metadata API when it is null, so §8a's remedy for translated
+  names costs names alone rather than the fast path (roughly 4s instead
+  of 60-70s on a 266k-unit instance). `DataSource.nameSource` carries the
+  difference to the dashboard label, which now names both sources when
+  they differ. A cached payload keeps its old names until the 10-minute
+  cache TTL expires or the user hits Refresh. --
+  "Serve names from the metadata API when only that view is missing"
 
 - **No way to clear a catch-all mapping** -- closed with a `Clear` button
   per row in Settings' catch-all section, shown only when that set has a

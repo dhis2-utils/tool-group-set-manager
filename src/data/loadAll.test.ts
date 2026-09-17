@@ -39,6 +39,7 @@ function fakeSource(): DataSource & { loads: string[] } {
     const loads: string[] = []
     return {
         kind: 'metadata',
+        nameSource: 'metadata',
         loads,
         async loadObjects(type) {
             loads.push(`objects:${type}`)
@@ -688,6 +689,7 @@ describe('loadAll', () => {
         const sqlViewCalls: string[] = []
         const failingSqlSource: DataSource = {
             kind: 'sqlView',
+            nameSource: 'sqlView',
             async loadObjects(type) {
                 sqlViewCalls.push(`objects:${type}`)
                 if (type === 'organisationUnit') {

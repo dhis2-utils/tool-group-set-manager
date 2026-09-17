@@ -195,6 +195,15 @@ export async function loadAll(deps: Deps): Promise<{
     groupSets: GroupSetMeta[]
     sourceKind: DataSource['kind']
     /**
+     * Where organisation unit names came from, which is not always where
+     * the rest came from: with `GSI_ORGUNIT_NAMES` removed (design spec
+     * §8a's remedy for translated names) the hierarchy and the memberships
+     * still come from the views while names come from the metadata API.
+     * Reported separately so the dashboard can say so rather than claim one
+     * source for the whole load.
+     */
+    nameSource: DataSource['nameSource']
+    /**
      * P3-R2: true only when `withSourceFallback` actually latched during
      * this load -- never inferred from `sourceKind === 'metadata'`, which
      * is equally true on a server that never had SQL views to begin with.
@@ -381,6 +390,7 @@ export async function loadAll(deps: Deps): Promise<{
     return {
         groupSets,
         sourceKind: source.current().kind,
+        nameSource: source.current().nameSource,
         fellBack: source.fellBack(),
     }
 }

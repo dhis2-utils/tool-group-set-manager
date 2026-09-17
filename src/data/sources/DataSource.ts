@@ -16,6 +16,17 @@ export interface NamedId {
 
 export interface DataSource {
     kind: 'sqlView' | 'metadata'
+    /**
+     * Where organisation unit display names come from, which is not always
+     * where everything else comes from: the SQL view path serves names from
+     * `GSI_ORGUNIT_NAMES` when that view exists and from the metadata API
+     * when it does not (design spec §8a -- removing the names view is the
+     * supported way to get locale-resolved `displayName` back without
+     * giving up the fast hierarchy and membership reads). The app tells the
+     * user which source served the load, so it has to be able to say when
+     * the answer differs for names.
+     */
+    nameSource: 'sqlView' | 'metadata'
     loadObjects(
         type: ObjectType,
         onProgress: (p: Progress) => void

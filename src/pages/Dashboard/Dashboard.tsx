@@ -69,10 +69,24 @@ const hiddenSetsLabel = (count: number) =>
 // unit names specifically because the app says which source served it, so
 // this line is not decoration: it is the explanation a user needs for names
 // that do not match their locale.
-const sourceLabel = (kind: 'sqlView' | 'metadata') =>
-    kind === 'sqlView'
-        ? i18n.t('Data loaded from the GSI SQL views')
-        : i18n.t('Data loaded from the metadata API')
+const sourceLabel = (
+    kind: 'sqlView' | 'metadata',
+    nameSource: 'sqlView' | 'metadata' | null
+) => {
+    if (kind !== 'sqlView') {
+        return i18n.t('Data loaded from the metadata API')
+    }
+    // The §8a remedy in force: the views still serve the hierarchy and the
+    // memberships, but `GSI_ORGUNIT_NAMES` is gone, so names come from the
+    // metadata API and are resolved against the user's locale. Saying only
+    // "from the GSI SQL views" here would be wrong about the one thing the
+    // user can see, which is the names themselves.
+    return nameSource === 'metadata'
+        ? i18n.t(
+              'Data loaded from the GSI SQL views, with organisation unit names from the metadata API'
+          )
+        : i18n.t('Data loaded from the GSI SQL views')
+}
 
 // Fix round 2 (Important 1): `useUsage()`'s own doc comment is explicit that
 // 'error' (a view that exists but cannot be read) must never be told to the
@@ -94,7 +108,8 @@ const usageSortHelpText = (status: UsageStatus) => {
 }
 
 export const Dashboard = () => {
-    const { client, status, error, sourceKind, fellBack, reload } = useEngine()
+    const { client, status, error, sourceKind, nameSource, fellBack, reload } =
+        useEngine()
     const { rootId, isReady } = useScope()
     const navigate = useNavigate()
     const [onlyIssues, setOnlyIssues] = useState(true)
@@ -299,7 +314,9 @@ export const Dashboard = () => {
             )}
             <LoadProgress status={status} />
             {sourceKind && (
-                <p className={styles.note}>{sourceLabel(sourceKind)}</p>
+                <p className={styles.note}>
+                    {sourceLabel(sourceKind, nameSource)}
+                </p>
             )}
             {
                 // Fix round 2 (Important 2): spec 3.6 requires every

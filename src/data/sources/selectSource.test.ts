@@ -29,6 +29,68 @@ describe('selectSource', () => {
         })
     })
 
+    it('keeps the SQL view path when only the names view is missing, and takes names from the metadata API', async () => {
+        // Spec 8a's remedy for an instance that needs translated organisation
+        // unit names is to remove GSI_ORGUNIT_NAMES. That must cost names
+        // alone: the hierarchy and the memberships are the expensive reads
+        // (roughly 4s versus 60-70s on a 266k-unit instance), and they carry
+        // no names to translate.
+        const fetcher = async () =>
+            jsonResponse({
+                sqlViews: [
+                    readableView('v1', 'GSI_ORGUNITS'),
+                    // GSI_ORGUNIT_NAMES removed by an administrator
+                    readableView('v3', 'GSI_ORGUNIT_MEMBERSHIPS'),
+                ],
+            })
+        const result = await selectSource(fetcher)
+        expect(result.source.kind).toBe('sqlView')
+        expect(result.source.nameSource).toBe('metadata')
+        expect(result.sqlViews).toEqual({
+            orgUnits: 'v1',
+            orgUnitNames: null,
+            orgUnitMemberships: 'v3',
+        })
+    })
+
+    it('treats an unreadable or materialised names view the same as an absent one', async () => {
+        const fetcher = async () =>
+            jsonResponse({
+                sqlViews: [
+                    readableView('v1', 'GSI_ORGUNITS'),
+                    {
+                        ...readableView('v2', 'GSI_ORGUNIT_NAMES'),
+                        type: 'MATERIALIZED_VIEW',
+                    },
+                    readableView('v3', 'GSI_ORGUNIT_MEMBERSHIPS'),
+                ],
+            })
+        const result = await selectSource(fetcher)
+        expect(result.source.kind).toBe('sqlView')
+        expect(result.source.nameSource).toBe('metadata')
+        expect(result.sqlViews?.orgUnitNames).toBeNull()
+    })
+
+    it('reports names as coming from the views when all three are usable', async () => {
+        const fetcher = async () =>
+            jsonResponse({
+                sqlViews: [
+                    readableView('v1', 'GSI_ORGUNITS'),
+                    readableView('v2', 'GSI_ORGUNIT_NAMES'),
+                    readableView('v3', 'GSI_ORGUNIT_MEMBERSHIPS'),
+                ],
+            })
+        const result = await selectSource(fetcher)
+        expect(result.source.nameSource).toBe('sqlView')
+    })
+
+    it('reports metadata names on the metadata source', async () => {
+        const fetcher = async () => jsonResponse({ sqlViews: [] })
+        const result = await selectSource(fetcher)
+        expect(result.source.kind).toBe('metadata')
+        expect(result.source.nameSource).toBe('metadata')
+    })
+
     it('falls back to metadata when one view is missing from the response', async () => {
         const fetcher = async () =>
             jsonResponse({

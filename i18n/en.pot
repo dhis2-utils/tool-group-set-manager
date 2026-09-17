@@ -5,45 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-17T09:14:43.873Z\n"
-"PO-Revision-Date: 2026-09-17T09:14:43.873Z\n"
-
-msgid "1 object"
-msgstr "1 object"
-
-msgid "{count} objects"
-msgstr "{count} objects"
-
-msgid "Apply 1 change"
-msgstr "Apply 1 change"
-
-msgid "Apply {count} changes"
-msgstr "Apply {count} changes"
-
-msgid "No group"
-msgstr "No group"
-
-msgid ""
-"A group with this name already belongs to a different group set. Choose "
-"another name — one group must not be shared between two sets."
-msgstr ""
-"A group with this name already belongs to a different group set. Choose "
-"another name — one group must not be shared between two sets."
-
-msgid "Object"
-msgstr "Object"
-
-msgid "Current groups"
-msgstr "Current groups"
-
-msgid "New group"
-msgstr "New group"
-
-msgid "The metadata could not be checked"
-msgstr "The metadata could not be checked"
-
-msgid "Bulk fix {name}"
-msgstr "Bulk fix {name}"
+"POT-Creation-Date: 2026-09-17T15:44:49.774Z\n"
+"PO-Revision-Date: 2026-09-17T15:44:49.775Z\n"
 
 msgid "Move to catch-all group"
 msgstr "Move to catch-all group"
@@ -77,6 +40,92 @@ msgstr "Create group"
 
 msgid "Could not create the group"
 msgstr "Could not create the group"
+
+msgid "Applied {done} of {total} batches"
+msgstr "Applied {done} of {total} batches"
+
+msgid "Applying changes…"
+msgstr "Applying changes…"
+
+msgid "There was nothing to apply"
+msgstr "There was nothing to apply"
+
+msgid "The view may be out of date"
+msgstr "The view may be out of date"
+
+msgid ""
+"The change was applied but the local view could not be refreshed; reload to "
+"see it"
+msgstr ""
+"The change was applied but the local view could not be refreshed; reload to "
+"see it"
+
+msgid "Not recorded in History"
+msgstr "Not recorded in History"
+
+msgid "The change was applied but could not be recorded in History"
+msgstr "The change was applied but could not be recorded in History"
+
+msgid "The result could not be confirmed"
+msgstr "The result could not be confirmed"
+
+msgid ""
+"The write may have reached the server, but this dialog could not confirm "
+"what happened to it -- reload and check History to see what changed"
+msgstr ""
+"The write may have reached the server, but this dialog could not confirm "
+"what happened to it -- reload and check History to see what changed"
+
+msgid "Apply 1 change"
+msgstr "Apply 1 change"
+
+msgid "Apply {count} changes"
+msgstr "Apply {count} changes"
+
+msgid "No group"
+msgstr "No group"
+
+msgid "Object"
+msgstr "Object"
+
+msgid "Current groups"
+msgstr "Current groups"
+
+msgid "New group"
+msgstr "New group"
+
+msgid "The metadata could not be checked"
+msgstr "The metadata could not be checked"
+
+msgid "Bulk fix {name}"
+msgstr "Bulk fix {name}"
+
+msgid "Close"
+msgstr "Close"
+
+msgid "Cancel"
+msgstr "Cancel"
+
+msgid "Back"
+msgstr "Back"
+
+msgid "Next"
+msgstr "Next"
+
+msgid "Apply…"
+msgstr "Apply…"
+
+msgid "Review changes"
+msgstr "Review changes"
+
+msgid "Retry failed changes"
+msgstr "Retry failed changes"
+
+msgid "1 object"
+msgstr "1 object"
+
+msgid "{count} objects"
+msgstr "{count} objects"
 
 msgid "Checking the metadata is up to date…"
 msgstr "Checking the metadata is up to date…"
@@ -143,61 +192,12 @@ msgstr "Download full list as CSV"
 msgid "Note for History (optional)"
 msgstr "Note for History (optional)"
 
-msgid "Applied {done} of {total} batches"
-msgstr "Applied {done} of {total} batches"
-
-msgid "Applying changes…"
-msgstr "Applying changes…"
-
-msgid "There was nothing to apply"
-msgstr "There was nothing to apply"
-
-msgid "The view may be out of date"
-msgstr "The view may be out of date"
-
 msgid ""
-"The change was applied but the local view could not be refreshed; reload to "
-"see it"
+"A group with this name already belongs to a different group set. Choose "
+"another name — one group must not be shared between two sets."
 msgstr ""
-"The change was applied but the local view could not be refreshed; reload to "
-"see it"
-
-msgid "Not recorded in History"
-msgstr "Not recorded in History"
-
-msgid "The change was applied but could not be recorded in History"
-msgstr "The change was applied but could not be recorded in History"
-
-msgid "The result could not be confirmed"
-msgstr "The result could not be confirmed"
-
-msgid ""
-"The write may have reached the server, but this dialog could not confirm "
-"what happened to it -- reload and check History to see what changed"
-msgstr ""
-"The write may have reached the server, but this dialog could not confirm "
-"what happened to it -- reload and check History to see what changed"
-
-msgid "Close"
-msgstr "Close"
-
-msgid "Cancel"
-msgstr "Cancel"
-
-msgid "Back"
-msgstr "Back"
-
-msgid "Next"
-msgstr "Next"
-
-msgid "Apply…"
-msgstr "Apply…"
-
-msgid "Review changes"
-msgstr "Review changes"
-
-msgid "Retry failed changes"
-msgstr "Retry failed changes"
+"A group with this name already belongs to a different group set. Choose "
+"another name — one group must not be shared between two sets."
 
 msgid ""
 "1 object was skipped because it has moved since this change, its group has "
@@ -608,11 +608,18 @@ msgstr "1 set without issues hidden"
 msgid "{count} sets without issues hidden"
 msgstr "{count} sets without issues hidden"
 
-msgid "Data loaded from the GSI SQL views"
-msgstr "Data loaded from the GSI SQL views"
-
 msgid "Data loaded from the metadata API"
 msgstr "Data loaded from the metadata API"
+
+msgid ""
+"Data loaded from the GSI SQL views, with organisation unit names from the "
+"metadata API"
+msgstr ""
+"Data loaded from the GSI SQL views, with organisation unit names from the "
+"metadata API"
+
+msgid "Data loaded from the GSI SQL views"
+msgstr "Data loaded from the GSI SQL views"
 
 msgid "Usage data is not installed on this instance"
 msgstr "Usage data is not installed on this instance"
@@ -1072,6 +1079,9 @@ msgstr "The usage SQL view action failed"
 
 msgid "Choose catch-all group"
 msgstr "Choose catch-all group"
+
+msgid "Clear"
+msgstr "Clear"
 
 msgid "Could not save the catch-all group"
 msgstr "Could not save the catch-all group"

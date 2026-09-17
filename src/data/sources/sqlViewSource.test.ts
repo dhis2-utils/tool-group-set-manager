@@ -94,6 +94,59 @@ describe('sqlViewSource', () => {
         ])
     })
 
+    it('reads names from the names view when it is present', async () => {
+        const calls: string[] = []
+        const fetcher = async (path: string) => {
+            calls.push(path)
+            return csvResponse('uid,name\na,Alpha\n')
+        }
+        const names = await createSqlViewSource(fetcher, views).loadNames(
+            'organisationUnit'
+        )
+        expect(calls[0]).toBe('sqlViews/V2/data.csv?paging=false')
+        expect(names).toEqual([{ id: 'a', displayName: 'Alpha' }])
+    })
+
+    // Spec 8a: removing GSI_ORGUNIT_NAMES is the remedy for an instance
+    // whose organisation unit names are translated, because the metadata
+    // API resolves `displayName` against the user's locale and a SQL view
+    // cannot. It must cost names only -- the hierarchy and membership
+    // reads are the expensive ones and carry nothing to translate.
+    it('takes names from the metadata API when the names view is absent, keeping the other two views', async () => {
+        const calls: string[] = []
+        const fetcher = async (path: string) => {
+            calls.push(path)
+            if (path.startsWith('organisationUnits')) {
+                return new Response(
+                    JSON.stringify({
+                        organisationUnits: [{ id: 'a', displayName: 'Alpha' }],
+                    }),
+                    { status: 200 }
+                )
+            }
+            return csvResponse('groupid,ouid\ng1,a\n')
+        }
+        const source = createSqlViewSource(fetcher, {
+            ...views,
+            orgUnitNames: null,
+        })
+        expect(source.kind).toBe('sqlView')
+        expect(source.nameSource).toBe('metadata')
+
+        const names = await source.loadNames('organisationUnit')
+        expect(names).toEqual([{ id: 'a', displayName: 'Alpha' }])
+        expect(calls.every((c) => !c.startsWith('sqlViews/'))).toBe(true)
+
+        await source.loadMemberships(
+            'organisationUnit',
+            ['g1'],
+            () => undefined
+        )
+        expect(calls[calls.length - 1]).toBe(
+            'sqlViews/V3/data.csv?paging=false'
+        )
+    })
+
     it('falls back to the metadata source for other object types', async () => {
         const calls: string[] = []
         const fetcher = async (path: string) => {

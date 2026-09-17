@@ -31,6 +31,14 @@ interface EngineContextValue {
     groupSetsLoaded: boolean
     sourceKind: 'sqlView' | 'metadata' | null
     /**
+     * Where organisation unit names came from. Separate from `sourceKind`
+     * because the SQL view path serves names from the metadata API when
+     * `GSI_ORGUNIT_NAMES` is absent (design spec §8a), and a label claiming
+     * one source for the whole load would then be wrong about the only
+     * field a user can actually see the difference in.
+     */
+    nameSource: 'sqlView' | 'metadata' | null
+    /**
      * P3-R2: true only when the most recent load actually fell back from a
      * broken SQL view source to the metadata source mid-load (`loadAll`'s
      * `fellBack`) -- never inferred from `sourceKind === 'metadata'`, which
@@ -84,6 +92,9 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
     const [sourceKind, setSourceKind] = useState<'sqlView' | 'metadata' | null>(
         null
     )
+    const [nameSource, setNameSource] = useState<'sqlView' | 'metadata' | null>(
+        null
+    )
     const [fellBack, setFellBack] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
@@ -114,6 +125,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
                     return
                 }
                 setSourceKind(source.kind)
+                setNameSource(source.nameSource)
                 // Reset here, before loadAll runs: a fresh attempt starts
                 // from "no fallback happened yet" rather than carrying
                 // forward a notice earned by a previous load.
@@ -157,6 +169,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
                     if (result.sourceKind) {
                         setSourceKind(result.sourceKind)
                     }
+                    setNameSource(result.nameSource)
                     setFellBack(result.fellBack)
                 }
             } catch (e) {
@@ -222,6 +235,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
             groupSets,
             groupSetsLoaded,
             sourceKind,
+            nameSource,
             fellBack,
             error,
             reload,
@@ -234,6 +248,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
             groupSets,
             groupSetsLoaded,
             sourceKind,
+            nameSource,
             fellBack,
             error,
             reload,

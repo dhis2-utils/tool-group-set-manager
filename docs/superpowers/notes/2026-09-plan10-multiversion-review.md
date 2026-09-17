@@ -135,6 +135,22 @@ composition (two views from SQL, one field from the metadata API),
 which is real, untested scope, not an under-an-hour fix; the spec
 text also needs correcting, which is its own documentation task.
 
+**Closed 2026-09-17.** `findSqlViews` now requires only the hierarchy and
+the membership views; `orgUnitNames` became `string | null`, and the SQL
+view source serves organisation unit names from the metadata API when it
+is null. Removing `GSI_ORGUNIT_NAMES` therefore costs names alone, which
+is what §8a always claimed and what makes it a usable remedy: on leg B's
+scale the fast reads stay at roughly 4 seconds instead of falling to
+60-70. `DataSource` gained a `nameSource` field so the dashboard can say
+"Data loaded from the GSI SQL views, with organisation unit names from
+the metadata API" rather than claim one source for a load that had two.
+The names view is still installed and repaired by Settings exactly as
+before -- this changes what its absence costs, not whether it is wanted.
+Note that a cached payload keeps its old names until the entry expires
+(`CACHE_TTL_MS`, 10 minutes) or the user reloads with Refresh, since the
+cache gates on group ids, object total and `lastUpdated`, none of which
+notice a source change.
+
 ### Settings offers no way to clear a catch-all mapping once set
 
 **What:** once a catch-all group mapping is saved for a group set in
