@@ -117,11 +117,19 @@ export function useUsage(): UsageState {
                 ? 'ready'
                 : 'loading'
 
+    // Behind the same `view` guard `status` applies. Without it, a read that
+    // errored while no view was found left a non-null `error` on a state
+    // that reports 'absent' -- harmless while every consumer reads `error`
+    // only when `status === 'error'`, and a stale message the first time one
+    // does not.
     const error =
-        parsed?.error ??
-        (lookup.isError || read.isError
-            ? ((lookup.error ?? read.error) as Error | null)?.message ?? null
-            : null)
+        status === 'absent'
+            ? null
+            : parsed?.error ??
+              (lookup.isError || read.isError
+                  ? ((lookup.error ?? read.error) as Error | null)?.message ??
+                    null
+                  : null)
 
     const byId = status === 'ready' ? parsed?.byId ?? null : null
 

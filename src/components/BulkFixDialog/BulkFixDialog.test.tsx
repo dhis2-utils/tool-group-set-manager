@@ -1790,6 +1790,60 @@ describe('BulkFixDialog apply step', () => {
             expect(mockFetcher).not.toHaveBeenCalled()
         })
 
+        // Carried forward from Plan 8: both of these were verified by
+        // inspection only. The re-read exists to see what the server holds
+        // *now*, so a cached response defeats it entirely and silently --
+        // and `paging=false` matters just as much, since a default-paged
+        // read would return the first 50 members and the patch built from
+        // it would delete every other member of the group.
+        it('re-reads members uncached, unpaged, and by id only', async () => {
+            await renderAndReachApply()
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            expect(mockFetcher.mock.calls).toHaveLength(1)
+            const [path, init] = mockFetcher.mock.calls[0]
+            expect(path).toBe(
+                'organisationUnitGroups/g2/organisationUnits?fields=id&paging=false'
+            )
+            // Property by property, never `toEqual` on `init` as a whole:
+            // it carries the deadline's `AbortSignal`, and a failing
+            // object comparison makes Jest deep-copy that for its diff,
+            // which walks into jsdom and aborts the worker with an
+            // out-of-memory (exit 134) instead of printing a failure.
+            expect(init.cache).toBe('no-store')
+            // The deadline's controller reaches the read, so a timed-out
+            // check actually stops it rather than leaving it running.
+            expect(typeof init.signal?.aborted).toBe('boolean')
+        })
+
+        // Carried forward from Plan 8: the in-flight guard was set only on
+        // the check path, so on a plan needing no check two clicks in one
+        // synchronous tick both reached `performWrite` -- one user intent,
+        // two writes, two History rows. The patch is idempotent so this
+        // never damaged data, which is exactly why it could go unnoticed.
+        it('writes once for two clicks in one tick when nothing crosses the patch threshold', async () => {
+            mockUseEngineQuery.mockImplementation((method: string) =>
+                method === 'planAssignment'
+                    ? { data: plan({ affected: 3 }), isLoading: false, error: null }
+                    : {
+                          data: { total: 0, offset: 0, items: [] },
+                          isLoading: false,
+                          error: null,
+                      }
+            )
+            mockClientCall.mockResolvedValue(plan({ affected: 3 }))
+            await renderAndReachApply()
+            // Both inside one `act`, with no render flush between them --
+            // neither click's closure has seen the other's state update.
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+                fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
+            })
+            expect(mockWrite).toHaveBeenCalledTimes(1)
+            expect(mockFetcher).not.toHaveBeenCalled()
+        })
+
         it('blocks and re-confirms when the recomputed plan differs', async () => {
             mockUseEngineQuery.mockImplementation((method: string) =>
                 method === 'planAssignment'

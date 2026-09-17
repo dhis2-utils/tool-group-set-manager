@@ -358,6 +358,11 @@ const RevertDialog = ({ changeSet, onClose, onApplied }: RevertDialogProps) => {
                                     />
                                 )}
                                 <InputField
+                                    // Without `name`, @dhis2/ui's label
+                                    // associates with no control at all and
+                                    // a screen reader announces an
+                                    // unlabelled text box.
+                                    name="note"
                                     label={i18n.t('Note (optional)')}
                                     value={note}
                                     onChange={({ value }) =>

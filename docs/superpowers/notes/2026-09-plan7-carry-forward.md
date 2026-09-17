@@ -1,5 +1,20 @@
 # Carried forward from Plan 7: found, recorded, not fixed
 
+
+> ## Status after the Plan 9 cleanup pass
+>
+> **Closed:** §1 (the e2e cleanup net — see
+> `2026-09-plan5-carry-forward.md` §2); §4's stale Chromium path, which now
+> resolves an installed browser instead of naming one; §4's unassociated
+> `InputField` labels, which now pass `name`. §4's `agent-gsi-p2-40` Kambia
+> conflict is no longer a loose end: the cleanup net deliberately preserves
+> it, and says so in code.
+>
+> **Still open:** §2 and §3 are closed by Plan 8 (noted there). §4's
+> uncommitted `lastupdated-probe.js`, the non-neutral `write-shapes.js`
+> restore, and the `pg_stat_database` measurement caveat all stand as
+> records for a future measurement rather than work items.
+
 Plan 7 (fixing — spec §6 then §5) is complete. All eight tasks landed. This
 note records what was found along the way and deliberately left, plus the
 items from earlier plans that are still open after it.

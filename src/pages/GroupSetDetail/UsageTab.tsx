@@ -20,10 +20,19 @@ const headlineFavouritesLabel = (count: number) =>
               count: count.toLocaleString(),
           })
 
+/**
+ * "Recorded uses", not "views". The view counts every `datastatisticsevent`
+ * row for a favourite's uid with no `eventtype` filter -- which is what spec
+ * §3.2 defines the column as, but is broader than viewing, since that table
+ * also records creating and updating a favourite. The wording is what moved
+ * rather than the SQL: the view is installed by code, so a changed query
+ * would silently leave every instance that already installed it reporting
+ * the old numbers under new wording, which is worse than either.
+ */
 const viewsLabel = (count: number) =>
     count === 1
-        ? i18n.t('1 view in the last 12 months')
-        : interpolate(i18n.t('{count} views in the last 12 months'), {
+        ? i18n.t('1 recorded use in the last 12 months')
+        : interpolate(i18n.t('{count} recorded uses in the last 12 months'), {
               count: count.toLocaleString(),
           })
 

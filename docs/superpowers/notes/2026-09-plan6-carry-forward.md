@@ -1,5 +1,21 @@
 # Carried forward from Plan 6: found, recorded, not fixed
 
+
+> ## Status after the Plan 9 cleanup pass
+>
+> **Closed:** §1's `useUsage` `error`/`status` asymmetry (`error` is now
+> derived behind the same `view` guard); §1's `views_12m` wording, by moving
+> the wording rather than the SQL — the Usage tab now says "recorded uses"
+> rather than "views", because the view is installed by code and a changed
+> query would silently leave every existing install reporting old numbers
+> under new wording; §4's missing `byLeastUsed` comment; §4's
+> `parseUsageListGrid` `at()` comment.
+>
+> **Still open:** §1's `sqlViewData` key-prefix claim (correct today, a trap
+> for whoever adds a second SQL-view-backed query), §2's bridge-row evidence
+> gap, §3's test gaps, and the remainder of §4. §5 and §7 are records, not
+> work items.
+
 Plan 6 (group set usage, spec §3) is complete. Every item below was found
 during it by a task review or the final whole-branch review, confirmed, and
 deliberately left — each was triaged as not worth blocking handover for. The

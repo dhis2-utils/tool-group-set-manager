@@ -37,6 +37,14 @@ export function metadataAge(loadedAt: number, now: number): MetadataAge {
     return { label: stale ? staleLabel(elapsed) : freshLabel(elapsed), stale }
 }
 
+/**
+ * At the current ten-minute TTL the hour and day branches below are
+ * unreachable -- anything that old is stale by definition, so `staleLabel`
+ * handles it -- exactly as `staleLabel`'s own sub-minute branches are.
+ * Both halves stay complete so either function remains total if the TTL
+ * moves; the asymmetry was documented only in the test file, which is not
+ * where someone reading this function will look for it.
+ */
 function freshLabel(elapsed: number): string {
     if (elapsed < MINUTE) {
         return i18n.t('Metadata from just now')

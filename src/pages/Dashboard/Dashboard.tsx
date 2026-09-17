@@ -132,6 +132,11 @@ export const Dashboard = () => {
     const byLeastUsed = (a: DashboardEntry, b: DashboardEntry) => {
         const applicable = (e: DashboardEntry) =>
             usageApplies(e.set.objectType)
+        // Defensive, not reachable: this component renders one section per
+        // ObjectType and never sorts a mixed-type array, so the two sides
+        // always agree. Kept so the comparator stays total if a caller ever
+        // does sort across types -- and commented so the next reader does
+        // not spend the same minutes proving it unreachable.
         if (applicable(a) !== applicable(b)) {
             return applicable(a) ? -1 : 1
         }

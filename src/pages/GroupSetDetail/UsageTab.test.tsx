@@ -47,7 +47,7 @@ describe('UsageTab', () => {
             screen.getByText('42 favourites reference this group set')
         ).toBeInTheDocument()
         expect(
-            screen.getByText('100 views in the last 12 months')
+            screen.getByText('100 recorded uses in the last 12 months')
         ).toBeInTheDocument()
     })
 

@@ -1,5 +1,25 @@
 # Carried forward from Plan 3: what was found and deliberately not fixed
 
+
+> ## Status after the Plan 9 cleanup pass — all four items closed
+>
+> Each was verified closed in the code rather than assumed:
+>
+> - **`ObjectsTable`'s per-row assign never triggers a reload** — fixed. The
+>   control now raises a success alert and the row reflects the write;
+>   `ObjectsTable.tsx`'s own comments cite the old "a successful write looks
+>   exactly like a failure" behaviour as the thing they fixed.
+> - **Bulk apply extrapolates to 8-12 minutes** — superseded. Plans 7 and 8
+>   replaced the sequential-batch write for large changes with a JSON Patch
+>   replace, measured at 23.0s and 19.2s for 91,892 memberships in two
+>   requests (`2026-09-plan8-json-patch.md`).
+> - **`#/history` briefly renders "This group set no longer exists"** — fixed.
+>   `History.tsx` gates that state on `groupSetsLoaded`, with a separate
+>   tooltip for the load-failed case.
+> - **`@types/node`** — already resolved in Plan 4; see the section at the end.
+> - **LOW: no regression coverage for the integrity tab or text search** —
+>   closed. `e2e/flows.spec.ts` now drives both as flows of their own.
+
 Plan 3's final review (Task 11, the app-review pass) confirmed these as real
 defects, each independently spotted by at least two agents across the plan's
 tasks. None was fixed within Plan 3 — fixing any of them was out of scope for

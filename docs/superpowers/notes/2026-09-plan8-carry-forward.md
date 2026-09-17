@@ -1,5 +1,26 @@
 # Carried forward from the metadata freshness work: found, recorded, not fixed
 
+
+> ## Status after the Plan 9 cleanup pass
+>
+> **Closed:** both §1 items (JSON Patch rejection behaviour proven and the
+> response body now consumed; the freshness check now has a deadline); §2's
+> `FilterBar` `status` test gap and its `cache: 'no-store'`/re-read URL gap,
+> both now pinned by tests. §2's `patchChange` key-order item is **obsolete**
+> — it described a field read that the JSON Patch switch removed, so there is
+> no longer any key order to protect.
+>
+> **Closed in §3:** the stale Chromium path; the sub-threshold double-click
+> (the in-flight ref is now set before every branch, and lifts when the write
+> settles, with a test that fails without it); `freshLabel`'s unreachable-
+> branch asymmetry, now documented in the source and not only the test; the
+> unscoped e2e Refresh locator.
+>
+> **Still open:** §2's mixed patch-plus-batch `onProgress` gap; §3's
+> `BulkFixDialog.tsx` size, the `MetadataFreshness` tick while `loadedAt` is
+> null, the order-sensitive `JSON.stringify` comparison (fails safe), and the
+> `writeMemberships` `batchSize` coupling that no test would catch.
+
 The metadata freshness branch (spec
 `2026-09-16-metadata-freshness-design.md`) is complete. Every item below was
 found during it by a task review or the final whole-branch review, confirmed,

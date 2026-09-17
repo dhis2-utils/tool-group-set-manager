@@ -717,6 +717,14 @@ export const BulkFixDialog = ({
                 // nothing happened.
                 setApplyError(e instanceof Error ? e.message : String(e))
             })
+            .finally(() => {
+                // The in-flight guard covers check-then-write as one unit,
+                // so it lifts when the write settles -- not when the check
+                // did. Without this a sub-threshold apply would leave it
+                // set forever and Back-then-Apply would silently do
+                // nothing.
+                checkInFlightRef.current = false
+            })
     }
 
     /**
@@ -724,10 +732,12 @@ export const BulkFixDialog = ({
      * the current reference point: the previewed `plan` the first time
      * through, or -- fix round 2, finding 1 -- the just-recomputed
      * `recheck.recomputed` when the user re-confirms. Both callers (
-     * `handleApply` and `handleReconfirmApply`) set `checkInFlightRef`
-     * synchronously, before calling this, so the guard is in place before
-     * this function's first `await` regardless of which of them is
-     * running.
+     * `handleApply` and `handleReconfirmApply`) *read* `checkInFlightRef`
+     * before calling this, and this function *sets* it synchronously below,
+     * before its first `await` and before any branch -- so the guard is in
+     * place for the second of two clicks in one tick regardless of which
+     * caller is running, and regardless of whether the plan needs a check
+     * at all.
      *
      * The property this restores: a JSON Patch is never built from
      * membership read before an unbounded user pause. The re-confirmation's
@@ -742,6 +752,13 @@ export const BulkFixDialog = ({
     const runFreshnessCheck = async (referencePlan: AssignmentPlan) => {
         setApplyError(null)
         setCheckError(null)
+        // Before every branch below, including the sub-threshold one that
+        // writes without checking anything. Set only on the check path, two
+        // clicks in one synchronous tick both reached `performWrite` on a
+        // plan that needed no check -- one user intent, two writes, two
+        // History rows. Cleared by the `!client` bail below, by this
+        // function's own `finally`, and when the write settles.
+        checkInFlightRef.current = true
         // Synchronous by construction (spec 5.1's own scoping rule): whether
         // any group in this plan takes the patch route is knowable from
         // the plan already in hand, with no read of anything. Deciding it
@@ -762,6 +779,7 @@ export const BulkFixDialog = ({
             // would apply decisions the user made against data that was
             // never re-verified, with no signal that the check never ran.
             setCheckError(i18n.t('The metadata could not be checked'))
+            checkInFlightRef.current = false
             return
         }
         // Fix round 1, finding 1: set *before* the read starts, not after
@@ -769,7 +787,6 @@ export const BulkFixDialog = ({
         // and Cancel/Back/Apply/the modal's own close affordance all read
         // this flag. Setting it after the `await` left a real window where
         // all four were still enabled through the entire read.
-        checkInFlightRef.current = true
         setCheckingFreshness(true)
         const generation = ++checkGenerationRef.current
         const isCurrent = () => checkGenerationRef.current === generation
@@ -1199,6 +1216,10 @@ export const BulkFixDialog = ({
                                     <NoticeBox error>{csvError}</NoticeBox>
                                 )}
                                 <InputField
+                                    // See the catch-all name fields above:
+                                    // without `name` the label associates
+                                    // with nothing.
+                                    name="note"
                                     label={i18n.t(
                                         'Note for History (optional)'
                                     )}

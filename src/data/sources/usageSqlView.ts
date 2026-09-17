@@ -164,7 +164,10 @@ export function parseUsageListGrid(body: UsageListGrid): UsageRow[] {
             )
         }
     })
-    const at = (row: unknown[], column: string) => row[index.get(column) as number]
+    // The cast is safe only because every REQUIRED_COLUMNS entry is validated
+// present in `index` immediately above; `at` is never called with anything
+// else.
+const at = (row: unknown[], column: string) => row[index.get(column) as number]
     return body.listGrid.rows.map((row) => {
         const groupSetType = String(at(row, 'groupset_type'))
         const favouriteType = String(at(row, 'favourite_type'))

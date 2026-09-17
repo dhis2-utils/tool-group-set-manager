@@ -11,6 +11,38 @@ describe('FilterBar', () => {
         )
         expect(screen.getByText('a field')).toBeInTheDocument()
     })
+
+    // Carried forward from Plan 8: `status` is the one shared, two-consumer
+    // thing that work added (Dashboard and GroupSetDetail both pass it), and
+    // `MetadataFreshness.test.tsx` renders that component standalone -- so
+    // nothing exercised the two together anywhere but the e2e flow.
+    it('renders a status slot alongside its children, outside the field row', () => {
+        const { container } = render(
+            <FilterBar status={<span>Metadata from just now</span>}>
+                <span>a field</span>
+            </FilterBar>
+        )
+        expect(screen.getByText('a field')).toBeInTheDocument()
+        expect(screen.getByText('Metadata from just now')).toBeInTheDocument()
+        // Not inside the row: the row is the label-above controls, and the
+        // status deliberately sits outside them (see FilterBar.tsx).
+        const row = container.querySelector('[data-test="filter-bar"] > div')
+        expect(row).not.toBeNull()
+        expect(row).toHaveTextContent('a field')
+        expect(row).not.toHaveTextContent('Metadata from just now')
+    })
+
+    it('renders no status container at all when given none', () => {
+        const { container } = render(
+            <FilterBar>
+                <span>a field</span>
+            </FilterBar>
+        )
+        // One child, not an empty second div -- `status &&` guards it.
+        expect(
+            container.querySelectorAll('[data-test="filter-bar"] > div')
+        ).toHaveLength(1)
+    })
 })
 
 describe('FilterBarField', () => {

@@ -639,7 +639,11 @@ test.describe('Group Set Integrity Tool', () => {
             timeout: 20_000,
         })
 
-        await root.getByRole('button', { name: 'Refresh' }).click()
+        // Scoped to the filter bar, like the age assertions either side of
+        // it: "Refresh" is the only button with that name in `src/` today,
+        // so an unscoped locator works by luck rather than by construction.
+        const refresh = freshness.getByRole('button', { name: 'Refresh' })
+        await refresh.click()
         // The load runs again: the button is disabled while it does, and the
         // age line comes back afterwards. Asserting the disabled beat, not
         // only the re-enabled one, is what actually proves the click did
@@ -648,12 +652,8 @@ test.describe('Group Set Integrity Tool', () => {
         // nor the age text would ever have differed from their state
         // before the click (`MetadataFreshness.tsx`'s own `busy` state is
         // what this disables against).
-        await expect(root.getByRole('button', { name: 'Refresh' })).toBeDisabled({
-            timeout: 5_000,
-        })
-        await expect(root.getByRole('button', { name: 'Refresh' })).toBeEnabled({
-            timeout: 30_000,
-        })
+        await expect(refresh).toBeDisabled({ timeout: 5_000 })
+        await expect(refresh).toBeEnabled({ timeout: 30_000 })
         await expect(freshness.getByText(/^Metadata from /)).toBeVisible()
     })
 

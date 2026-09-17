@@ -1,4 +1,66 @@
-import { defineConfig, devices } from '@playwright/test'
+import { existsSync, readdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { chromium, defineConfig, devices } from '@playwright/test'
+
+/**
+ * Which Chromium to launch.
+ *
+ * This has cost time in three separate plans, so it resolves rather than
+ * assumes. A hardcoded path embeds a browser revision and a platform triple
+ * and goes stale the moment either moves -- the old default named
+ * `chromium-1243/chrome-linux-arm64` on an image shipping
+ * `chromium-1234/chrome-linux`, and every run failed at launch until
+ * `PLAYWRIGHT_CHROME_PATH` was exported.
+ *
+ * `chromium.executablePath()` alone does not fix that, which is worth
+ * stating because it looks like it should: it reports the revision the
+ * installed `@playwright/test` *wants*, which in this sandbox is exactly
+ * the 1243 that is not there. It is right whenever the package and the
+ * browsers were installed together, and wrong in precisely the case that
+ * keeps biting.
+ *
+ * So: the env var wins if set, then the package's own answer if that
+ * actually exists on disk, and failing both, any Chromium build sitting
+ * beside it in the shared browser directory. Returning undefined lets
+ * Playwright use its own default and report its own error, which is a
+ * better failure than a path this file invented.
+ */
+function resolveChromePath(): string | undefined {
+    const fromEnv = process.env.PLAYWRIGHT_CHROME_PATH
+    if (fromEnv) {
+        return fromEnv
+    }
+    const fromPackage = chromium.executablePath()
+    if (existsSync(fromPackage)) {
+        return fromPackage
+    }
+    // .../<browsers root>/chromium-<rev>/<platform>/chrome -- three levels
+    // up, not two: the platform directory sits between the revision and the
+    // binary.
+    const browsersRoot = dirname(dirname(dirname(fromPackage)))
+    if (!existsSync(browsersRoot)) {
+        return undefined
+    }
+    for (const entry of readdirSync(browsersRoot)) {
+        // `chromium_headless_shell-*` sorts adjacent to these and is not a
+        // full browser, so match the prefix exactly.
+        if (!entry.startsWith('chromium-')) {
+            continue
+        }
+        for (const platform of [
+            'chrome-linux',
+            'chrome-linux-arm64',
+            'chrome-mac',
+            'chrome-win',
+        ]) {
+            const candidate = join(browsersRoot, entry, platform, 'chrome')
+            if (existsSync(candidate)) {
+                return candidate
+            }
+        }
+    }
+    return undefined
+}
 
 /**
  * Runs the built app installed on two live DHIS2 instances (task-9-brief.md):
@@ -38,16 +100,11 @@ export default defineConfig({
         // The sandbox's egress firewall does not reach the host Playwright's
         // own installer downloads browsers from
         // (playwright.download.prss.microsoft.com), so `playwright install`
-        // cannot fetch anything not already on disk. The exact revision
-        // `@playwright/test`'s default project wants (chrome-headless-shell)
-        // is missing, but the full chromium binary for the same revision is
-        // already present at this path -- pointing at it directly avoids
-        // the download entirely. `PLAYWRIGHT_CHROME_PATH` overrides this for
-        // any other machine (or CI) where that path does not exist.
+        // cannot fetch anything not already on disk -- which is why this
+        // resolves an existing browser rather than expecting a matching one
+        // to be fetchable. See `resolveChromePath` above.
         launchOptions: {
-            executablePath:
-                process.env.PLAYWRIGHT_CHROME_PATH ??
-                '/opt/playwright-browsers/chromium-1243/chrome-linux-arm64/chrome',
+            executablePath: resolveChromePath(),
         },
     },
     projects: [
