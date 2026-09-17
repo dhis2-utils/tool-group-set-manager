@@ -195,7 +195,6 @@ export function parseUsageListGrid(body: UsageListGrid): UsageRow[] {
 export interface FavouriteTypeUsage {
     favouriteType: FavouriteType
     favourites: number
-    views12m: number
 }
 
 export interface SetUsage {
@@ -223,7 +222,6 @@ export function usageByGroupSet(rows: UsageRow[]): Map<string, SetUsage> {
         existing.byFavouriteType.push({
             favouriteType: row.favouriteType,
             favourites: row.favourites,
-            views12m: row.views12m,
         })
         byId.set(row.groupSetId, existing)
     })
@@ -234,11 +232,19 @@ export function usageByGroupSet(rows: UsageRow[]): Map<string, SetUsage> {
 }
 
 /**
- * Indicator group sets are not analytics dimensions -- there is no
- * `indicatorgroupsetdimension` table on any supported version (measured on
- * 2.43.1) -- so they can never appear in the view's result. Surfaces ask
- * this rather than rendering a zero that reads as a finding.
+ * The object types whose group sets can be analytics dimensions. Written
+ * as an allow list, not "not indicator": `ObjectType` is a closed union
+ * today, and a fifth member added later must fail here loudly rather than
+ * silently count as having usage. Indicator group sets are excluded because
+ * there is no `indicatorgroupsetdimension` table on any supported version
+ * (measured on 2.43.1).
  */
+const USAGE_OBJECT_TYPES: ReadonlyArray<ObjectType> = [
+    'organisationUnit',
+    'dataElement',
+    'categoryOption',
+]
+
 export function usageApplies(objectType: ObjectType): boolean {
-    return objectType !== 'indicator'
+    return USAGE_OBJECT_TYPES.includes(objectType)
 }

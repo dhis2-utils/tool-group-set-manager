@@ -101,11 +101,11 @@ describe('usageByGroupSet', () => {
     })
 
     it('orders the breakdown by favourites, largest first', () => {
-        expect(
-            usageByGroupSet(rows)
-                .get('a')
-                ?.byFavouriteType.map((f) => f.favouriteType)
-        ).toEqual(['visualization', 'eventVisualization', 'map'])
+        expect(usageByGroupSet(rows).get('a')?.byFavouriteType).toEqual([
+            { favouriteType: 'visualization', favourites: 37 },
+            { favouriteType: 'eventVisualization', favourites: 4 },
+            { favouriteType: 'map', favourites: 1 },
+        ])
     })
 
     it('has no entry for a group set no favourite references', () => {
@@ -122,6 +122,15 @@ describe('usageApplies', () => {
         expect(usageApplies('organisationUnit')).toBe(true)
         expect(usageApplies('dataElement')).toBe(true)
         expect(usageApplies('categoryOption')).toBe(true)
+    })
+
+    it.each([
+        ['organisationUnit', true],
+        ['dataElement', true],
+        ['categoryOption', true],
+        ['indicator', false],
+    ] as const)('%s -> %s', (objectType, expected) => {
+        expect(usageApplies(objectType)).toBe(expected)
     })
 })
 

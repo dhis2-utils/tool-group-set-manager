@@ -407,14 +407,11 @@ describe('Settings — group set usage', () => {
     beforeEach(() => {
         mockCheckUsage.mockResolvedValue({
             id: null,
-            type: undefined,
-            readable: false,
             usable: false,
         })
         mockInstallUsage.mockResolvedValue({
             installed: true,
             variant: 'eventvisualization',
-            id: 'new1',
             failures: [],
         })
         mockRemoveUsage.mockResolvedValue(undefined)
@@ -491,7 +488,6 @@ describe('Settings — group set usage', () => {
         mockInstallUsage.mockResolvedValue({
             installed: false,
             variant: null,
-            id: null,
             failures: [{ variant: 'eventvisualization', message: 'HTTP 409' }],
         })
         renderSettings({ canManage: true })
@@ -513,8 +509,6 @@ describe('Settings — group set usage', () => {
     it('offers removal once the view is usable, and removes it', async () => {
         mockCheckUsage.mockResolvedValue({
             id: 'v1',
-            type: 'VIEW',
-            readable: true,
             usable: true,
         })
         renderSettings({ canManage: true })
@@ -539,8 +533,6 @@ describe('Settings — group set usage', () => {
     it('shows neither Missing nor Usable while the check is still pending, and Missing once it resolves', async () => {
         let resolveCheck: (value: {
             id: string | null
-            type: string | undefined
-            readable: boolean
             usable: boolean
         }) => void = () => undefined
         mockCheckUsage.mockReturnValue(
@@ -555,8 +547,6 @@ describe('Settings — group set usage', () => {
 
         resolveCheck({
             id: null,
-            type: undefined,
-            readable: false,
             usable: false,
         })
         expect(await screen.findByText('Missing')).toBeInTheDocument()
@@ -569,8 +559,6 @@ describe('Settings — group set usage', () => {
     it('leaves the remove button and the view row on screen when removal fails, reporting the error alongside them', async () => {
         mockCheckUsage.mockResolvedValue({
             id: 'v1',
-            type: 'VIEW',
-            readable: true,
             usable: true,
         })
         mockRemoveUsage.mockRejectedValue(new Error('HTTP 403'))
@@ -602,14 +590,10 @@ describe('Settings — group set usage', () => {
         mockCheckUsage
             .mockResolvedValueOnce({
                 id: null,
-                type: undefined,
-                readable: false,
                 usable: false,
             })
             .mockResolvedValueOnce({
                 id: 'v2',
-                type: 'VIEW',
-                readable: true,
                 usable: true,
             })
         mockInstallUsage.mockRejectedValueOnce(new Error('boom'))
@@ -641,8 +625,6 @@ describe('Settings — group set usage', () => {
 
         mockCheckUsage.mockResolvedValue({
             id: null,
-            type: undefined,
-            readable: false,
             usable: false,
         })
         fireEvent.click(screen.getByRole('button', { name: /try again/i }))
@@ -656,14 +638,11 @@ describe('Settings — group set usage', () => {
     it('names an existing-view repair failure without the query-variant wording', async () => {
         mockCheckUsage.mockResolvedValue({
             id: 'v1',
-            type: 'VIEW',
-            readable: false,
             usable: false,
         })
         mockInstallUsage.mockResolvedValue({
             installed: false,
             variant: null,
-            id: 'v1',
             failures: [{ variant: 'existing', message: 'HTTP 500' }],
         })
         renderSettings({ canManage: true })

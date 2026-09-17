@@ -16,9 +16,7 @@ interface SqlViewRow {
 
 export interface UsageViewCheck {
     id: string | null
-    type: string | undefined
-    readable: boolean
-    /** exists, is a VIEW/QUERY, and a real read of its data just succeeded */
+    /** exists, is a VIEW/QUERY, is readable, and a real read just succeeded */
     usable: boolean
 }
 
@@ -57,8 +55,6 @@ export async function checkUsageView(
     )
     return {
         id: view?.id ?? null,
-        type: view?.type,
-        readable,
         usable:
             metadataUsable && view
                 ? await probeReadable(fetcher, view.id)
@@ -70,7 +66,6 @@ export interface InstallUsageResult {
     installed: boolean
     /** which candidate body took; null when none did */
     variant: string | null
-    id: string | null
     failures: { variant: string; message: string }[]
 }
 
@@ -155,14 +150,12 @@ export async function installUsageView(
             return {
                 installed: true,
                 variant: null,
-                id: check.id,
                 failures,
             }
         } catch (e) {
             return {
                 installed: false,
                 variant: null,
-                id: check.id,
                 failures: [
                     {
                         variant: 'existing',
@@ -179,7 +172,7 @@ export async function installUsageView(
             id = await createView(fetcher, candidate)
             await executeView(fetcher, id)
             await readOrThrow(fetcher, id)
-            return { installed: true, variant: candidate.variant, id, failures }
+            return { installed: true, variant: candidate.variant, failures }
         } catch (e) {
             if (id) {
                 await fetcher(`sqlViews/${id}`, { method: 'DELETE' }).catch(
@@ -193,7 +186,7 @@ export async function installUsageView(
         }
     }
 
-    return { installed: false, variant: null, id: null, failures }
+    return { installed: false, variant: null, failures }
 }
 
 export async function removeUsageView(

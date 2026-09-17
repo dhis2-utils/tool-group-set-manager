@@ -20,8 +20,6 @@ describe('checkUsageView', () => {
         ) as unknown as Fetcher
         await expect(checkUsageView(fetcher)).resolves.toEqual({
             id: null,
-            type: undefined,
-            readable: false,
             usable: false,
         })
     })
@@ -82,9 +80,8 @@ describe('checkUsageView', () => {
                   })
                 : failed(500)
         ) as unknown as Fetcher
-        await expect(checkUsageView(fetcher)).resolves.toMatchObject({
+        await expect(checkUsageView(fetcher)).resolves.toEqual({
             id: 'v1',
-            readable: true,
             usable: false,
         })
     })
@@ -121,14 +118,11 @@ describe('installUsageView', () => {
         }) as unknown as Fetcher
         const result = await installUsageView(fetcher, {
             id: null,
-            type: undefined,
-            readable: false,
             usable: false,
         })
         expect(result).toMatchObject({
             installed: true,
             variant: USAGE_SQL_CANDIDATES[0].variant,
-            id: 'new1',
             failures: [],
         })
         expect(calls.map((c) => c.path)).toEqual([
@@ -153,8 +147,6 @@ describe('installUsageView', () => {
         }) as unknown as Fetcher
         await installUsageView(fetcher, {
             id: null,
-            type: undefined,
-            readable: false,
             usable: false,
         })
         expect(body).toMatchObject({ cacheStrategy: 'NO_CACHE' })
@@ -180,7 +172,7 @@ describe('installUsageView', () => {
         ]
         const result = await installUsageView(
             fetcher,
-            { id: null, type: undefined, readable: false, usable: false },
+            { id: null, usable: false },
             candidates
         )
         expect(calls).toContain('DELETE sqlViews/new1')
@@ -197,12 +189,9 @@ describe('installUsageView', () => {
         ) as unknown as Fetcher
         const result = await installUsageView(fetcher, {
             id: null,
-            type: undefined,
-            readable: false,
             usable: false,
         })
         expect(result.installed).toBe(false)
-        expect(result.id).toBeNull()
         expect(result.failures).toHaveLength(USAGE_SQL_CANDIDATES.length)
     })
 
@@ -214,15 +203,13 @@ describe('installUsageView', () => {
         }) as unknown as Fetcher
         const result = await installUsageView(fetcher, {
             id: 'old1',
-            type: 'VIEW',
-            readable: true,
             usable: false,
         })
         expect(calls).toEqual([
             'POST sqlViews/old1/execute',
             'GET sqlViews/old1/data.json?pageSize=1',
         ])
-        expect(result).toMatchObject({ installed: true, id: 'old1' })
+        expect(result).toMatchObject({ installed: true })
     })
 })
 
