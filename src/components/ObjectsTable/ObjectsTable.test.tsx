@@ -70,7 +70,13 @@ interface FakeResult {
  * `useState`/`useEffect` calls inside it.
  */
 function createControllableEngineQuery() {
-    const resolvers = new Map<string, (result: unknown) => void>()
+    const resolvers = new Map<
+        string,
+        {
+            resolve: (result: unknown) => void
+            reject: (message: string) => void
+        }
+    >()
     // The real hook re-runs its effect when the engine's load phase or type
     // changes, re-issuing the *identical* request; `rerun()` below is that
     // (src/hooks/useEngineQuery.ts's status?.phase/status?.type deps).
@@ -95,7 +101,8 @@ function createControllableEngineQuery() {
             data: unknown
             settledKey: string | null
             isLoading: boolean
-        }>({ data: undefined, settledKey: null, isLoading: true })
+            error: string | null
+        }>({ data: undefined, settledKey: null, isLoading: true, error: null })
         React.useEffect(() => {
             // Mirrors the real hook: disabled means no request at all, not
             // a request that never settles. `resolveParents` relies on this
@@ -107,18 +114,32 @@ function createControllableEngineQuery() {
             let cancelled = false
             setState((s) => ({ ...s, isLoading: true }))
             requests.push({ method, key })
-            const promise = new Promise<unknown>((resolve) => {
-                resolvers.set(key, resolve)
+            new Promise<unknown>((resolve, reject) => {
+                resolvers.set(key, {
+                    resolve,
+                    reject: (message) => reject(new Error(message)),
+                })
             })
-            promise.then((result) => {
-                if (!cancelled) {
-                    setState({
-                        data: result,
-                        settledKey: key,
-                        isLoading: false,
-                    })
-                }
-            })
+                .then((result) => {
+                    if (!cancelled) {
+                        setState({
+                            data: result,
+                            settledKey: key,
+                            isLoading: false,
+                            error: null,
+                        })
+                    }
+                })
+                .catch((e: Error) => {
+                    if (!cancelled) {
+                        setState({
+                            data: undefined,
+                            settledKey: key,
+                            isLoading: false,
+                            error: e.message,
+                        })
+                    }
+                })
             return () => {
                 cancelled = true
             }
@@ -129,19 +150,35 @@ function createControllableEngineQuery() {
         // consumer, even for the one render between a key change and that
         // key's own request effect running -- the exact race that folded a
         // stale filter's page into a freshly reset list.
+        // Mirrors the real hook: refetch bumps a per-instance counter the
+        // request effect depends on.
+        const refetch = () => setEpoch((e) => e + 1)
         return state.settledKey === key
-            ? { data: state.data, isLoading: state.isLoading, error: null }
-            : { data: undefined, isLoading: enabled, error: null }
+            ? {
+                  data: state.data,
+                  isLoading: state.isLoading,
+                  error: state.error,
+                  refetch,
+              }
+            : { data: undefined, isLoading: enabled, error: null, refetch }
     }
     // The offset is stamped on from the request itself, exactly as the store
     // echoes back the offset it was asked for.
     const resolve = (args: unknown[], result: Omit<FakeResult, 'offset'>) => {
         const key = JSON.stringify(args)
-        const resolver = resolvers.get(key)
-        if (!resolver) {
+        const entry = resolvers.get(key)
+        if (!entry) {
             throw new Error(`no pending request for ${key}`)
         }
-        resolver({ ...result, offset: args[3] as number })
+        entry.resolve({ ...result, offset: args[3] as number })
+    }
+    const reject = (args: unknown[], message: string) => {
+        const key = JSON.stringify(args)
+        const entry = resolvers.get(key)
+        if (!entry) {
+            throw new Error(`no pending request for ${key}`)
+        }
+        entry.reject(message)
     }
     // The component now waits for a page's `resolveParents` call to land
     // alongside the page itself (D1/D3 -- see ObjectsTable's append
@@ -157,16 +194,16 @@ function createControllableEngineQuery() {
         parents: unknown[] = items.map(() => null)
     ) => {
         const key = JSON.stringify([set.objectType, items.map((i) => i.index)])
-        const resolver = resolvers.get(key)
-        if (!resolver) {
+        const entry = resolvers.get(key)
+        if (!entry) {
             throw new Error(`no pending resolveParents request for ${key}`)
         }
-        resolver(parents)
+        entry.resolve(parents)
     }
     const rerun = () => {
         epochSetters.forEach((set) => set((e) => e + 1))
     }
-    return { useFakeQuery, resolve, resolveParentsFor, rerun, requests }
+    return { useFakeQuery, resolve, reject, resolveParentsFor, rerun, requests }
 }
 
 // Calls for the given method only -- the component now also calls
@@ -347,6 +384,81 @@ it('pages by offset and appends, never re-requesting the rows it already has', a
     })
     await waitFor(() => expect(screen.getByText('Item 0')).toBeInTheDocument())
     expect(pageRequests()).toEqual(['0/200', '200/200', '400/200'])
+})
+
+it('keeps the rows already loaded when a later page fails, and Try again re-requests that page', async () => {
+    const { useFakeQuery, resolve, reject, resolveParentsFor, requests } =
+        createControllableEngineQuery()
+    mockUseEngineQuery.mockImplementation(useFakeQuery)
+
+    render(<ObjectsTable set={set} scope={scope} filter={{}} />)
+    const firstPageArgs = lastCallArgs()
+    const firstPageItems = makeItems(200)
+    await act(async () => {
+        resolve(firstPageArgs, { total: 1000, items: firstPageItems })
+    })
+    await act(async () => {
+        resolveParentsFor(firstPageItems)
+    })
+
+    const scrollEl = getScrollEl()
+    act(() => {
+        scrollEl.scrollTop = 6000
+        fireEvent.scroll(scrollEl)
+    })
+    await waitFor(() => expect(lastCallArgs()[3]).toBe(200))
+    const secondPageArgs = lastCallArgs()
+    await act(async () => {
+        reject(secondPageArgs, 'worker went away')
+    })
+
+    // The first page is still there, and the failure is named beside it
+    // rather than replacing it.
+    act(() => {
+        scrollEl.scrollTop = 0
+        fireEvent.scroll(scrollEl)
+    })
+    await waitFor(() => expect(screen.getByText('Item 0')).toBeInTheDocument())
+    expect(screen.getByText('worker went away')).toBeInTheDocument()
+
+    const objectsRequests = () =>
+        requests.filter((r) => r.method === 'objectsFor').length
+    const before = objectsRequests()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(objectsRequests()).toBe(before + 1))
+
+    const secondPageItems = makeItems(200, { offset: 200 })
+    await act(async () => {
+        resolve(secondPageArgs, { total: 1000, items: secondPageItems })
+    })
+    await act(async () => {
+        resolveParentsFor(secondPageItems)
+    })
+    expect(screen.queryByText('worker went away')).not.toBeInTheDocument()
+    act(() => {
+        scrollEl.scrollTop = 13000
+        fireEvent.scroll(scrollEl)
+    })
+    await waitFor(() =>
+        expect(screen.getByText('Item 380')).toBeInTheDocument()
+    )
+})
+
+it('offers Try again in place of the loader when the very first page fails', async () => {
+    const { useFakeQuery, reject, requests } = createControllableEngineQuery()
+    mockUseEngineQuery.mockImplementation(useFakeQuery)
+    render(<ObjectsTable set={set} scope={scope} filter={{}} />)
+    await act(async () => {
+        reject(lastCallArgs(), 'worker went away')
+    })
+    expect(screen.getByText('worker went away')).toBeInTheDocument()
+    expect(screen.queryByTestId('objects-table-scroll')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() =>
+        expect(requests.filter((r) => r.method === 'objectsFor')).toHaveLength(
+            2
+        )
+    )
 })
 
 it('sends a text filter to the engine and renders a match that was never loaded before', async () => {

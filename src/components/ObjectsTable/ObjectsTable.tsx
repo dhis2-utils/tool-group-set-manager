@@ -438,7 +438,7 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
     // change re-runs it) and its cleanup sets a `cancelled` flag the
     // in-flight promise checks before calling `setState` -- see
     // src/hooks/useEngineQuery.ts.
-    const { data, isLoading, error } = useEngineQuery<ObjectsResult>(
+    const { data, isLoading, error, refetch } = useEngineQuery<ObjectsResult>(
         'objectsFor',
         [set.id, scope, filter, current.offset, PAGE]
     )
@@ -538,11 +538,24 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
         )
     }, [requestNextPage, filterKey])
 
-    if (error) {
-        return <NoticeBox error>{error}</NoticeBox>
-    }
+    // A failed page names itself beside the rows already on screen rather
+    // than replacing them -- losing two thousand loaded rows to one failed
+    // request is the worse outcome -- and offers the one honest next step,
+    // asking the engine again. Distinct from the deliberate no-retry on a
+    // rejected write in handleConfirm above: a read that failed changed
+    // nothing, so repeating it is safe.
+    const errorNotice = error ? (
+        <NoticeBox error title={i18n.t('Could not load this page of objects')}>
+            {error}
+            <div>
+                <Button small onClick={refetch}>
+                    {i18n.t('Try again')}
+                </Button>
+            </div>
+        </NoticeBox>
+    ) : null
     if (current.total === null) {
-        return <CircularLoader small />
+        return errorNotice ?? <CircularLoader small />
     }
     // Org unit rows: Name / Parent / Level / Status / Group. Flat types
     // have no hierarchy at all, so just Name / Status / Group.
@@ -555,6 +568,7 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
                 {objectsCountLabel(current.total)}
                 {isLoading && ` · ${i18n.t('Loading more rows…')}`}
             </p>
+            {errorNotice}
             <div className={styles.head} style={gridStyle}>
                 <span>{i18n.t('Name')}</span>
                 {isOrgUnit && <span>{i18n.t('Parent')}</span>}

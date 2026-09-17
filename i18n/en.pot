@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-17T05:57:16.224Z\n"
-"PO-Revision-Date: 2026-09-17T05:57:16.225Z\n"
+"POT-Creation-Date: 2026-09-17T09:14:43.873Z\n"
+"PO-Revision-Date: 2026-09-17T09:14:43.873Z\n"
 
 msgid "1 object"
 msgstr "1 object"
@@ -424,6 +424,12 @@ msgid ""
 msgstr ""
 "The result could not be confirmed — the change may have reached the server. "
 "Reload and check History to see what happened. ({message})"
+
+msgid "Could not load this page of objects"
+msgstr "Could not load this page of objects"
+
+msgid "Try again"
+msgstr "Try again"
 
 msgid "Loading more rows…"
 msgstr "Loading more rows…"
@@ -982,9 +988,6 @@ msgstr "SQL views"
 
 msgid "Could not check SQL view status"
 msgstr "Could not check SQL view status"
-
-msgid "Try again"
-msgstr "Try again"
 
 msgid "Usable"
 msgstr "Usable"

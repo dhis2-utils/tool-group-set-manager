@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useEngine } from './useEngine'
 import { EngineMethod } from '@/engine/protocol'
 
@@ -6,6 +6,12 @@ interface EngineQueryState<T> {
     data: T | undefined
     isLoading: boolean
     error: string | null
+    /**
+     * Re-issues the same call. Only meaningful after an error -- a
+     * successful result is already re-requested by the effect whenever the
+     * engine's load phase or the arguments change, so nothing else needs it.
+     */
+    refetch: () => void
 }
 
 /**
@@ -21,7 +27,7 @@ interface EngineQueryState<T> {
  * there is nothing left for a caller to check. If a consumer ever does need
  * to distinguish, widen the return type then, with this comment attached.
  */
-interface QueryState<T> extends EngineQueryState<T> {
+interface QueryState<T> extends Omit<EngineQueryState<T>, 'refetch'> {
     settledKey: string | null
 }
 
@@ -56,6 +62,8 @@ export function useEngineQuery<T>(
     // on presence instead of identity still reacts to the one transition
     // that matters (no client -> a client) without being sensitive to that.
     const hasClient = client !== null
+    const [attempt, setAttempt] = useState(0)
+    const refetch = useCallback(() => setAttempt((a) => a + 1), [])
 
     useEffect(() => {
         // Guard on the client rather than assert it away: it is genuinely
@@ -110,6 +118,7 @@ export function useEngineQuery<T>(
         // `client` is deliberately omitted in favour of `hasClient` -- see
         // the comment on its declaration above. `queryKey` covers both
         // `method` and `argsKey`, which are listed anyway for the linter.
+        // `attempt` is bumped by refetch() and nothing else.
     }, [
         hasClient,
         method,
@@ -118,6 +127,7 @@ export function useEngineQuery<T>(
         enabled,
         status?.phase,
         status?.type,
+        attempt,
     ])
 
     // A result belongs to the arguments it was asked for, and that is
@@ -144,12 +154,14 @@ export function useEngineQuery<T>(
                       data: state.data,
                       isLoading: state.isLoading,
                       error: state.error,
+                      refetch,
                   }
                 : {
                       data: undefined,
                       isLoading: enabled,
                       error: null,
+                      refetch,
                   },
-        [state, queryKey, enabled]
+        [state, queryKey, enabled, refetch]
     )
 }

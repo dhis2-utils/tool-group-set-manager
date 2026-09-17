@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { useEngineQuery } from './useEngineQuery'
 
@@ -90,5 +90,34 @@ it('keeps the current data when only the engine load phase changes', async () =>
     rerender(<Probe x={1} />)
     expect(data()).toHaveTextContent('result:["organisationUnit",1]')
     expect(screen.getByTestId('state')).toHaveTextContent('loading')
+    expect(mockCall).toHaveBeenCalledTimes(2)
+})
+
+it('refetch re-issues the same call after a failure and clears the error once it succeeds', async () => {
+    mockCall.mockRejectedValueOnce(new Error('worker went away'))
+    const RetryProbe = () => {
+        const { data, error, refetch } = useEngineQuery<string>('indexOf', [
+            'organisationUnit',
+            7,
+        ])
+        return (
+            <div>
+                <div data-test="error">{error ?? 'no-error'}</div>
+                <div data-test="data">{data ?? 'no-data'}</div>
+                <button onClick={refetch}>retry</button>
+            </div>
+        )
+    }
+    render(<RetryProbe />)
+    await waitFor(() =>
+        expect(screen.getByTestId('error')).toHaveTextContent(
+            'worker went away'
+        )
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'retry' }))
+    await waitFor(() =>
+        expect(data()).toHaveTextContent('result:["organisationUnit",7]')
+    )
+    expect(screen.getByTestId('error')).toHaveTextContent('no-error')
     expect(mockCall).toHaveBeenCalledTimes(2)
 })
