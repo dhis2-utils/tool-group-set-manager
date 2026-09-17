@@ -91,6 +91,18 @@ This needs an actual breadcrumb component wired into the bar's
 scope/level state, not a one-line patch, so it does not meet the
 under-an-hour, test-covered bar for a same-branch fix.
 
+**Closed 2026-09-17.** A `ScopeTrail` in the filter bar now records the
+scopes this page drilled out of, and clicking one returns to it. It is the
+path actually walked in this visit, not the unit's ancestry: each crumb
+carries the row level that scope was showing when it was left, so going
+back restores the level as well as the scope, and an ancestry-derived
+breadcrumb could do neither. A scope change the trail did not make -- the
+organisation unit tree, or a restored session -- clears it, because a path
+back through units the user has since left would be a lie. Crumbs are
+identified by position rather than by id or name, since two organisation
+units may share a display name and the same unit may legitimately appear
+twice in one path.
+
 ### Check 27: removing the names view drops the whole SQL view path, not only names
 
 **What:** design spec §8a claims that removing `GSI_ORGUNIT_NAMES`

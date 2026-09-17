@@ -139,11 +139,20 @@ const mockScope: {
     rootName: 'Root',
     rootLevel: null,
 }
-// Task 6: a spy rather than a stateful mock -- GroupSetDetail's own
-// `setRowLevel` (real React state) is what the drill-down test observes
-// through the Rows field re-rendering; this only pins what `setRoot` is
-// called with.
-const mockSetRoot = jest.fn()
+// Task 6: a spy, which Plan 10's follow-up also made stateful -- the scope
+// trail (MR §4.3) only behaves like the real thing if the scope actually
+// moves when the page asks it to, since the page clears the trail whenever
+// the scope changes to somewhere the trail did not send it. Everything the
+// original spy pinned still holds: the call arguments are what the
+// drill-down tests assert on, and GroupSetDetail's own `setRowLevel` (real
+// React state) is still what re-renders the Rows field.
+const mockSetRoot = jest.fn(
+    (id: string, name: string, level: number | null) => {
+        mockScope.rootId = id
+        mockScope.rootName = name
+        mockScope.rootLevel = level
+    }
+)
 jest.mock('@/hooks/useScope', () => ({
     useScope: () => ({ ...mockScope, setRoot: mockSetRoot }),
 }))
@@ -712,6 +721,127 @@ describe('drilling into a matrix row (Task 6)', () => {
             await screen.findByText('Chiefdom (level 3)')
         ).toBeInTheDocument()
         expect(screen.queryByText('District (level 2)')).not.toBeInTheDocument()
+    })
+
+    // MR §4.3: "the bar's breadcrumb is the way back". Plan 10's
+    // multi-version review found there was none on any of the four
+    // supported versions -- the only route back to the parent scope was
+    // reopening the organisation unit tree and reselecting it by hand.
+    it('offers no way back before anything has been drilled into', async () => {
+        mockScope.rootLevel = 1
+        renderDetail({ objectType: 'organisationUnit' })
+        await screen.findByText('District (level 2)')
+        expect(screen.queryByTestId('scope-trail')).not.toBeInTheDocument()
+    })
+
+    it('puts the scope you drilled out of in the bar, and goes back to it with its own row level', async () => {
+        mockScope.rootLevel = 1
+        mockEngine.client = {
+            call: async (method: string) => {
+                if (method === 'matrixFor') {
+                    return {
+                        groups: [
+                            { id: 'g1', displayName: 'G1', canWrite: true },
+                        ],
+                        rows: [
+                            {
+                                object: 1,
+                                row: {
+                                    index: 1,
+                                    id: 'ou-badjia',
+                                    displayName: 'Badjia',
+                                    level: 2,
+                                    parentId: 'root1',
+                                },
+                                perGroup: [5],
+                                missing: 0,
+                                unassigned: 0,
+                                conflict: 0,
+                                total: 5,
+                            },
+                        ],
+                    }
+                }
+                return null
+            },
+        }
+        renderDetail({ objectType: 'organisationUnit' })
+        await screen.findByText('District (level 2)')
+
+        fireEvent.click(await screen.findByRole('button', { name: 'Badjia' }))
+        await screen.findByText('Chiefdom (level 3)')
+
+        // The scope left behind is now the way back, and the one you are in
+        // is not offered as one.
+        const back = await screen.findByRole('button', { name: 'Root' })
+        mockSetRoot.mockClear()
+        fireEvent.click(back)
+
+        // Both halves of the drill are undone: the scope and the row level
+        // it was showing when it was left.
+        expect(mockSetRoot).toHaveBeenCalledWith('root1', 'Root', 1)
+        expect(
+            await screen.findByText('District (level 2)')
+        ).toBeInTheDocument()
+        // Arriving back at the top means there is nowhere further back.
+        await waitFor(() =>
+            expect(screen.queryByTestId('scope-trail')).not.toBeInTheDocument()
+        )
+    })
+
+    it('forgets the trail when the scope moves somewhere the trail did not send it', async () => {
+        mockScope.rootLevel = 1
+        mockEngine.client = {
+            call: async (method: string) => {
+                if (method === 'matrixFor') {
+                    return {
+                        groups: [
+                            { id: 'g1', displayName: 'G1', canWrite: true },
+                        ],
+                        rows: [
+                            {
+                                object: 1,
+                                row: {
+                                    index: 1,
+                                    id: 'ou-badjia',
+                                    displayName: 'Badjia',
+                                    level: 2,
+                                    parentId: 'root1',
+                                },
+                                perGroup: [5],
+                                missing: 0,
+                                unassigned: 0,
+                                conflict: 0,
+                                total: 5,
+                            },
+                        ],
+                    }
+                }
+                return null
+            },
+        }
+        const { rerender } = renderDetail({ objectType: 'organisationUnit' })
+        await screen.findByText('District (level 2)')
+        fireEvent.click(await screen.findByRole('button', { name: 'Badjia' }))
+        expect(await screen.findByTestId('scope-trail')).toBeInTheDocument()
+
+        // What the organisation unit tree in the bar does: it moves the
+        // scope on its own, to somewhere this page never walked. A path back
+        // through units the user has since left would be a lie.
+        mockScope.rootId = 'somewhere-else'
+        mockScope.rootName = 'Somewhere else'
+        mockScope.rootLevel = 1
+        rerender(
+            <MemoryRouter initialEntries={['/sets/own']}>
+                <Routes>
+                    <Route path="/sets/:setId" element={<GroupSetDetail />} />
+                </Routes>
+            </MemoryRouter>
+        )
+
+        await waitFor(() =>
+            expect(screen.queryByTestId('scope-trail')).not.toBeInTheDocument()
+        )
     })
 
     it('drills to the next level that exists, not to the current level plus one', async () => {

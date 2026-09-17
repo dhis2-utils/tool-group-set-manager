@@ -7,7 +7,7 @@ import {
     TabBar,
     Tag,
 } from '@dhis2/ui'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import styles from './GroupSetDetail.module.css'
 import { IntegrityTab } from './IntegrityTab'
@@ -19,6 +19,7 @@ import { FilterBar, FilterBarField } from '@/components/FilterBar/FilterBar'
 import { OrgUnitField } from '@/components/FilterBar/OrgUnitField'
 import { LoadProgress } from '@/components/LoadProgress/LoadProgress'
 import { MetadataFreshness } from '@/components/MetadataFreshness/MetadataFreshness'
+import { ScopeCrumb, ScopeTrail } from '@/components/ScopeTrail/ScopeTrail'
 import { SetPropertiesDialog } from '@/components/SetPropertiesDialog/SetPropertiesDialog'
 import { MatrixColumn } from '@/components/SummaryMatrix/SummaryMatrix'
 import { ObjectFilter } from '@/engine/queries'
@@ -46,7 +47,7 @@ export const GroupSetDetail = () => {
     const { setId = '' } = useParams()
     const location = useLocation()
     const { groupSets, reload, status } = useEngine()
-    const { rootId, rootLevel, setRoot } = useScope()
+    const { rootId, rootName, rootLevel, setRoot } = useScope()
     const integrity = useIntegrity()
     const { roots } = useUserScope()
     const set = groupSets.find((s) => s.id === setId)
@@ -78,6 +79,27 @@ export const GroupSetDetail = () => {
     // I4: spec 3.5's "Set properties" action. The dialog itself does the
     // confirm-then-report work; this only decides when it is on screen.
     const [propertiesOpen, setPropertiesOpen] = useState(false)
+    // MR §4.3's "way back" from a drill-down: the scopes this page has
+    // drilled through, oldest first, each with the row level it was showing
+    // when the user left it. Page state rather than scope state, because it
+    // is the history of one visit, not part of the selection the rest of the
+    // app shares -- and it holds a row level, which `useScope` has no
+    // business knowing about.
+    const [trail, setTrail] = useState<
+        (ScopeCrumb & { level: number | null; rowLevel: number })[]
+    >([])
+    // A scope change this page did not make -- the organisation unit tree in
+    // the bar, or a restored session -- lands the user somewhere the trail
+    // does not lead, so the trail is no longer a path back from anywhere.
+    // Drilling and jumping both set this ref first, so only outside changes
+    // clear it.
+    const scopeFromTrailRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (scopeFromTrailRef.current !== rootId) {
+            scopeFromTrailRef.current = null
+            setTrail((current) => (current.length === 0 ? current : []))
+        }
+    }, [rootId])
 
     // The scope's own level, needed so the row level list starts *below* the
     // scope and the matrix cannot key rows on org units outside it. The
@@ -229,10 +251,41 @@ export const GroupSetDetail = () => {
     const onDrillDown =
         set.objectType === 'organisationUnit' && nextRowLevel !== undefined
             ? (row: ObjectRef) => {
+                  // Remember where we were before moving, so the trail in
+                  // the bar can put the user back on the scope *and* the row
+                  // level they left -- returning to a parent scope showing a
+                  // different row level than it had would be a second,
+                  // unasked-for change.
+                  if (rootId !== null) {
+                      setTrail((current) => [
+                          ...current,
+                          {
+                              id: rootId,
+                              name: rootName || rootId,
+                              level: rootLevel,
+                              rowLevel: effectiveRowLevel,
+                          },
+                      ])
+                  }
+                  scopeFromTrailRef.current = row.id
                   setRoot(row.id, row.displayName ?? row.id, effectiveRowLevel)
                   setRowLevel(nextRowLevel)
               }
             : undefined
+
+    // Jumping to a crumb drops it and everything after it: the trail is the
+    // path still ahead of you, so arriving at a scope means you are no
+    // longer below it.
+    const onJumpToCrumb = (index: number) => {
+        const crumb = trail[index]
+        if (!crumb) {
+            return
+        }
+        scopeFromTrailRef.current = crumb.id
+        setTrail((current) => current.slice(0, index))
+        setRoot(crumb.id, crumb.name, crumb.level)
+        setRowLevel(crumb.rowLevel)
+    }
 
     return (
         <div className={styles.page}>
@@ -244,6 +297,15 @@ export const GroupSetDetail = () => {
                     />
                 }
             >
+                {set.objectType === 'organisationUnit' && (
+                    <ScopeTrail
+                        trail={trail}
+                        currentName={
+                            rootName || i18n.t('All organisation units')
+                        }
+                        onJump={onJumpToCrumb}
+                    />
+                )}
                 {set.objectType === 'organisationUnit' && <OrgUnitField />}
                 {set.objectType === 'organisationUnit' &&
                     tab === 'overview' &&

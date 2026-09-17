@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-17T15:44:49.774Z\n"
-"PO-Revision-Date: 2026-09-17T15:44:49.775Z\n"
+"POT-Creation-Date: 2026-09-17T15:55:34.960Z\n"
+"PO-Revision-Date: 2026-09-17T15:55:34.960Z\n"
 
 msgid "Move to catch-all group"
 msgstr "Move to catch-all group"
@@ -462,6 +462,9 @@ msgstr ""
 msgid "Assign"
 msgstr "Assign"
 
+msgid "Scope trail"
+msgstr "Scope trail"
+
 msgid ""
 "Compulsory on — every object in scope must be in exactly one group of this "
 "set, so objects in no group become errors"
@@ -702,6 +705,9 @@ msgstr "Includes organisation units above the {level} level"
 
 msgid "Dashboard"
 msgstr "Dashboard"
+
+msgid "All organisation units"
+msgstr "All organisation units"
 
 msgid "Rows"
 msgstr "Rows"

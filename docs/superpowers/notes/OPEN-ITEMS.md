@@ -33,21 +33,11 @@ history. Nothing below is a half-finished plan.
 Plan 10's multi-version review (manual-review spec §10) drove the app
 through 2.40.12, 2.41.10, 2.42.6 and 2.43.1, each against its own,
 differently shaped database, and found four things the app or its specs
-get wrong. They are being worked through in a follow-up branch; what is
-still listed here is what that branch has not closed yet, and the closed
-ones are below with the commit that closed each. Full checklist and
-evidence: `docs/superpowers/notes/2026-09-plan10-multiversion-review.md`.
+get wrong. All four are now closed -- three in code, one as a spec
+correction -- and are listed below with the commit that closed each; the
+review note carries the evidence and a "Closed" paragraph beside each
+finding. What remains open is one thing this repo cannot close by itself.
 
-- **No breadcrumb back from an Overview drill-down (check 11).** The
-  manual-review spec §4.3 says explicitly that "the bar's breadcrumb is
-  the way back" after a row-label click moves the scope and level down a
-  level. There is none: `grep -rn breadcrumb src/` finds nothing, run
-  independently on all four legs. The only way back is reopening the
-  organisation unit tree modal and reselecting the parent. Identical on
-  every version and database (A 2.40.12, B 2.41.10 EMIS, C 2.42.6, D
-  2.43.1). Needs an actual breadcrumb component wired to the bar's
-  scope/level state, not a one-line patch. — multi-version review, check
-  11.
 - **`@dhis2/ui`'s `DataTableColumnHeader` `align` prop is a silent
   no-op, and the upstream report is not yet filed.** Confirmed present
   in the latest published `@dhis2/ui` (10.17.0, this app's installed
@@ -90,6 +80,15 @@ evidence: `docs/superpowers/notes/2026-09-plan10-multiversion-review.md`.
 Each entry names the commit that closed it. The reasoning stays in
 `2026-09-plan10-multiversion-review.md`, where each finding now carries a
 "Closed" paragraph beside the evidence that raised it.
+
+- **No breadcrumb back from a drill-down** -- closed with a `ScopeTrail`
+  in the filter bar (`src/components/ScopeTrail/`), which records the
+  scopes the page drilled out of and returns to one on click, restoring
+  the row level that scope was showing as well as the scope itself. It is
+  the path walked in this visit rather than the unit's ancestry, and it
+  clears itself when the scope moves somewhere the trail did not send it
+  (the organisation unit tree, a restored session). --
+  "Give the drill-down a way back"
 
 - **Removing `GSI_ORGUNIT_NAMES` dropped the whole SQL view path** --
   closed by making the names view optional. `findSqlViews` now requires
