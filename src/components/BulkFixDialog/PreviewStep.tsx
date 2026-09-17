@@ -74,10 +74,10 @@ export const PreviewStep: React.FC<PreviewStepProps> = ({
         )}
         {/* Fix round 1, finding 2: the check itself failed
             (or, finding 3, there was no engine client to run
-            it against) -- distinct from `applyError` below,
-            which only ever renders on the apply step and
-            means the opposite (a write happened but could
-            not be confirmed). Nothing was written here. */}
+            it against) -- distinct from `applyError` in
+            ApplyStep.tsx, which only ever renders on the apply
+            step and means the opposite (a write happened but
+            could not be confirmed). Nothing was written here. */}
         {checkError === CHECK_TIMEOUT && !checkingFreshness && (
             <NoticeBox
                 error
@@ -188,9 +188,9 @@ export const PreviewStep: React.FC<PreviewStepProps> = ({
                 </ButtonStrip>
                 {csvError && <NoticeBox error>{csvError}</NoticeBox>}
                 <InputField
-                    // See the catch-all name fields above:
-                    // without `name` the label associates
-                    // with nothing.
+                    // See the catch-all name fields in
+                    // ActionStep.tsx: without `name` the label
+                    // associates with nothing.
                     name="note"
                     label={i18n.t('Note for History (optional)')}
                     value={note}

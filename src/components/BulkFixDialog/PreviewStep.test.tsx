@@ -56,12 +56,26 @@ it('shows the previewed and recalculated counts when the plan changed underneath
     render(
         <PreviewStep
             {...base}
-            recheck={{ previewed: 5, recomputed: { ...plan, affected: 4 } }}
+            recheck={{
+                previewed: 517,
+                recomputed: { ...plan, affected: 42 },
+            }}
         />
     )
     expect(
         screen.getByText('The metadata changed while you were reviewing')
     ).toBeInTheDocument()
-    expect(screen.getByText('5')).toBeInTheDocument()
-    expect(screen.getByText(/4/)).toBeInTheDocument()
+    // Distinct, unswappable values (not '5'/'4', which both still pass if
+    // the two counts are swapped), each asserted through its own label so
+    // the test fails if `previewed` and `recomputed.affected` are mixed up.
+    expect(
+        screen.getByText(
+            (_, element) => element?.textContent === 'Previewed: 517'
+        )
+    ).toBeInTheDocument()
+    expect(
+        screen.getByText(
+            (_, element) => element?.textContent === 'Will now change: 42'
+        )
+    ).toBeInTheDocument()
 })

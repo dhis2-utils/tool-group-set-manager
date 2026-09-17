@@ -114,16 +114,6 @@ describe('usageByGroupSet', () => {
 })
 
 describe('usageApplies', () => {
-    it('is false for indicators, which are not an analytics dimension', () => {
-        expect(usageApplies('indicator')).toBe(false)
-    })
-
-    it('is true for the three types the view covers', () => {
-        expect(usageApplies('organisationUnit')).toBe(true)
-        expect(usageApplies('dataElement')).toBe(true)
-        expect(usageApplies('categoryOption')).toBe(true)
-    })
-
     it.each([
         ['organisationUnit', true],
         ['dataElement', true],

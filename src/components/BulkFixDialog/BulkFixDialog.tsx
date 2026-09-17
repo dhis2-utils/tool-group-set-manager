@@ -65,7 +65,8 @@ interface Props {
      * result (D5) -- the caller's own view of the set (`set.groups` is a
      * prop this dialog cannot refresh on its own) should refresh from it,
      * since a "move to catch-all" apply can confirm a group this dialog
-     * only knew about locally (`createdGroup` above).
+     * only knew about locally (`createdGroup`, tracked in
+     * useCatchAllCreation.ts).
      */
     onApplied: (result: MembershipWriteResult) => void
 }
@@ -459,9 +460,10 @@ export const BulkFixDialog = ({
         action === 'moveToCatchAll' ? 'move' : 'assign'
 
     // I6: the result panel's group-name lookup needs the same merged list
-    // `targetOptions` already builds -- a freshly created catch-all group
-    // is not yet part of `set.groups` (see the comment on `createdGroup`
-    // above), so without this a result naming it renders the raw UID.
+    // `targetOptions` (in ActionStep.tsx) already builds -- a freshly
+    // created catch-all group is not yet part of `set.groups` (see the
+    // comment on `createdGroup` in useCatchAllCreation.ts), so without
+    // this a result naming it renders the raw UID.
     const allGroups = [
         ...set.groups,
         ...(catchAll.createdGroup &&
@@ -794,6 +796,14 @@ export const BulkFixDialog = ({
                         checkingFreshness={checkingFreshness}
                         checkError={checkError}
                         recheck={recheck}
+                        // Deliberately `set.groups`, not `allGroups`: a
+                        // catch-all group created in this dialog session is
+                        // not part of it yet, so a preview naming that
+                        // group renders its raw UID rather than its name.
+                        // Do not "fix" this to `allGroups` -- ApplyStep
+                        // gets that below because its result names a group
+                        // that may already have been created by the time
+                        // it renders; the preview never can.
                         groups={set.groups}
                         previewObjects={previewObjects}
                         csvBusy={csvBusy}
@@ -810,6 +820,12 @@ export const BulkFixDialog = ({
                         writeResult={writeResult}
                         mergedOutcomes={mergedOutcomes}
                         applyError={applyError}
+                        // Deliberately `allGroups` (set.groups plus a
+                        // just-created catch-all), not `set.groups` as
+                        // PreviewStep gets above: by apply time the write
+                        // may have created the catch-all group this result
+                        // names, and this panel should show it by name, not
+                        // as a raw UID. See I6 above.
                         groups={allGroups}
                     />
                 )}

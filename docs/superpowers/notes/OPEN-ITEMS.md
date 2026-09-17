@@ -169,11 +169,11 @@ branch. Full checklist and evidence:
   "Namespace the usage query keys and let Settings refresh them without
   reading"
 - Computed-but-unconsumed usage fields (`UsageViewCheck.readable` and
-  `.type`, `InstallUsageResult.id`, `UsageRow.groupSetType`,
-  `FavouriteTypeUsage.views12m`), `usageApplies` written as "not
-  indicator" rather than an allow-list, and `GroupSetCard.module.css`'s
-  `.usage`/`.meta` CSS duplication. — b2a2e3a, "Drop the usage fields
-  nothing reads, and allow-list the types usage applies to"
+  `.type`, `InstallUsageResult.id`, `FavouriteTypeUsage.views12m`),
+  `usageApplies` written as "not indicator" rather than an allow-list,
+  and `GroupSetCard.module.css`'s `.usage`/`.meta` CSS duplication. —
+  b2a2e3a, "Drop the usage fields nothing reads, and allow-list the
+  types usage applies to"
 - The Settings usage section duplicated the SQL views section's
   four-state check/busy/error machine. — 25798e0, "Run both Settings
   admin sections on one check-and-act state machine"

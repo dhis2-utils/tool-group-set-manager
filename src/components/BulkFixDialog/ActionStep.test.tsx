@@ -2,29 +2,56 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
 import { ActionStep } from './ActionStep'
 
-const catchAll = {
-    names: {
-        displayName: 'Other/unknown Ownership',
-        shortName: 'Other Ownership',
-    },
-    setNames: jest.fn(),
-    nameTooLong: false,
-    namesValid: true,
-    creating: false,
-    error: null,
-    createdGroup: null,
-    create: jest.fn(),
+// Rebuilt fresh for every test (not a module-level fixture shared across
+// them): the `jest.fn()`s inside must not carry call counts from one test
+// into the next, or a `toHaveBeenCalledTimes` assertion only passes by
+// luck of how many tests before it happened to click.
+let catchAll: {
+    names: { displayName: string; shortName: string }
+    setNames: jest.Mock
+    nameTooLong: boolean
+    namesValid: boolean
+    creating: boolean
+    error: string | null
+    createdGroup: { id: string; displayName: string } | null
+    create: jest.Mock
 }
-const base = {
-    action: 'moveToCatchAll' as const,
-    onAction: jest.fn(),
-    configLoaded: true,
-    targetGroupId: '',
-    onTargetChange: jest.fn(),
-    targetGroups: [{ id: 'g1', displayName: 'Group one' }],
-    showCreateOffer: false,
-    catchAll,
+let base: {
+    action: 'moveToCatchAll'
+    onAction: jest.Mock
+    configLoaded: boolean
+    targetGroupId: string
+    onTargetChange: jest.Mock
+    targetGroups: { id: string; displayName: string }[]
+    showCreateOffer: boolean
+    catchAll: typeof catchAll
 }
+
+beforeEach(() => {
+    catchAll = {
+        names: {
+            displayName: 'Other/unknown Ownership',
+            shortName: 'Other Ownership',
+        },
+        setNames: jest.fn(),
+        nameTooLong: false,
+        namesValid: true,
+        creating: false,
+        error: null,
+        createdGroup: null,
+        create: jest.fn(),
+    }
+    base = {
+        action: 'moveToCatchAll',
+        onAction: jest.fn(),
+        configLoaded: true,
+        targetGroupId: '',
+        onTargetChange: jest.fn(),
+        targetGroups: [{ id: 'g1', displayName: 'Group one' }],
+        showCreateOffer: false,
+        catchAll,
+    }
+})
 
 it('labels the target as the catch-all group or the target group by action', () => {
     const { rerender } = render(<ActionStep {...base} />)
