@@ -106,7 +106,9 @@ export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
                 onClick={onOpen}
                 onKeyDown={activate}
             >
-                <div className={styles.name}>{set.displayName}</div>
+                <div className={styles.name} data-test="group-set-card-name">
+                    {set.displayName}
+                </div>
                 <div className={styles.badges}>
                     {set.compulsory && (
                         <Tag positive>{i18n.t('Compulsory')}</Tag>

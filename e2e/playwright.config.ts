@@ -110,6 +110,7 @@ export default defineConfig({
     projects: [
         {
             name: '2.43.1',
+            testMatch: 'flows.spec.ts',
             use: {
                 ...devices['Desktop Chrome'],
                 baseURL: 'http://dhis2-agent-gsi-p2:8080',
@@ -117,6 +118,7 @@ export default defineConfig({
         },
         {
             name: '2.40.12',
+            testMatch: 'flows.spec.ts',
             use: {
                 ...devices['Desktop Chrome'],
                 baseURL: 'http://dhis2-agent-gsi-p2-40:8080',
@@ -136,6 +138,7 @@ export default defineConfig({
         // broker cannot afford four DHIS2 instances at once.
         {
             name: '2.41',
+            testMatch: 'flows.spec.ts',
             use: {
                 ...devices['Desktop Chrome'],
                 baseURL: 'http://dhis2-agent-gsi-p8-41:8080',
@@ -143,9 +146,20 @@ export default defineConfig({
         },
         {
             name: '2.42',
+            testMatch: 'flows.spec.ts',
             use: {
                 ...devices['Desktop Chrome'],
                 baseURL: 'http://dhis2-agent-gsi-p8-42:8080',
+            },
+        },
+        // Read-only, seed-agnostic flows for any instance -- the EMIS leg of
+        // the multi-version review, which flows.spec.ts cannot run against.
+        {
+            name: 'smoke',
+            testMatch: 'smoke.spec.ts',
+            use: {
+                ...devices['Desktop Chrome'],
+                baseURL: process.env.GSI_E2E_BASE_URL,
             },
         },
     ],
