@@ -1,0 +1,67 @@
+import { render, screen } from '@testing-library/react'
+import React from 'react'
+import { CHECK_TIMEOUT } from './constants'
+import { PreviewStep } from './PreviewStep'
+
+const plan = { changes: [], affected: 3, skippedCount: 0, skippedSample: [] }
+const base = {
+    action: 'moveToCatchAll' as const,
+    filterText: undefined,
+    plan,
+    planLoading: false,
+    planError: null,
+    checkingFreshness: false,
+    checkError: null,
+    recheck: null,
+    groups: [],
+    previewObjects: {
+        total: 3,
+        sample: [],
+        skippedCount: 0,
+        skippedSample: [],
+    },
+    csvBusy: false,
+    csvError: null,
+    onDownloadCsv: jest.fn(),
+    note: '',
+    onNoteChange: jest.fn(),
+}
+
+it('headlines the affected count', () => {
+    render(<PreviewStep {...base} />)
+    expect(screen.getByText('3 objects')).toBeInTheDocument()
+})
+
+it('shows the checking indicator while the freshness check runs', () => {
+    render(<PreviewStep {...base} checkingFreshness />)
+    expect(
+        screen.getByText('Checking the metadata is up to date…')
+    ).toBeInTheDocument()
+})
+
+it('distinguishes a timed-out check from any other check failure', () => {
+    const { rerender } = render(
+        <PreviewStep {...base} checkError={CHECK_TIMEOUT} />
+    )
+    expect(
+        screen.getByText('Checking the metadata took too long')
+    ).toBeInTheDocument()
+    rerender(<PreviewStep {...base} checkError="HTTP 502" />)
+    expect(
+        screen.getByText('The metadata could not be checked')
+    ).toBeInTheDocument()
+})
+
+it('shows the previewed and recalculated counts when the plan changed underneath', () => {
+    render(
+        <PreviewStep
+            {...base}
+            recheck={{ previewed: 5, recomputed: { ...plan, affected: 4 } }}
+        />
+    )
+    expect(
+        screen.getByText('The metadata changed while you were reviewing')
+    ).toBeInTheDocument()
+    expect(screen.getByText('5')).toBeInTheDocument()
+    expect(screen.getByText(/4/)).toBeInTheDocument()
+})
