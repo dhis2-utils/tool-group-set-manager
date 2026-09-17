@@ -12,8 +12,9 @@ export type UsageGroupSetType =
  * The three kinds of saved analytics object that can carry a group set as a
  * dimension. `eventVisualization` covers event reports, event charts and
  * line lists: `eventchart` and `eventreport` are legacy projections of the
- * same rows (measured on 2.43.1 -- every one of their uids is present in
- * `eventvisualization`, and their bridge rows add up to its own), so reading
+ * same rows (measured on 2.40.12, 2.41.10, 2.42.6 and 2.43.1 -- every one of
+ * their uids is present in `eventvisualization`, and their bridge rows add
+ * up to its own; `2026-09-plan6-usage-tables.md` §2 and §2b), so reading
  * them as well would double-count every event favourite.
  */
 export type FavouriteType = 'visualization' | 'map' | 'eventVisualization'

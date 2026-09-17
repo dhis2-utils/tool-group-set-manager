@@ -102,6 +102,35 @@ Identical to 2.43.1 on all three. `eventvisualization` is a strict superset
 of both legacy tables on every version tested — no version needed the
 legacy tables unioned in.
 
+## 2b. Do the legacy bridge rows add up to eventvisualization's? (Plan 10)
+
+§2 proved every `eventchart`/`eventreport` **uid** is present in
+`eventvisualization`. It did not compare the **bridge rows** -- the
+dimension links themselves -- which is the claim `usageSqlView.ts` actually
+rests on: a legacy chart whose group set link lived only in
+`eventchart_orgunitgroupsetdimensions` would be silently missed. Measured
+with `scripts/probe/bridge-rows.js` (throwaway QUERY views, deleted after):
+
+| Version | ec ou | er ou | ev ou | ec+er = ev | ec co | er co | ev co | ec+er = ev |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2.40.12 | 4 | 1 | 5 | yes | 0 | 3 | 3 | yes |
+| 2.41.10 | 4 | 1 | 5 | yes | 0 | 3 | 3 | yes |
+| 2.42.6 | 4 | 1 | 5 | yes | 0 | 3 | 3 | yes |
+| 2.43.1 | 4 | 1 | 5 | yes | 0 | 3 | 3 | yes |
+
+`ou` is `orgunitgroupsetdimensions`, `co` is
+`categoryoptiongroupsetdimensions`. Every version agrees, and the counts are
+identical across all four -- these are the same Sierra Leone demo rows
+carried forward by each release's migrations, so the tables are projections
+of one another rather than independently populated. Reading only the
+`eventvisualization` bridges therefore counts every event favourite exactly
+once on 2.40 through 2.43.
+
+Instances: `agent-gsi-p2-40` (2.40.12), `agent-gsi-p10-41` (2.41.10, seeded
+from `dhis2-db-sierra-leone_v41.sql.gz`), `agent-gsi-p10-42` (2.42.6, seeded
+from `dhis2-db-sierra-leone_v42.sql.gz`), `agent-gsi-p2` (2.43.1). The two
+`p10` instances were deleted after their runs.
+
 ## 3. Does `datastatisticsevent.favoriteuid` still name the map, not the mapview?
 
 Query: `MAP_VIEW` events joined to `map.uid` and to `mapview.uid`.
