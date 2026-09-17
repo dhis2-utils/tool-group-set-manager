@@ -1,7 +1,7 @@
 # Open items
 
 The single current index of everything known and not fixed. One line per
-item, pointing at the carry-forward note that holds the reasoning.
+item, pointing at the note or spec section that holds the reasoning.
 
 Written because the per-plan notes had grown to six files that each said
 "still open from earlier plans" about the others, and knowing the real state
@@ -12,8 +12,69 @@ net drifted through four plans before anyone closed it.
 worse than none, because it is trusted. When an item is closed, strike it
 here and in its own note in the same commit.
 
-Last reconciled against the code: the Plan 9 cleanup pass. Every item below
-was verified present at that point, not merely inherited from an older note.
+Covers three kinds of outstanding thing: scope the specs called for and was
+never built, verification the specs asked for that has not fully happened,
+and defects or gaps found and deliberately left.
+
+Last reconciled: the Plan 9 cleanup pass. Be precise about what that means,
+because the difference matters when you pick something up. The Plan 1 and
+Plan 5 entries, and the two spec items below, were **re-checked against the
+code and the specs** at that point. The Plan 6, 7 and 8 entries are
+**inherited from their own notes' triage**, written when that code was
+fresh; they were not independently re-verified. Nothing here is known stale
+-- but only the first group is known current.
+
+## The plans themselves are all executed
+
+Plans 1 through 7 and the metadata freshness plan
+(`docs/superpowers/plans/`) have all been carried out. **The checkboxes in
+those files are not a completion signal** -- no plan ever had one ticked,
+including the ones long finished, so a file full of `- [ ]` says nothing
+either way. Completion lives in each plan's carry-forward note and in git
+history. Nothing below is a half-finished plan.
+
+## Specified but not built
+
+One piece of specified scope was never built. It is a deliberate deferral,
+not an oversight -- both specs say so -- but nothing else in this file is
+scope, so it is easy to forget it exists at all.
+
+- **Organisation unit name translations in the names SQL view** (main spec
+  §9's one remaining open item, and §8a's divergence). The SQL view path
+  reads the raw `name` column; the metadata API path requests `displayName`,
+  which resolves the caller's locale against the object's translations. On an
+  instance with translated org unit names the two sources therefore show
+  different names for the same unit. Counts, statuses and every fix are
+  unaffected -- they key on ids -- and the app states which source it used,
+  so a user seeing untranslated names can explain them. The remedy available
+  today is to remove the `GSI_ORGUNIT_NAMES` view, which drops only names
+  back to the metadata API and keeps the hierarchy and membership views.
+  Closing it properly means answering a question first: can a caller's locale
+  be resolved inside SQL on 2.40 through 2.43? That is a spike, and only
+  becomes a plan if the answer is yes. — main spec §9, §8a; manual-review
+  spec §8
+
+## Verification the specs asked for, not fully done
+
+- **The §10 multi-version review.** The manual-review spec scoped one review
+  across 2.40 to 2.43 **against different databases**, to run once after
+  Plans 4-7 landed rather than four times against a moving target. Where it
+  actually stands:
+  - The **e2e half is done**: the full suite passes on 2.40.12, 2.41.10,
+    2.42.6 and 2.43.1 (`2026-09-plan8-multiversion-brief.md`), which it had
+    never done on the two middle versions before.
+  - The **"different databases" half is thin**: three of those four runs are
+    the same Sierra Leone seed at different versions. EMIS (266,396
+    organisation units) is the only genuinely different database, and only
+    the freshness feature was exercised there, manually -- `flows.spec.ts`
+    is pinned to Sierra Leone data throughout and cannot run against it.
+  - The **structured manual review** -- driving the screens the way the
+    original manual review did -- has not happened at all.
+  - Plan 8 stacked new scope on top after §10 was written, so its sweep
+    would now have to cover the freshness feature too.
+  - Whether a *second* manual review round is due is not something this repo
+    records; the source spec is named `manual-review-1`, which implies a
+    cadence the repo cannot see. — manual-review spec §10
 
 ## With teeth
 
