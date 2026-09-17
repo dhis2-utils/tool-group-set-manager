@@ -139,6 +139,38 @@ export async function saveCatchAllGroup(
     })
 }
 
+/**
+ * Removes one group set's catch-all entry, leaving every other set's alone.
+ *
+ * "No catch-all group" is the absence of the key, not an empty string
+ * stored under it: `loadConfig` merges this document over a `{}` default,
+ * every reader asks `config.catchAllGroup[setId]` and treats `undefined` as
+ * "not configured", and the bulk fix dialog then falls back to matching a
+ * group by name (`CATCH_ALL_NAME_PATTERN`). Writing `''` instead would make
+ * a cleared set look configured-with-nothing to code that only checks for
+ * presence, so a cleared set is byte-identical to one that was never set.
+ *
+ * A set with no entry writes nothing at all: the document is shared by
+ * every group set, and a no-op PUT would still be a chance to lose a
+ * concurrent editor's entry for no benefit.
+ */
+export async function clearCatchAllGroup(
+    fetcher: Fetcher,
+    setId: string
+): Promise<void> {
+    const current =
+        (await readCurrentForMerge<Record<string, string>>(
+            fetcher,
+            'config-catch-all'
+        )) ?? {}
+    if (!(setId in current)) {
+        return
+    }
+    const rest = { ...current }
+    delete rest[setId]
+    await writeDocument(fetcher, 'config-catch-all', rest)
+}
+
 export async function saveIncludeTracker(
     fetcher: Fetcher,
     value: boolean

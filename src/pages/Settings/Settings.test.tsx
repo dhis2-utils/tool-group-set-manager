@@ -48,6 +48,7 @@ jest.mock('@/hooks/useEngine', () => ({
 }))
 
 const mockSetCatchAllGroup = jest.fn(async () => undefined)
+const mockClearCatchAllGroup = jest.fn(async () => undefined)
 const mockSetIncludeTracker = jest.fn(async () => undefined)
 const mockGsiConfig: {
     config: {
@@ -56,11 +57,13 @@ const mockGsiConfig: {
     }
     isLoaded: boolean
     setCatchAllGroup: typeof mockSetCatchAllGroup
+    clearCatchAllGroup: typeof mockClearCatchAllGroup
     setIncludeTracker: typeof mockSetIncludeTracker
 } = {
     config: { catchAllGroup: {}, includeTracker: false },
     isLoaded: true,
     setCatchAllGroup: mockSetCatchAllGroup,
+    clearCatchAllGroup: mockClearCatchAllGroup,
     setIncludeTracker: mockSetIncludeTracker,
 }
 jest.mock('@/hooks/useGsiConfig', () => ({
@@ -141,6 +144,8 @@ beforeEach(() => {
     mockInstallUsage.mockReset()
     mockRemoveUsage.mockReset()
     mockUsageRefresh.mockReset()
+    mockSetCatchAllGroup.mockClear()
+    mockClearCatchAllGroup.mockClear()
     mockGsiConfig.config = {
         catchAllGroup: {},
         includeTracker: false,
@@ -711,5 +716,51 @@ describe('Settings — group set usage', () => {
         expect(
             screen.queryByText(/existing query variant/)
         ).not.toBeInTheDocument()
+    })
+})
+
+describe('catch-all group', () => {
+    it('offers no clear action for a set with no catch-all group', async () => {
+        renderSettings({ canManage: true })
+        await screen.findByText('Catch-all group')
+        expect(
+            screen.queryByRole('button', { name: 'Clear' })
+        ).not.toBeInTheDocument()
+    })
+
+    it('clears a configured catch-all group through the config hook', async () => {
+        mockGsiConfig.config = {
+            catchAllGroup: { own: 'g1' },
+            includeTracker: false,
+        }
+        renderSettings({ canManage: true })
+        await screen.findByText('Catch-all group')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+
+        await waitFor(() =>
+            expect(mockClearCatchAllGroup).toHaveBeenCalledWith('own')
+        )
+        // Never through setCatchAllGroup with an empty id: "not configured"
+        // is the absence of the entry, not a stored empty string.
+        expect(mockSetCatchAllGroup).not.toHaveBeenCalled()
+    })
+
+    it('reports a failed clear without wiping the shown selection', async () => {
+        mockGsiConfig.config = {
+            catchAllGroup: { own: 'g1' },
+            includeTracker: false,
+        }
+        mockClearCatchAllGroup.mockRejectedValueOnce(
+            new Error('dataStore unreachable')
+        )
+        renderSettings({ canManage: true })
+        await screen.findByText('Catch-all group')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+
+        expect(
+            await screen.findByText('Could not save the catch-all group')
+        ).toBeInTheDocument()
     })
 })

@@ -9,6 +9,7 @@ import React, {
 } from 'react'
 import { useEngine } from './useEngine'
 import {
+    clearCatchAllGroup as clearCatchAllGroupDocument,
     GsiConfig,
     loadConfig,
     saveCatchAllGroup,
@@ -21,6 +22,13 @@ interface GsiConfigContextValue {
     config: GsiConfig
     isLoaded: boolean
     setCatchAllGroup: (setId: string, groupId: string) => Promise<void>
+    /**
+     * Unsets one set's catch-all group. Deliberately not `setCatchAllGroup`
+     * with an empty id: "not configured" is the key's absence everywhere
+     * else in the app, and this keeps a cleared set indistinguishable from
+     * one nobody ever configured.
+     */
+    clearCatchAllGroup: (setId: string) => Promise<void>
     setIncludeTracker: (value: boolean) => Promise<void>
 }
 
@@ -106,6 +114,18 @@ export const GsiConfigProvider = ({
         [fetcher]
     )
 
+    const clearCatchAllGroup = useCallback(
+        async (setId: string) => {
+            await clearCatchAllGroupDocument(fetcher, setId)
+            setConfig((c) => {
+                const catchAllGroup = { ...c.catchAllGroup }
+                delete catchAllGroup[setId]
+                return { ...c, catchAllGroup }
+            })
+        },
+        [fetcher]
+    )
+
     const setIncludeTracker = useCallback(
         async (value: boolean) => {
             await saveIncludeTracker(fetcher, value)
@@ -119,9 +139,16 @@ export const GsiConfigProvider = ({
             config,
             isLoaded,
             setCatchAllGroup,
+            clearCatchAllGroup,
             setIncludeTracker,
         }),
-        [config, isLoaded, setCatchAllGroup, setIncludeTracker]
+        [
+            config,
+            isLoaded,
+            setCatchAllGroup,
+            clearCatchAllGroup,
+            setIncludeTracker,
+        ]
     )
 
     return (

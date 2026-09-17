@@ -159,6 +159,17 @@ Clearing a mapping needs a real UI affordance (a clear/unset action)
 plus a decision about what "no mapping" should mean the next time the
 app reads it, which is more than a small, test-covered patch.
 
+**Closed 2026-09-17.** Each row in Settings' catch-all section now carries
+a `Clear` button, shown only when that set has a mapping to clear.
+"No catch-all group" is the absence of the `config-catch-all` entry, not
+an empty string stored under it -- every reader already asks
+`config.catchAllGroup[setId]` and treats `undefined` as "not configured",
+so a cleared set is byte-identical to one nobody ever configured, and the
+bulk fix dialog falls back to matching a group by name exactly as it does
+on a fresh instance. `clearCatchAllGroup` reads the shared document
+before writing and refuses on anything but a 404, so clearing one set can
+never erase another's entry.
+
 ### No cancellable window on Apply (check 22)
 
 **What:** the freshness spec §5's check 22 describes a pre-write

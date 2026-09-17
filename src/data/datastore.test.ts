@@ -1,5 +1,6 @@
 import {
     canWriteDataStore,
+    clearCatchAllGroup,
     listChangeSets,
     loadConfig,
     NAMESPACE,
@@ -130,6 +131,48 @@ describe('saveCatchAllGroup', () => {
         expect(writes).toEqual([
             { other: 'other-group', own: 'catch-all-group' },
         ])
+    })
+
+    it("clearCatchAllGroup removes only that set's entry, leaving the others", async () => {
+        const writes: unknown[] = []
+        const fetcher = async (path: string, init?: RequestInit) => {
+            const method = init?.method ?? 'GET'
+            if (method === 'GET') {
+                return json({ other: 'other-group', own: 'catch-all-group' })
+            }
+            writes.push(JSON.parse(init?.body as string))
+            return json({}, 200)
+        }
+        await clearCatchAllGroup(fetcher, 'own')
+        expect(writes).toEqual([{ other: 'other-group' }])
+    })
+
+    it('clearCatchAllGroup writes nothing when the set has no entry to clear', async () => {
+        const writes: unknown[] = []
+        const fetcher = async (path: string, init?: RequestInit) => {
+            const method = init?.method ?? 'GET'
+            if (method === 'GET') {
+                return json({ other: 'other-group' })
+            }
+            writes.push(JSON.parse(init?.body as string))
+            return json({}, 200)
+        }
+        await clearCatchAllGroup(fetcher, 'own')
+        expect(writes).toEqual([])
+    })
+
+    it('clearCatchAllGroup rethrows a non-404 failure reading the current document, so a clear can never erase the others', async () => {
+        const writes: unknown[] = []
+        const fetcher = async (path: string, init?: RequestInit) => {
+            const method = init?.method ?? 'GET'
+            if (method === 'GET') {
+                return new Response('server error', { status: 500 })
+            }
+            writes.push(JSON.parse(init?.body as string))
+            return json({}, 200)
+        }
+        await expect(clearCatchAllGroup(fetcher, 'own')).rejects.toThrow()
+        expect(writes).toEqual([])
     })
 
     it('saveCatchAllGroup rethrows a non-404 failure reading the current document, rather than treating it as absent', async () => {

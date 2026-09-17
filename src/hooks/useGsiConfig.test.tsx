@@ -22,9 +22,13 @@ const mockSaveCatchAllGroup = jest.fn<Promise<void>, unknown[]>(
 const mockSaveIncludeTracker = jest.fn<Promise<void>, unknown[]>(
     async () => undefined
 )
+const mockClearCatchAllGroup = jest.fn<Promise<void>, unknown[]>(
+    async () => undefined
+)
 jest.mock('@/data/datastore', () => ({
     loadConfig: (...args: unknown[]) => mockLoadConfig(...args),
     saveCatchAllGroup: (...args: unknown[]) => mockSaveCatchAllGroup(...args),
+    clearCatchAllGroup: (...args: unknown[]) => mockClearCatchAllGroup(...args),
     saveIncludeTracker: (...args: unknown[]) => mockSaveIncludeTracker(...args),
 }))
 
@@ -85,6 +89,24 @@ it('setCatchAllGroup saves and updates local config, but never calls the engine 
     )
     expect(result.current.config.catchAllGroup.setA).toBe('g2')
     expect(mockClientCall).not.toHaveBeenCalled()
+})
+
+it('clearCatchAllGroup drops the entry entirely, so a cleared set reads the same as one that was never configured', async () => {
+    const { result } = renderHook(() => useGsiConfig(), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.isLoaded).toBe(true))
+    expect(result.current.config.catchAllGroup.setA).toBe('g1')
+
+    await act(async () => {
+        await result.current.clearCatchAllGroup('setA')
+    })
+
+    expect(mockClearCatchAllGroup).toHaveBeenCalledWith(
+        expect.anything(),
+        'setA'
+    )
+    // Not '' -- every reader treats `undefined` as "not configured", and an
+    // empty string would look configured to one that only checks presence.
+    expect('setA' in result.current.config.catchAllGroup).toBe(false)
 })
 
 it('throws when used outside the provider', () => {

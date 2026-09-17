@@ -67,13 +67,6 @@ evidence: `docs/superpowers/notes/2026-09-plan10-multiversion-review.md`.
   serves two views from SQL and one field from the metadata API -- is
   real, untested scope, not done here. — multi-version review, check 27;
   main spec §8a.
-- **Settings offers no way to clear a catch-all mapping once set.** Every
-  leg (A, B, C, D) that set a catch-all group mapping for a group set had
-  to delete the `config-catch-all` dataStore key through the API
-  directly to restore the instance to its pre-review state; the Settings
-  select has no "none" option. Needs a real clear/unset UI affordance
-  plus a decision about what "no mapping" should mean the next time the
-  app reads it. — multi-version review, check 26 finding.
 - **`@dhis2/ui`'s `DataTableColumnHeader` `align` prop is a silent
   no-op, and the upstream report is not yet filed.** Confirmed present
   in the latest published `@dhis2/ui` (10.17.0, this app's installed
@@ -116,6 +109,15 @@ evidence: `docs/superpowers/notes/2026-09-plan10-multiversion-review.md`.
 Each entry names the commit that closed it. The reasoning stays in
 `2026-09-plan10-multiversion-review.md`, where each finding now carries a
 "Closed" paragraph beside the evidence that raised it.
+
+- **No way to clear a catch-all mapping** -- closed with a `Clear` button
+  per row in Settings' catch-all section, shown only when that set has a
+  mapping. "No catch-all group" is the absence of the `config-catch-all`
+  entry rather than an empty string, so a cleared set reads exactly like
+  one that was never configured and the bulk fix dialog falls back to
+  matching by name; the clear does a read-modify-write that refuses on
+  anything but a 404, so it cannot erase another set's entry. --
+  "Let Settings clear a catch-all group again"
 
 - **No cancellable window on Apply (check 22)** -- closed as a spec
   correction, not a code change. The app was right and the checklist row

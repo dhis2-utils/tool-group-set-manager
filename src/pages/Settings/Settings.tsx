@@ -66,6 +66,7 @@ export const Settings = () => {
         config,
         isLoaded: configLoaded,
         setCatchAllGroup,
+        clearCatchAllGroup,
         setIncludeTracker,
     } = useGsiConfig()
     // Not the full `useUsage()` hook: Settings never displays usage, and
@@ -487,6 +488,36 @@ export const Settings = () => {
                                 ))}
                             </SingleSelectField>
                         </div>
+                        {/* A select cannot unset itself: @dhis2/ui's
+                            SingleSelect has no empty option once a value is
+                            chosen, so before this button the only way back
+                            to "no catch-all group" was deleting the
+                            dataStore key by hand -- which every leg of the
+                            Plan 10 multi-version review had to do. Shown
+                            only when there is something to clear, so a set
+                            that was never configured offers no action that
+                            would do nothing. */}
+                        {config.catchAllGroup[set.id] && (
+                            <Button
+                                small
+                                secondary
+                                disabled={!configLoaded}
+                                onClick={() => {
+                                    setCatchAllError(null)
+                                    clearCatchAllGroup(set.id).catch(
+                                        (e: unknown) => {
+                                            setCatchAllError(
+                                                e instanceof Error
+                                                    ? e.message
+                                                    : String(e)
+                                            )
+                                        }
+                                    )
+                                }}
+                            >
+                                {i18n.t('Clear')}
+                            </Button>
+                        )}
                     </div>
                 ))}
                 {catchAllError && (
