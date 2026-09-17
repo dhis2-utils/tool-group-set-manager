@@ -394,3 +394,29 @@ it('a forced reload supersedes an in-flight non-forced one, and a late-arriving 
     expect(result.current.groupSets).toEqual([{ id: 'fresh' }])
     expect(result.current.status?.errors.organisationUnit).toBeUndefined()
 })
+
+it('an unmount during an in-flight load abandons it rather than driving a terminated worker', async () => {
+    let resolveSource: ((r: MockSelectSourceResult) => void) | undefined
+    mockSelectSource.mockImplementationOnce(
+        () =>
+            new Promise<MockSelectSourceResult>((resolve) => {
+                resolveSource = resolve
+            })
+    )
+    const { unmount } = render(
+        <Wrapper>
+            <Probe />
+        </Wrapper>
+    )
+    await waitFor(() => expect(mockSelectSource).toHaveBeenCalledTimes(1))
+    unmount()
+    await act(async () => {
+        resolveSource?.({ source: { kind: 'metadata' }, sqlViews: null })
+        for (let i = 0; i < 5; i++) {
+            await Promise.resolve()
+        }
+    })
+    // Without the generation bump on unmount, the continuation ran on and
+    // called loadAll with a client whose worker had already been terminated.
+    expect(mockLoadAll).not.toHaveBeenCalled()
+})

@@ -194,6 +194,12 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
         const created = new EngineClient(createEngineWorker())
         setClient(created)
         return () => {
+            // Any load still in flight belongs to a provider that no longer
+            // exists. Bumping the generation makes its continuation return
+            // at the next isCurrent() check instead of calling loadAll on a
+            // terminated worker (whose postMessage is a silent no-op, so the
+            // call would never settle) and setting state on a gone tree.
+            generationRef.current++
             created.terminate()
             setClient(null)
         }
