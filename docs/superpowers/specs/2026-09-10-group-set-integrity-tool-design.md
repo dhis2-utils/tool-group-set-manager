@@ -390,10 +390,20 @@ the matching entry of the `translations` JSONB column over `name`, with the
 app passing the user's `keyDbLocale`; that would also require the status
 probe and the create/repair path to handle a view that cannot be read
 without its variable, and a per-locale cache key. The app states which
-source it used, so a user seeing untranslated names has a way to explain them. If an
-instance needs translated names, the remedy is to remove the
-`GSI_ORGUNIT_NAMES` view, which drops only names back to the metadata API
-while keeping the hierarchy and membership views.
+source it used, so a user seeing untranslated names has a way to explain
+them. If an instance needs translated names, the remedy is to remove the
+`GSI_ORGUNIT_NAMES` view -- but the cost of that remedy is the whole fast
+path, not only names. This paragraph used to claim that removing the names
+view "drops only names back to the metadata API while keeping the hierarchy
+and membership views"; that was never true of the shipped app, and the Plan
+10 multi-version review measured it false on all four supported versions
+(`docs/superpowers/notes/2026-09-plan10-multiversion-review.md`, check 27).
+`selectSource`'s `findSqlViews` returns `null` unless all three view codes
+resolve, so one missing view sends the hierarchy and the memberships to the
+metadata API too -- on a 266k-unit instance, a roughly 4-second load becomes
+the 60-70 second metadata path. Serving two views from SQL and names from
+the API would need a composed source that does not exist today; it is
+recorded as an open item rather than assumed.
 
 ## 9. Open items to verify during implementation
 
