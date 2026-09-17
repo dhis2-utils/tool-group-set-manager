@@ -768,6 +768,46 @@ describe('writeMemberships', () => {
                     .map((c) => `organisationUnitGroups/${c.groupId}`)
             )
         })
+
+        it('reports progress as one unit per patch group and one per batch, in the order written', async () => {
+            const calls: { path: string; method: string }[] = []
+            const fetcher = async (path: string, init?: RequestInit) => {
+                calls.push({ path, method: init?.method ?? 'GET' })
+                if (init?.method === 'PATCH') {
+                    return json({})
+                }
+                const body = JSON.parse(String(init?.body)) as {
+                    additions: unknown[]
+                }
+                return okStats(body.additions.length)
+            }
+            const progress: [number, number][] = []
+            const result = await writeMemberships(
+                fetcher,
+                'organisationUnit',
+                [
+                    bigChange(DEFAULT_BATCH_SIZE + 1),
+                    { ...bigChange(DEFAULT_BATCH_SIZE + 1), groupId: 'g2' },
+                ],
+                (done, total) => progress.push([done, total]),
+                // g1 has a complete membership and takes the patch route; g2
+                // does not and is split into two batches.
+                { completeMembers: new Map([['g1', ['existing1']]]) }
+            )
+            expect(calls.map((c) => c.path)).toEqual([
+                'organisationUnitGroups/g1',
+                'organisationUnitGroups/g2/organisationUnits',
+                'organisationUnitGroups/g2/organisationUnits',
+            ])
+            expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1)
+            expect(progress).toEqual([
+                [1, 3],
+                [2, 3],
+                [3, 3],
+            ])
+            expect(result.applied).toHaveLength(3)
+            expect(result.unaccounted).toEqual([])
+        })
     })
 })
 
