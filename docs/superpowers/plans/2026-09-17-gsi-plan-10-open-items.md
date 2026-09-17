@@ -1348,7 +1348,7 @@ Import `sameChanges` from `@/engine/changeSet` and `readGroupMembers` from `@/da
         readGroupMembers(
             fetcher,
             set.objectType,
-            planChanges.filter(takesPatchRoute).map((c) => c.groupId),
+            planChanges.filter((c) => takesPatchRoute(c)).map((c) => c.groupId),
             signal
         )
 ```
