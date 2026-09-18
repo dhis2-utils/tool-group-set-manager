@@ -1005,12 +1005,12 @@ test.describe('Group Set Integrity Tool', () => {
     })
 
     /**
-     * Task 8: the header's "Run DHIS2 integrity checks" button (Task 7),
-     * gated on the same maintenance authority the tab itself is gated on
-     * (useIntegrity.tsx's REQUIRED_AUTHORITIES). `local_admin` carries `ALL`
-     * on both broker instances, so this is expected to run rather than
-     * skip in practice -- the skip exists for a session run under a
-     * different, unprivileged user, per the brief.
+     * Task 8: the "DHIS2 integrity" tab, gated on the maintenance authority
+     * (useIntegrity.tsx's REQUIRED_AUTHORITIES). Manual review 2 removed
+     * the header button that used to be a second way into the same tab.
+     * `local_admin` carries `ALL` on both broker instances, so this is
+     * expected to run rather than skip in practice -- the skip exists for
+     * a session run under a different, unprivileged user, per the brief.
      *
      * Never asserts on a check's name or code: `data/integrity.ts`
      * resolves checks by name at runtime precisely because neither is
@@ -1027,18 +1027,16 @@ test.describe('Group Set Integrity Tool', () => {
      * anything as a result of it"), so there is nothing here to revert
      * through History.
      */
-    test('DHIS2 integrity: the header button opens the tab and a resolved check renders a result', async ({
+    test('DHIS2 integrity: the tab opens and a resolved check renders a result', async ({
         authedApp,
     }) => {
         const { page } = authedApp
         const root = await openGroupSet(page, AREA_SET_NAME)
 
-        const headerButton = root.getByRole('button', {
-            name: 'Run DHIS2 integrity checks',
-        })
-        // GroupSetDetail only renders this button once `useIntegrity`'s
+        const integrityTab = root.getByRole('tab', { name: 'DHIS2 integrity' })
+        // GroupSetDetail only renders this tab once `useIntegrity`'s
         // authority probe (and its own check-resolution call) has come
-        // back positive -- gate on it rather than asserting the button
+        // back positive -- gate on it rather than asserting the tab
         // outright, and skip with a reason instead of failing when this
         // session's user does not have the feature.
         //
@@ -1053,19 +1051,17 @@ test.describe('Group Set Integrity Tool', () => {
         // reporting that anything went wrong. `waitFor` actually waits;
         // `isVisible()` afterwards (untimed, so genuinely synchronous) reads
         // the settled result.
-        await headerButton
+        await integrityTab
             .waitFor({ state: 'visible', timeout: 15_000 })
             .catch(() => undefined)
-        const available = await headerButton.isVisible()
+        const available = await integrityTab.isVisible()
         test.skip(
             !available,
             "DHIS2 integrity checks are not available for this session's user (no ALL/F_PERFORM_MAINTENANCE authority, or the server refused)"
         )
 
-        await headerButton.click()
-        await expect(
-            root.getByRole('tab', { name: 'DHIS2 integrity' })
-        ).toHaveAttribute('aria-selected', 'true')
+        await integrityTab.click()
+        await expect(integrityTab).toHaveAttribute('aria-selected', 'true')
 
         // At least one check the app itself resolved is titled here --
         // never a hardcoded name (IntegrityTab.tsx renders one heading per

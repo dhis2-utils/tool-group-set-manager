@@ -369,22 +369,8 @@ export const GroupSetDetail = () => {
                         }
                         onClick={() => setPropertiesOpen(true)}
                     >
-                        {i18n.t('Set properties…')}
+                        {i18n.t('Group set properties…')}
                     </Button>
-                    {integrity.available && (
-                        // Task 7: this only switches to the tab that already
-                        // owns running the checks, polling, and showing
-                        // results (or a 403) -- a second code path that ran
-                        // them here would duplicate that and could drift
-                        // from it. Gated on the same `integrity.available`
-                        // that gates the Tab button below, since that flag
-                        // already reflects the maintenance authority check;
-                        // a user who may not read results must not be
-                        // offered a button that only fails.
-                        <Button small onClick={() => setTab('integrity')}>
-                            {i18n.t('Run DHIS2 integrity checks')}
-                        </Button>
-                    )}
                 </div>
             </div>
             <LoadProgress status={status} />

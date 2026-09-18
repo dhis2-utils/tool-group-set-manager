@@ -466,10 +466,10 @@ describe('bulk fix dialog wiring (D4/D5)', () => {
 })
 
 describe('set properties wiring (I4)', () => {
-    it('opens the Set properties dialog from the header and reloads once a change applies', async () => {
+    it('opens the Group set properties dialog from the header and reloads once a change applies', async () => {
         renderDetail()
 
-        fireEvent.click(await screen.findByText('Set properties…'))
+        fireEvent.click(await screen.findByText('Group set properties…'))
         fireEvent.click(await screen.findByText('mock-properties-applied'))
 
         // The properties decide what counts as a violation on every screen
@@ -487,12 +487,12 @@ describe('set properties wiring (I4)', () => {
         )
     })
 
-    it('does not offer Set properties on a group set the user cannot write to', async () => {
+    it('does not offer Group set properties on a group set the user cannot write to', async () => {
         mockGroupSets[0].canWrite = false
         renderDetail()
 
-        expect(await screen.findByText('Set properties…')).toBeDisabled()
-        fireEvent.click(screen.getByText('Set properties…'))
+        expect(await screen.findByText('Group set properties…')).toBeDisabled()
+        fireEvent.click(screen.getByText('Group set properties…'))
         expect(screen.queryByText('mock-properties-close')).toBeNull()
     })
 })
@@ -537,39 +537,6 @@ describe('DHIS2 integrity tab (m6, review round 1)', () => {
         // Landed on Overview content, not a body left over from the
         // Integrity tab with no selected Tab above it.
         expect(await screen.findByText('Rows')).toBeInTheDocument()
-    })
-})
-
-describe('DHIS2 integrity check header button (Task 7)', () => {
-    // The complaint this task fixes: the feature was reachable only by
-    // noticing a tab. The button is a second way in, not a second way to
-    // run the checks -- it only switches to the tab that already owns
-    // running them (see the m6 describe block above for that tab-state
-    // wiring).
-    it('offers the integrity check from the header when it is available', async () => {
-        mockIntegrity.available = true
-        renderDetail()
-
-        const button = await screen.findByRole('button', {
-            name: 'Run DHIS2 integrity checks',
-        })
-        fireEvent.click(button)
-        // it takes the user to the tab that runs them
-        expect(
-            await screen.findByRole('tab', { selected: true })
-        ).toHaveTextContent('DHIS2 integrity')
-    })
-
-    it('offers nothing when the user may not read integrity results', async () => {
-        mockIntegrity.available = false
-        renderDetail()
-
-        await screen.findByText('Overview')
-        expect(
-            screen.queryByRole('button', {
-                name: 'Run DHIS2 integrity checks',
-            })
-        ).not.toBeInTheDocument()
     })
 })
 
