@@ -18,6 +18,7 @@ import { DashboardEntry } from '@/engine/store'
 import { OBJECT_TYPES, ObjectType } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useScope } from '@/hooks/useScope'
+import { useSessionState } from '@/hooks/useSessionState'
 import { useUsage, UsageStatus } from '@/hooks/useUsage'
 import { interpolate } from '@/utils/interpolate'
 import { typeLabel } from '@/utils/objectTypeLabels'
@@ -51,6 +52,14 @@ const byWorstFirst = (a: DashboardEntry, b: DashboardEntry) => {
 }
 
 type SortKey = 'issues' | 'usage'
+
+// Type guards for the three filter choices kept across page changes (see
+// useSessionState): whatever is stored has to be one of the values the
+// controls below can actually show, or the default is used instead.
+const isBoolean = (v: unknown): v is boolean => typeof v === 'boolean'
+const isTypeFilter = (v: unknown): v is ObjectType | 'all' =>
+    v === 'all' || (OBJECT_TYPES as readonly unknown[]).includes(v)
+const isSortKey = (v: unknown): v is SortKey => v === 'issues' || v === 'usage'
 
 // See the matching comment in GroupSetCard.tsx: a single i18n.t(key, {
 // count, defaultValue_plural }) call neither pluralises at runtime with
@@ -112,9 +121,24 @@ export const Dashboard = () => {
         useEngine()
     const { rootId, isReady } = useScope()
     const navigate = useNavigate()
-    const [onlyIssues, setOnlyIssues] = useState(true)
-    const [typeFilter, setTypeFilter] = useState<ObjectType | 'all'>('all')
-    const [sortKey, setSortKey] = useState<SortKey>('issues')
+    // Manual review 2: these three were plain `useState`, so going into a
+    // group set and back put the dashboard back to "Only sets with issues"
+    // every time. Kept for the browser session, like the scope.
+    const [onlyIssues, setOnlyIssues] = useSessionState(
+        'gsi.dashboard.onlyIssues',
+        true,
+        isBoolean
+    )
+    const [typeFilter, setTypeFilter] = useSessionState<ObjectType | 'all'>(
+        'gsi.dashboard.typeFilter',
+        'all',
+        isTypeFilter
+    )
+    const [sortKey, setSortKey] = useSessionState<SortKey>(
+        'gsi.dashboard.sortKey',
+        'issues',
+        isSortKey
+    )
     const [entries, setEntries] = useState<
         Partial<Record<ObjectType, DashboardEntry[]>>
     >({})

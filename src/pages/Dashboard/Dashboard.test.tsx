@@ -253,6 +253,7 @@ jest.mock('@/hooks/useUserScope', () => ({
 }))
 
 afterEach(() => {
+    sessionStorage.clear()
     mockCallOverrides.dataElementError = null
     mockCallOverrides.extraCleanOrgUnitSet = false
     mockCallOverrides.worseOrgUnitSets = false
@@ -510,6 +511,38 @@ it('says why the not-yet-loaded group is separate, as visible text', async () =>
         expect(screen.getByText('Not loaded set')).toBeInTheDocument()
     )
     expect(screen.getByText(/still loading/i)).toBeInTheDocument()
+})
+
+// Manual review 2: the Show choice (and the type and sort choices beside
+// it) lived only in component state, so opening a group set and coming back
+// reset the dashboard to "Only sets with issues" every time. Leaving the
+// page is an unmount; the choice has to come back on the next mount.
+it('keeps the Show choice across leaving and returning to the dashboard', async () => {
+    const first = render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+    await userEvent.click(screen.getByText('Only sets with issues'))
+    await userEvent.click(
+        document.querySelector('[data-value="all"]') as HTMLElement
+    )
+    expect(screen.getByText('All sets')).toBeInTheDocument()
+    first.unmount()
+
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+    )
+    expect(screen.getByText('All sets')).toBeInTheDocument()
+    expect(screen.queryByText('Only sets with issues')).not.toBeInTheDocument()
 })
 
 it('filters the sections by object type (spec 5.1)', async () => {
