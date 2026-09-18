@@ -115,10 +115,50 @@ export async function canCreateSqlViews(
     }
 }
 
+/**
+ * Metadata read *and* data read for every user. `r-------` -- what these
+ * views were created with until manual review 2 -- is metadata read alone,
+ * and reading a SQL view's rows needs the data-read bit: without it the
+ * server answers every read with 409 E4312 ("Current user is not authorised
+ * to read data from SQL view"), including for the administrator who
+ * created the view a second earlier, unless that user happens to hold ALL.
+ * The broker instances' users do, which is how it went unnoticed; the
+ * administrator this surfaced for on implement.im (2.41.10) does not.
+ */
+export const SQL_VIEW_PUBLIC_SHARING = 'r-r-----'
+
+/**
+ * Grants the public sharing above on an existing view, as one JSON-patch
+ * of `/sharing/public` -- never a whole-object PUT (which would need the
+ * full view body) and never the `/api/sharing` endpoint (whose POST
+ * replaces user and user-group accesses as well as the public string).
+ */
+export async function shareViewPublicly(
+    fetcher: Fetcher,
+    id: string
+): Promise<void> {
+    const response = await fetcher(`sqlViews/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json-patch+json' },
+        body: JSON.stringify([
+            {
+                op: 'replace',
+                path: '/sharing/public',
+                value: SQL_VIEW_PUBLIC_SHARING,
+            },
+        ]),
+    })
+    if (!response.ok) {
+        throw new Error(
+            `Failed to share SQL view ${id}: HTTP ${response.status}`
+        )
+    }
+}
+
 export interface CreateOrRepairResult {
     /** codes of views that did not exist and were created and executed */
     created: string[]
-    /** codes of views that already existed and were re-executed */
+    /** codes of views that already existed and were re-shared or re-executed */
     repaired: string[]
     failed: { code: string; message: string }[]
 }
@@ -142,8 +182,9 @@ async function createView(
             cacheStrategy: def.cacheStrategy,
             sqlQuery: def.sqlQuery,
             // Public read sharing (brief): every user who can use this app
-            // must be able to read the view's data, not just its creator.
-            sharing: { public: 'r-------' },
+            // must be able to read the view's data, not just its creator --
+            // which takes the data-read bit, see SQL_VIEW_PUBLIC_SHARING.
+            sharing: { public: SQL_VIEW_PUBLIC_SHARING },
         }),
     })
     if (!response.ok) {
@@ -219,6 +260,13 @@ export async function createOrRepairSqlViews(
         }
         try {
             if (check.id) {
+                // `readable` is `access.data.read` for the current user.
+                // Re-executing a view they may not read changes nothing
+                // about that, so "repair" first grants the sharing the
+                // create path grants, then executes.
+                if (!check.readable) {
+                    await shareViewPublicly(fetcher, check.id)
+                }
                 await executeView(fetcher, check.id)
                 repaired.push(check.code)
             } else {

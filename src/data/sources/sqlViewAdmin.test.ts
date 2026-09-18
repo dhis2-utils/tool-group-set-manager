@@ -266,6 +266,103 @@ describe('createOrRepairSqlViews', () => {
         expect(body).toMatchObject({ cacheStrategy: 'NO_CACHE' })
     })
 
+    // Manual review 2 (implement.im, 2.41.10): every view the app had
+    // created answered its own read with 409 E4312 "Current user is not
+    // authorised to read data from SQL view". `r-------` grants metadata
+    // read only; reading a SQL view's *data* needs the data-read bit, and
+    // on the broker instances the users carry ALL, which is why nothing
+    // ever noticed. The user this surfaced for is an administrator without
+    // ALL -- the common case on a real instance.
+    it('creates the view with public data read, not just metadata read', async () => {
+        let body: Record<string, unknown> | undefined
+        const fetcher = async (path: string, init?: RequestInit) => {
+            if (init?.method === 'POST' && path === 'sqlViews') {
+                body = JSON.parse(String(init.body))
+                return jsonResponse({ response: { uid: 'newId1' } }, 201)
+            }
+            return jsonResponse({ status: 'OK' }, 201)
+        }
+        await createOrRepairSqlViews(fetcher, [missingChecks()[0]])
+        expect(body).toMatchObject({ sharing: { public: 'r-r-----' } })
+    })
+
+    // The same defect on a view that already exists: re-executing it (the
+    // whole of "repair" until now) changes nothing about who may read it,
+    // so Settings kept saying "Not usable yet" however many times the
+    // button was pressed. A view the current user cannot read data from
+    // has its public sharing patched before the execute.
+    it('grants public data read before re-executing an existing view the user cannot read', async () => {
+        const calls: { path: string; method?: string; body?: string }[] = []
+        const fetcher = async (path: string, init?: RequestInit) => {
+            calls.push({
+                path,
+                method: init?.method,
+                body: init?.body === undefined ? undefined : String(init.body),
+            })
+            return jsonResponse({ status: 'OK' })
+        }
+        const check: SqlViewCheck = {
+            code: SQL_VIEW_CODES.orgUnits,
+            name: 'a',
+            id: 'existingId',
+            type: 'VIEW',
+            readable: false,
+            usable: false,
+        }
+        const result = await createOrRepairSqlViews(fetcher, [check])
+        expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+            'PATCH sqlViews/existingId',
+            'POST sqlViews/existingId/execute',
+        ])
+        expect(JSON.parse(calls[0].body ?? '')).toEqual([
+            { op: 'replace', path: '/sharing/public', value: 'r-r-----' },
+        ])
+        expect(result).toEqual({
+            created: [],
+            repaired: [SQL_VIEW_CODES.orgUnits],
+            failed: [],
+        })
+    })
+
+    it('leaves sharing alone when the existing view is readable and only needs executing', async () => {
+        const calls: string[] = []
+        const fetcher = async (path: string, init?: RequestInit) => {
+            calls.push(`${init?.method} ${path}`)
+            return jsonResponse({ status: 'OK' })
+        }
+        const check: SqlViewCheck = {
+            code: SQL_VIEW_CODES.orgUnits,
+            name: 'a',
+            id: 'existingId',
+            type: 'VIEW',
+            readable: true,
+            usable: false,
+        }
+        await createOrRepairSqlViews(fetcher, [check])
+        expect(calls).toEqual(['POST sqlViews/existingId/execute'])
+    })
+
+    it('reports a refused sharing patch as that view failing, and does not execute it', async () => {
+        const calls: string[] = []
+        const fetcher = async (path: string, init?: RequestInit) => {
+            calls.push(`${init?.method} ${path}`)
+            return new Response('{}', { status: 403 })
+        }
+        const check: SqlViewCheck = {
+            code: SQL_VIEW_CODES.orgUnits,
+            name: 'a',
+            id: 'existingId',
+            type: 'VIEW',
+            readable: false,
+            usable: false,
+        }
+        const result = await createOrRepairSqlViews(fetcher, [check])
+        expect(calls).toEqual(['PATCH sqlViews/existingId'])
+        expect(result.repaired).toEqual([])
+        expect(result.failed).toHaveLength(1)
+        expect(result.failed[0].message).toMatch(/403/)
+    })
+
     it('treats a failed execute as a failed creation, not a partial success', async () => {
         const fetcher = async (path: string, init?: RequestInit) => {
             if (init?.method === 'POST' && path === 'sqlViews') {
@@ -332,7 +429,7 @@ describe('createOrRepairSqlViews', () => {
             name: 'a',
             id: 'existingId',
             type: 'VIEW',
-            readable: false,
+            readable: true,
             usable: false,
         }
         const result = await createOrRepairSqlViews(fetcher, [check])
@@ -360,7 +457,7 @@ describe('createOrRepairSqlViews', () => {
             name: 'a',
             id: 'existingId',
             type: 'VIEW',
-            readable: false,
+            readable: true,
             usable: false,
         }
         const result = await createOrRepairSqlViews(fetcher, [check])

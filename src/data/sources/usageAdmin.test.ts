@@ -20,6 +20,7 @@ describe('checkUsageView', () => {
         ) as unknown as Fetcher
         await expect(checkUsageView(fetcher)).resolves.toEqual({
             id: null,
+            readable: false,
             usable: false,
         })
     })
@@ -82,6 +83,7 @@ describe('checkUsageView', () => {
         ) as unknown as Fetcher
         await expect(checkUsageView(fetcher)).resolves.toEqual({
             id: 'v1',
+            readable: true,
             usable: false,
         })
     })
@@ -118,6 +120,7 @@ describe('installUsageView', () => {
         }) as unknown as Fetcher
         const result = await installUsageView(fetcher, {
             id: null,
+            readable: false,
             usable: false,
         })
         expect(result).toMatchObject({
@@ -147,6 +150,7 @@ describe('installUsageView', () => {
         }) as unknown as Fetcher
         await installUsageView(fetcher, {
             id: null,
+            readable: false,
             usable: false,
         })
         expect(body).toMatchObject({ cacheStrategy: 'NO_CACHE' })
@@ -172,7 +176,7 @@ describe('installUsageView', () => {
         ]
         const result = await installUsageView(
             fetcher,
-            { id: null, usable: false },
+            { id: null, readable: false, usable: false },
             candidates
         )
         expect(calls).toContain('DELETE sqlViews/new1')
@@ -189,6 +193,7 @@ describe('installUsageView', () => {
         ) as unknown as Fetcher
         const result = await installUsageView(fetcher, {
             id: null,
+            readable: false,
             usable: false,
         })
         expect(result.installed).toBe(false)
@@ -203,6 +208,7 @@ describe('installUsageView', () => {
         }) as unknown as Fetcher
         const result = await installUsageView(fetcher, {
             id: 'old1',
+            readable: true,
             usable: false,
         })
         expect(calls).toEqual([
@@ -210,6 +216,74 @@ describe('installUsageView', () => {
             'GET sqlViews/old1/data.json?pageSize=1',
         ])
         expect(result).toMatchObject({ installed: true })
+    })
+
+    // Manual review 2: the same 409 E4312 the GSI_* views hit (see
+    // sqlViewAdmin.test.ts) -- `r-------` is metadata read only, and a
+    // non-superuser cannot read the data of a view shared that way, even
+    // one they created a second ago.
+    it('creates the view with public data read, so a non-superuser can read what it just installed', async () => {
+        let body: Record<string, unknown> | undefined
+        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
+            if (init?.method === 'POST' && path === 'sqlViews') {
+                body = JSON.parse(String(init.body))
+                return created('new1')
+            }
+            return ok({ listGrid: { headers: [], rows: [] } })
+        }) as unknown as Fetcher
+        await installUsageView(fetcher, {
+            id: null,
+            readable: false,
+            usable: false,
+        })
+        expect(body).toMatchObject({ sharing: { public: 'r-r-----' } })
+    })
+
+    it('grants public data read before re-executing an existing view the user cannot read', async () => {
+        const calls: string[] = []
+        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
+            calls.push(`${init?.method ?? 'GET'} ${path}`)
+            return ok({ listGrid: { headers: [], rows: [] } })
+        }) as unknown as Fetcher
+        const result = await installUsageView(fetcher, {
+            id: 'old1',
+            readable: false,
+            usable: false,
+        })
+        expect(calls).toEqual([
+            'PATCH sqlViews/old1',
+            'POST sqlViews/old1/execute',
+            'GET sqlViews/old1/data.json?pageSize=1',
+        ])
+        expect(result).toMatchObject({ installed: true })
+    })
+
+    it('names the server reason when the read probe is refused, not just the status', async () => {
+        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
+            if (init?.method === 'POST' && path === 'sqlViews') {
+                return created('new1')
+            }
+            if (path.startsWith('sqlViews/new1/data.json')) {
+                return {
+                    ok: false,
+                    status: 409,
+                    json: async () => ({
+                        message:
+                            'Current user is not authorised to read data from SQL view: `new1`',
+                    }),
+                } as unknown as Response
+            }
+            return ok({})
+        }) as unknown as Fetcher
+        const result = await installUsageView(fetcher, {
+            id: null,
+            readable: false,
+            usable: false,
+        })
+        expect(result.installed).toBe(false)
+        expect(result.failures[0].message).toBe(
+            'The usage SQL view was created but cannot be read — HTTP 409 (Current user is not authorised to read data from SQL view: `new1`)'
+        )
     })
 })
 

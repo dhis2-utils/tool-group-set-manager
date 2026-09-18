@@ -1,4 +1,5 @@
 import { fetchJson, Fetcher } from './DataSource'
+import { shareViewPublicly, SQL_VIEW_PUBLIC_SHARING } from './sqlViewAdmin'
 import { sqlViewLookupPath, USABLE_SQL_VIEW_TYPES } from './sqlViewSource'
 import {
     USAGE_SQL_CANDIDATES,
@@ -16,6 +17,8 @@ interface SqlViewRow {
 
 export interface UsageViewCheck {
     id: string | null
+    /** `access.data.read` for the current user -- see `shareViewPublicly` */
+    readable: boolean
     /** exists, is a VIEW/QUERY, is readable, and a real read just succeeded */
     usable: boolean
 }
@@ -55,6 +58,7 @@ export async function checkUsageView(
     )
     return {
         id: view?.id ?? null,
+        readable,
         usable:
             metadataUsable && view
                 ? await probeReadable(fetcher, view.id)
@@ -92,7 +96,9 @@ async function createView(
             // docs/superpowers/notes/2026-09-plan7-e2e-write-flows.md.
             cacheStrategy: 'NO_CACHE',
             sqlQuery: candidate.sqlQuery,
-            sharing: { public: 'r-------' },
+            // Data read too, not metadata read alone: see
+            // SQL_VIEW_PUBLIC_SHARING for the 409 the shorter string earns.
+            sharing: { public: SQL_VIEW_PUBLIC_SHARING },
         }),
     })
     if (!response.ok) {
@@ -116,8 +122,19 @@ async function executeView(fetcher: Fetcher, id: string): Promise<void> {
 async function readOrThrow(fetcher: Fetcher, id: string): Promise<void> {
     const response = await fetcher(probePath(id))
     if (!response.ok) {
+        // The server's own reason, when it gives one: a bare "HTTP 409"
+        // said nothing about *why* a view that had just been created and
+        // executed could not be read (manual review 2, where the answer
+        // was sharing).
+        const reason = await response
+            .json()
+            .then((body: { message?: unknown }) =>
+                typeof body.message === 'string' ? body.message : null
+            )
+            .catch(() => null)
         throw new Error(
-            `The usage SQL view was created but cannot be read — HTTP ${response.status}`
+            `The usage SQL view was created but cannot be read — HTTP ${response.status}` +
+                (reason ? ` (${reason})` : '')
         )
     }
 }
@@ -145,6 +162,9 @@ export async function installUsageView(
 
     if (check.id) {
         try {
+            if (!check.readable) {
+                await shareViewPublicly(fetcher, check.id)
+            }
             await executeView(fetcher, check.id)
             await readOrThrow(fetcher, check.id)
             return {
