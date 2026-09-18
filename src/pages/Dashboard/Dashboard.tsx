@@ -310,6 +310,12 @@ export const Dashboard = () => {
                             setSortKey(selected as SortKey)
                         }
                         helpText={usageSortHelpText(usage.status)}
+                        // Manual review 2: unsized, the select was as wide
+                        // as its selected label, and with the default
+                        // "Issues" selected the menu inherited that width
+                        // and wrapped "Usage (least used first)" onto four
+                        // lines. Wide enough for the longer option.
+                        inputWidth="220px"
                     >
                         <SingleSelectOption
                             value="issues"
