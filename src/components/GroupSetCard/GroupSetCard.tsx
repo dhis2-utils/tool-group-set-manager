@@ -2,14 +2,10 @@ import i18n from '@dhis2/d2-i18n'
 import { Card, Tag } from '@dhis2/ui'
 import React from 'react'
 import styles from './GroupSetCard.module.css'
-import { IntegrityLine } from '@/components/IntegrityLine/IntegrityLine'
-import { CheckSummary, LogicalCheck, ResolvedCheck } from '@/data/integrity'
 import { usageApplies } from '@/data/sources/usageSqlView'
 import { DashboardEntry } from '@/engine/store'
-import { ObjectType } from '@/engine/types'
-import { useIntegrity } from '@/hooks/useIntegrity'
 import { useUsage } from '@/hooks/useUsage'
-import { favouritesLabel } from '@/utils/favouritesLabel'
+import { usedInFavouritesLabel } from '@/utils/favouritesLabel'
 import { groupsLabel } from '@/utils/groupsLabel'
 import { interpolate } from '@/utils/interpolate'
 
@@ -26,59 +22,25 @@ const readOnlyLabel = (count: number) =>
               count: count.toLocaleString(),
           })
 
-/**
- * P3-R5 (review round 1, M1): the check shown must be one the set on screen
- * actually enforces, never merely "the first check for this object type" --
- * the compulsory check and the exclusive-groups check for the same object
- * type measure different rules, and showing the wrong one under a set's own
- * counts misattributes a number that is already instance-wide (finding 5)
- * to a rule the set does not even follow. So selection reads the set's own
- * `compulsory` flag, not just its `objectType`: a compulsory set shows the
- * compulsory-membership check (org units only -- no other object type has
- * one, per OBJECT_TYPE_OF in src/data/integrity.ts), every other set shows
- * its type's exclusive-groups ("conflicting") check. A set for which the
- * applicable logical check never resolved on this server shows nothing --
- * never a check that does not concern it.
- */
-const CONFLICT_LOGICAL_OF: Record<ObjectType, LogicalCheck> = {
-    organisationUnit: 'orgUnitsConflicting',
-    dataElement: 'dataElementsConflicting',
-    indicator: 'indicatorsConflicting',
-    categoryOption: 'categoryOptionsConflicting',
-}
-
-function checkFor(
-    checks: ResolvedCheck[],
-    set: { objectType: ObjectType; compulsory: boolean }
-): ResolvedCheck | undefined {
-    const logical: LogicalCheck =
-        set.compulsory && set.objectType === 'organisationUnit'
-            ? 'orgUnitsMissingCompulsory'
-            : CONFLICT_LOGICAL_OF[set.objectType]
-    return checks.find((c) => c.logical === logical)
-}
-
 export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
     const { set, summary, hasData } = entry
     const readOnlyGroups = set.groups.filter((g) => !g.canWrite).length
-    const { available, checks, summaries, stale } = useIntegrity()
     const usage = useUsage()
     // Only a set whose type can be an analytics dimension, on an instance
     // that actually has the usage view, shows anything here. Everything
-    // else renders nothing at all -- not a dash, not a zero (the same rule
-    // the integrity line below already follows).
+    // else renders nothing at all -- not a dash, not a zero.
+    //
+    // Manual review 2: the card used to end with the DHIS2 integrity
+    // check's own result line ("DHIS2 check … found N objects across all
+    // group sets on this instance …"). That number is instance-wide and
+    // spans every set of the type, so under one set's own counts it read
+    // as that set's, however carefully the sentence disclaimed it. The
+    // line lives on the set's DHIS2 integrity tab now, and nowhere on the
+    // dashboard.
     const setUsage =
         usage.status === 'ready' && usageApplies(set.objectType)
             ? usage.forSet(set.id)
             : null
-    // A user without the overlay (available === false, the normal case for
-    // a district manager) gets nothing from this at all -- not an empty
-    // element, not a placeholder, not a dash. `relevantCheck` stays
-    // undefined and the block below renders nothing.
-    const relevantCheck = available ? checkFor(checks, set) : undefined
-    const relevantSummary: CheckSummary | undefined = relevantCheck
-        ? summaries[relevantCheck.name]
-        : undefined
     // The same condition, and the same wording, as the summary matrix's
     // extra column (see SummaryMatrix's showUnassigned): only a set that is
     // neither compulsory nor a data dimension can hold objects that are in
@@ -181,7 +143,9 @@ export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
                 </div>
                 {setUsage && (
                     <div className={styles.usage}>
-                        <span>{favouritesLabel(setUsage.favourites)}</span>
+                        <span>
+                            {usedInFavouritesLabel(setUsage.favourites)}
+                        </span>
                         {setUsage.favourites === 0 && (
                             <button
                                 type="button"
@@ -214,13 +178,6 @@ export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
                             </button>
                         )}
                     </div>
-                )}
-                {relevantCheck && relevantSummary && (
-                    <IntegrityLine
-                        check={relevantCheck}
-                        summary={relevantSummary}
-                        stale={stale.has(relevantCheck.name)}
-                    />
                 )}
             </div>
         </Card>

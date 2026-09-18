@@ -203,19 +203,6 @@ jest.mock('@/hooks/useEngine', () => ({
         reload: async () => undefined,
     }),
 }))
-jest.mock('@/hooks/useIntegrity', () => ({
-    useIntegrity: () => ({
-        available: false,
-        checks: [],
-        summaries: {},
-        stale: new Set(),
-        isRunning: false,
-        error: null,
-        run: async () => undefined,
-        markStale: () => undefined,
-        refresh: async () => undefined,
-    }),
-}))
 // R6: Dashboard renders GroupSetCard, which depends on @/hooks/useUsage --
 // mocked at module level the same way useIntegrity is above, since none of
 // these tests exercise usage and useUsage's real implementation needs a
