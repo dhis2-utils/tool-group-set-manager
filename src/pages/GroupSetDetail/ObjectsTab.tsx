@@ -11,6 +11,7 @@ import { ObjectsTable } from '@/components/ObjectsTable/ObjectsTable'
 import { ObjectFilter } from '@/engine/queries'
 import { ScopeRef } from '@/engine/store'
 import { GroupSetMeta, Status } from '@/engine/types'
+import { useEngine } from '@/hooks/useEngine'
 
 interface Props {
     set: GroupSetMeta
@@ -80,6 +81,21 @@ export const ObjectsTab = ({
     // stopped applying -- worth a `useEffect` re-sync from `filter.text`
     // at that point, not before.
     const [searchInput, setSearchInput] = useState(filter.text ?? '')
+    // Manual review 2: after a bulk fix, GroupSetDetail reloads the engine
+    // and the table kept showing the rows it had -- its `loaded.rows` is
+    // its own snapshot, and `useEngineQuery` keeps a settled page under an
+    // unchanged key, so the re-issued page 0 was the same result object
+    // and the table's "page already held" guard (rightly) dropped it. A
+    // user saw a dialog confirming a change over a table that did not
+    // show it; the filter bar's Refresh button did the same. Remounting
+    // the table on the type's load stamp is the honest reset: every row,
+    // page and scroll offset it holds was read from data that is now
+    // gone. `status.loadedAt[type]` moves exactly when a load put fresh
+    // data for this type into the engine (a cache hit carries the old
+    // stamp forward), so a reload that changed nothing changes nothing
+    // here either.
+    const { status } = useEngine()
+    const loadedAt = status?.loadedAt[set.objectType] ?? null
     // `filter` is owned by the caller (GroupSetDetail) and can change for
     // reasons unrelated to search -- a status or level pick -- while a
     // debounce is outstanding. The ref (not an effect dependency) is what
@@ -242,7 +258,12 @@ export const ObjectsTab = ({
                     {i18n.t('Bulk fix…')}
                 </Button>
             </div>
-            <ObjectsTable set={set} scope={scope} filter={filter} />
+            <ObjectsTable
+                key={loadedAt ?? 'initial'}
+                set={set}
+                scope={scope}
+                filter={filter}
+            />
         </div>
     )
 }

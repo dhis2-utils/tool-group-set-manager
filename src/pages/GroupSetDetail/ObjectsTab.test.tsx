@@ -9,11 +9,29 @@ import { Status } from '@/engine/types'
 // how and when `filter.text` changes -- without needing to drive the real
 // engine query machinery.
 const mockObjectsTable = jest.fn()
-jest.mock('@/components/ObjectsTable/ObjectsTable', () => ({
-    ObjectsTable: (props: unknown) => {
-        mockObjectsTable(props)
-        return null
-    },
+// One call per *mount* of the stub (not per render): what the reload test
+// below counts, since a remount is how ObjectsTab drops the table's rows.
+const mockObjectsTableMount = jest.fn()
+jest.mock('@/components/ObjectsTable/ObjectsTable', () => {
+    // babel-plugin-jest-hoist forbids a factory from closing over anything
+    // not prefixed `mock`, the imported `React` included.
+    const { useEffect } = jest.requireActual<typeof import('react')>('react')
+    return {
+        ObjectsTable: (props: unknown) => {
+            mockObjectsTable(props)
+            useEffect(() => {
+                mockObjectsTableMount()
+            }, [])
+            return null
+        },
+    }
+})
+
+// Only `status.loadedAt` is read; mutable so a test can move the stamp the
+// way a completed reload of this type does.
+const mockLoadedAt: { organisationUnit?: number } = {}
+jest.mock('@/hooks/useEngine', () => ({
+    useEngine: () => ({ status: { loadedAt: mockLoadedAt } }),
 }))
 
 const set = {
@@ -33,6 +51,8 @@ const lastFilterSent = () =>
 
 beforeEach(() => {
     mockObjectsTable.mockReset()
+    mockObjectsTableMount.mockReset()
+    delete mockLoadedAt.organisationUnit
     jest.useFakeTimers()
 })
 
@@ -176,5 +196,60 @@ it('applies the debounced search on top of whichever filter is current when it f
     expect(onFilter).toHaveBeenCalledWith({
         statuses: [Status.Conflict],
         text: 'clinic',
+    })
+})
+
+// Manual review 2: after a bulk fix (or the filter bar's Refresh) the
+// engine holds new memberships and the table kept showing the old ones --
+// see the comment on `loadedAt` in ObjectsTab.tsx for why the table cannot
+// notice on its own. A reload that actually refilled this type moves its
+// load stamp; the table is remounted on it, and on nothing else.
+describe('reload of this type', () => {
+    const renderTab = () =>
+        render(
+            <ObjectsTab
+                set={set}
+                scope={scope}
+                filter={{}}
+                onFilter={jest.fn()}
+                levels={[]}
+                onBulkFix={jest.fn()}
+            />
+        )
+
+    it('remounts the table when the load stamp for this type moves', () => {
+        mockLoadedAt.organisationUnit = 1_000
+        const { rerender } = renderTab()
+        expect(mockObjectsTableMount).toHaveBeenCalledTimes(1)
+
+        mockLoadedAt.organisationUnit = 2_000
+        rerender(
+            <ObjectsTab
+                set={set}
+                scope={scope}
+                filter={{}}
+                onFilter={jest.fn()}
+                levels={[]}
+                onBulkFix={jest.fn()}
+            />
+        )
+        expect(mockObjectsTableMount).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps the table mounted across a render where the stamp did not move', () => {
+        mockLoadedAt.organisationUnit = 1_000
+        const { rerender } = renderTab()
+        rerender(
+            <ObjectsTab
+                set={set}
+                scope={scope}
+                filter={{ level: 4 }}
+                onFilter={jest.fn()}
+                levels={[]}
+                onBulkFix={jest.fn()}
+            />
+        )
+        expect(mockObjectsTableMount).toHaveBeenCalledTimes(1)
+        expect(lastFilterSent()).toEqual({ level: 4 })
     })
 })
