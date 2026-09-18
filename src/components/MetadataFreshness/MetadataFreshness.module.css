@@ -1,7 +1,12 @@
+/* Sized like the filter bar's own field labels (FilterBar.module.css
+   .label), which is the row this sits in; unsized, it inherited the page
+   default and read a step larger than everything around it (manual
+   review 2). */
 .freshness {
     display: flex;
     align-items: center;
     gap: var(--spacers-dp8);
+    font-size: var(--gsi-font-size-sm, 12px);
 }
 .dot {
     width: 7px;

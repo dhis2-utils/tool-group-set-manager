@@ -1,10 +1,18 @@
+/* Manual review 2: with no size of their own, the heading rendered at the
+   browser's default h3 (bold, ~19px) and the rows at the page default,
+   neither of which is what the rest of the detail page uses. Same pair as
+   IntegrityTab's .checkTitle and GroupSetDetail's .usageHeadline for the
+   heading, and the .usageBreakdown list for the rows. */
 .panel {
     display: flex;
     flex-direction: column;
     gap: 8px;
     margin-bottom: 16px;
+    font-size: var(--gsi-font-size-sm, 12px);
 }
 .heading {
+    font-size: var(--gsi-font-size-lg, 14px);
+    font-weight: 500;
     margin: 0;
 }
 .list {
