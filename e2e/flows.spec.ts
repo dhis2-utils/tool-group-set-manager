@@ -619,8 +619,9 @@ test.describe('Group Set Integrity Tool', () => {
 
     /**
      * Task 11: the metadata freshness indicator and its Refresh button
-     * (spec 2026-09-16 section 4), rendered as the `FilterBar`'s own
-     * `status` slot on a group set page (GroupSetDetail.tsx). The changed-
+     * (spec 2026-09-16 section 4), rendered in a group set page's header
+     * beside the properties button (GroupSetDetail.tsx; manual review 2
+     * moved it there from the filter bar's status slot). The changed-
      * plan path -- a stale read caught by the bulk fix's own pre-write
      * check -- is deliberately not covered here (task-11-brief.md): forcing
      * a real cross-client change between a preview and its Apply would
@@ -636,12 +637,12 @@ test.describe('Group Set Integrity Tool', () => {
         // A freshly opened app has just read, so this is the "just now" or
         // small-minutes wording -- matched loosely, since the exact number
         // depends on how long the load took.
-        const freshness = root.locator('[data-test="filter-bar"]')
+        const freshness = root.locator('[data-test="metadata-freshness"]')
         await expect(freshness.getByText(/^Metadata from /)).toBeVisible({
             timeout: 20_000,
         })
 
-        // Scoped to the filter bar, like the age assertions either side of
+        // Scoped to the indicator, like the age assertions either side of
         // it: "Refresh" is the only button with that name in `src/` today,
         // so an unscoped locator works by luck rather than by construction.
         const refresh = freshness.getByRole('button', { name: 'Refresh' })
@@ -1171,11 +1172,9 @@ test.describe('Group Set Integrity Tool', () => {
                 }
             )
 
-            // `exact: true`: GroupSetDetail.tsx's own breadcrumb link is also
-            // named exactly "Dashboard", but only on a group set page -- this
-            // click happens from Settings, where the nav link is the only match,
-            // so `exact` costs nothing here and avoids the trap on a future
-            // reuse from a page that has both.
+            // `exact: true`: the nav link is the only "Dashboard" link left
+            // (manual review 2 removed the group set page's breadcrumb), but
+            // exact costs nothing and keeps a future substring match out.
             await root
                 .getByRole('link', { name: 'Dashboard', exact: true })
                 .click()

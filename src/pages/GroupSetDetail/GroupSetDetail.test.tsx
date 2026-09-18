@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+    act,
+    fireEvent,
+    render,
+    screen,
+    waitFor,
+    within,
+} from '@testing-library/react'
 import React from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { GroupSetDetail } from './GroupSetDetail'
@@ -960,5 +967,46 @@ describe('usage tab (Task 5)', () => {
         renderDetail()
         await screen.findByText('Overview')
         expect(screen.queryByText('mock-usage-tab')).not.toBeInTheDocument()
+    })
+})
+
+// Manual review 2: for a set whose type has no scope, the page opened with
+// a bare "Dashboard" breadcrumb on one line and a boxed filter bar holding
+// nothing but the freshness line on the next. The freshness line belongs
+// with the other page-level item (the properties button), the bar only
+// exists when it has fields, and the breadcrumb duplicated the nav tab.
+describe('page header (manual review 2)', () => {
+    // The freshness line renders nothing until this type has a load stamp
+    // (MetadataFreshness.tsx), so both tests give it one.
+    beforeEach(() => {
+        mockEngine.status = {
+            phase: 'done',
+            type: null,
+            progress: null,
+            fromCache: {},
+            errors: {},
+            namesErrors: {},
+            loadedAt: {
+                organisationUnit: Date.now() - 60_000,
+                dataElement: Date.now() - 60_000,
+            },
+        }
+    })
+
+    it('renders no breadcrumb and no empty filter bar for a set without scope fields', async () => {
+        renderDetail({ objectType: 'dataElement' })
+        await screen.findByText('Overview')
+        expect(screen.queryByRole('link', { name: 'Dashboard' })).toBeNull()
+        expect(screen.queryByTestId('filter-bar')).toBeNull()
+        expect(screen.getByTestId('metadata-freshness')).toBeInTheDocument()
+    })
+
+    it('keeps the scope fields for an organisation unit set, with the freshness line out of the bar', async () => {
+        renderDetail({ objectType: 'organisationUnit' })
+        await screen.findByText('Overview')
+        const bar = screen.getByTestId('filter-bar')
+        expect(within(bar).getByText('Organisation unit')).toBeInTheDocument()
+        expect(within(bar).queryByTestId('metadata-freshness')).toBeNull()
+        expect(screen.getByTestId('metadata-freshness')).toBeInTheDocument()
     })
 })

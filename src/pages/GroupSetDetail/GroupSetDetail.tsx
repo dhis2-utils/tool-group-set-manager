@@ -8,7 +8,7 @@ import {
     Tag,
 } from '@dhis2/ui'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
 import styles from './GroupSetDetail.module.css'
 import { IntegrityTab } from './IntegrityTab'
 import { ObjectsTab } from './ObjectsTab'
@@ -289,15 +289,15 @@ export const GroupSetDetail = () => {
 
     return (
         <div className={styles.page}>
-            <Link to="/">{i18n.t('Dashboard')}</Link>
-            <FilterBar
-                status={
-                    <MetadataFreshness
-                        loadedAt={status?.loadedAt[set.objectType] ?? null}
-                    />
-                }
-            >
-                {set.objectType === 'organisationUnit' && (
+            {/* Manual review 2: the scope fields only exist for an
+                organisation unit set -- for every other type this bar
+                held nothing but the freshness line, in a box of its own
+                under a breadcrumb of its own. The freshness line sits in
+                the header now (beside the properties button), the
+                breadcrumb is gone (the Dashboard tab is one line above
+                it), and the bar is rendered only when it has fields. */}
+            {set.objectType === 'organisationUnit' && (
+                <FilterBar>
                     <ScopeTrail
                         trail={trail}
                         currentName={
@@ -305,11 +305,8 @@ export const GroupSetDetail = () => {
                         }
                         onJump={onJumpToCrumb}
                     />
-                )}
-                {set.objectType === 'organisationUnit' && <OrgUnitField />}
-                {set.objectType === 'organisationUnit' &&
-                    tab === 'overview' &&
-                    levels.length > 0 && (
+                    <OrgUnitField />
+                    {tab === 'overview' && levels.length > 0 && (
                         <FilterBarField label={i18n.t('Rows')}>
                             <SingleSelectField
                                 dense
@@ -342,7 +339,8 @@ export const GroupSetDetail = () => {
                             </SingleSelectField>
                         </FilterBarField>
                     )}
-            </FilterBar>
+                </FilterBar>
+            )}
             <div className={styles.header}>
                 <div>
                     <h1 className={styles.title}>{set.displayName}</h1>
@@ -357,6 +355,9 @@ export const GroupSetDetail = () => {
                     </div>
                 </div>
                 <div className={styles.actions}>
+                    <MetadataFreshness
+                        loadedAt={status?.loadedAt[set.objectType] ?? null}
+                    />
                     <Button
                         small
                         disabled={!set.canWrite}

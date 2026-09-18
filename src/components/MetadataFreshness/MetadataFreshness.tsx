@@ -70,7 +70,7 @@ export const MetadataFreshness = ({
     }
 
     return (
-        <div className={styles.freshness}>
+        <div className={styles.freshness} data-test="metadata-freshness">
             <span
                 className={`${styles.dot} ${
                     busy ? styles.busy : stale ? styles.stale : styles.fresh
