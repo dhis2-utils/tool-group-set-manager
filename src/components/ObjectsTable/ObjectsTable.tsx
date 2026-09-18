@@ -2,6 +2,7 @@ import i18n from '@dhis2/d2-i18n'
 import {
     AlertBar,
     Button,
+    ButtonStrip,
     CircularLoader,
     Modal,
     ModalActions,
@@ -658,12 +659,18 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
                         </p>
                     </ModalContent>
                     <ModalActions>
-                        <Button onClick={() => setConfirm(null)}>
-                            {i18n.t('Cancel')}
-                        </Button>
-                        <Button primary onClick={handleConfirm}>
-                            {i18n.t('Assign')}
-                        </Button>
+                        {/* ModalActions lays its children out with no gap
+                            of its own; ButtonStrip is what spaces them
+                            (the same pairing SetPropertiesDialog and
+                            SummaryMatrix use). */}
+                        <ButtonStrip end>
+                            <Button secondary onClick={() => setConfirm(null)}>
+                                {i18n.t('Cancel')}
+                            </Button>
+                            <Button primary onClick={handleConfirm}>
+                                {i18n.t('Assign')}
+                            </Button>
+                        </ButtonStrip>
                     </ModalActions>
                 </Modal>
             )}

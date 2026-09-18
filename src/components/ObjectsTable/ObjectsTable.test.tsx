@@ -801,6 +801,21 @@ describe('interactive membership control', () => {
         })
     })
 
+    // Manual review 2: Cancel and Assign sat flush against each other.
+    // ModalActions spaces nothing itself; the buttons have to be inside a
+    // ButtonStrip, as every other modal in the app already has them.
+    it('spaces Cancel and Assign with a ButtonStrip', async () => {
+        renderWithRows([conflictRow])
+        fireEvent.click(screen.getByText('Private'))
+        const cancel = await screen.findByText('Cancel')
+        const assign = screen.getByText('Assign')
+        const strip = cancel.closest('[data-test="dhis2-uicore-buttonstrip"]')
+        expect(strip).not.toBeNull()
+        expect(assign.closest('[data-test="dhis2-uicore-buttonstrip"]')).toBe(
+            strip
+        )
+    })
+
     it('assigning a well-formed row to a different group produces one addition and one deletion, not one deletion per group', async () => {
         const okRow = { ...conflictRow, id: 'o2', status: 1, groups: [0] }
         renderWithRows([okRow])
