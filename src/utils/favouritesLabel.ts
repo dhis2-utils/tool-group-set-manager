@@ -11,3 +11,14 @@ export const favouritesLabel = (count: number): string =>
         : interpolate(i18n.t('{count} favourites'), {
               count: count.toLocaleString(),
           })
+
+// Manual review 2: the dashboard card's line. A bare "42 favourites" under
+// a group set's counts did not say what the number was a count *of*; the
+// usage tab's per-type breakdown keeps the short form above, where the
+// type label beside it already does that job.
+export const usedInFavouritesLabel = (count: number): string =>
+    count === 1
+        ? i18n.t('Used in 1 favourite')
+        : interpolate(i18n.t('Used in {count} favourites'), {
+              count: count.toLocaleString(),
+          })

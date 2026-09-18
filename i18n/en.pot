@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-18T12:49:30.003Z\n"
-"PO-Revision-Date: 2026-09-18T12:49:30.005Z\n"
+"POT-Creation-Date: 2026-09-18T13:36:55.815Z\n"
+"PO-Revision-Date: 2026-09-18T13:36:55.815Z\n"
 
 msgid "Move to catch-all group"
 msgstr "Move to catch-all group"
@@ -703,9 +703,6 @@ msgstr "Group set not found or not loaded yet."
 msgid "Includes organisation units above the {level} level"
 msgstr "Includes organisation units above the {level} level"
 
-msgid "Dashboard"
-msgstr "Dashboard"
-
 msgid "All organisation units"
 msgstr "All organisation units"
 
@@ -1104,6 +1101,9 @@ msgstr "Cache"
 msgid "Clear cache"
 msgstr "Clear cache"
 
+msgid "Dashboard"
+msgstr "Dashboard"
+
 msgid "Settings"
 msgstr "Settings"
 
@@ -1121,6 +1121,12 @@ msgstr "1 favourite"
 
 msgid "{count} favourites"
 msgstr "{count} favourites"
+
+msgid "Used in 1 favourite"
+msgstr "Used in 1 favourite"
+
+msgid "Used in {count} favourites"
+msgstr "Used in {count} favourites"
 
 msgid "1 group"
 msgstr "1 group"
