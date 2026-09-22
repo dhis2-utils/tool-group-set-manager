@@ -1,4 +1,10 @@
+.frame {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
 .nav {
+    flex: none;
     display: flex;
     gap: var(--spacers-dp16);
     padding: var(--spacers-dp12) var(--spacers-dp16);

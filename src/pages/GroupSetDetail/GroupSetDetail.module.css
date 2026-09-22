@@ -1,18 +1,20 @@
-/* Manual review 3: the page is exactly as tall as the shell's content area
-   (`.app-shell-app`, a flex item of the adapter, so 100% resolves) and
-   scrolls itself, so a tab body that wants the rest of the height -- the
-   objects table -- can take it instead of stopping at a fixed 600px with
-   the window's remainder empty below. `height`, not `min-height`: a flex
-   chain with no ceiling lets the list grow to its content (measured: a
-   1,332-row list made the page 43,559px tall), and a min-height is not a
-   ceiling. A tab taller than the page (a long overview matrix) scrolls
-   the page, as the shell scrolled before. */
+/* Manual review 3: the page takes exactly what the app frame has left
+   under the nav (SyncUrlWithGlobalShell.module.css's .frame, a flex column
+   as tall as the shell's content area) and scrolls itself, so a tab body
+   that wants the rest of the height -- the objects table -- can take it
+   instead of stopping at a fixed 600px with the window's remainder empty
+   below. A definite size, not `min-height`: a flex chain with no ceiling
+   lets the list grow to its content (measured: a 1,332-row list made the
+   page 43,559px tall), and a min-height is not a ceiling. A tab taller
+   than the page (a long overview matrix) scrolls the page, as the shell
+   scrolled before. */
 .page {
     padding: var(--spacers-dp16);
     display: flex;
     flex-direction: column;
     gap: var(--spacers-dp12);
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     box-sizing: border-box;
     overflow: auto;
 }

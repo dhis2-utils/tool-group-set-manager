@@ -16,7 +16,12 @@ export const SyncUrlWithGlobalShell = () => {
     }, [location.key])
 
     return (
-        <>
+        // One flex column as tall as the shell's content area, so a page
+        // that wants the remaining height (GroupSetDetail's .page) can take
+        // exactly that: `height: 100%` on the page alone overshot by this
+        // nav's own height and left the shell scrolling the nav out of view
+        // (manual review 3).
+        <div className={styles.frame}>
             {/* D2: the link to History (and back to the dashboard) lives
              * here, in the element both routes already share, rather than
              * duplicated onto each page -- this is a two-page app, so the
@@ -49,6 +54,6 @@ export const SyncUrlWithGlobalShell = () => {
                 </NavLink>
             </nav>
             <Outlet />
-        </>
+        </div>
     )
 }
