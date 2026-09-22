@@ -287,17 +287,22 @@ export const GroupSetDetail = () => {
         setRowLevel(crumb.rowLevel)
     }
 
+    const isOrgUnitSet = set.objectType === 'organisationUnit'
     return (
         <div className={styles.page}>
-            {/* Manual review 2: the scope fields only exist for an
-                organisation unit set -- for every other type this bar
-                held nothing but the freshness line, in a box of its own
-                under a breadcrumb of its own. The freshness line sits in
-                the header now (beside the properties button), the
-                breadcrumb is gone (the Dashboard tab is one line above
-                it), and the bar is rendered only when it has fields. */}
-            {set.objectType === 'organisationUnit' && (
-                <FilterBar>
+            {/* One bar on every group set page (manual review 3), the
+                same row the dashboard has: the scope fields when the type
+                has a scope, the group set's own action beside them, and
+                the freshness line in the status slot on the right where
+                the dashboard keeps it. */}
+            <FilterBar
+                status={
+                    <MetadataFreshness
+                        loadedAt={status?.loadedAt[set.objectType] ?? null}
+                    />
+                }
+            >
+                {isOrgUnitSet && (
                     <ScopeTrail
                         trail={trail}
                         currentName={
@@ -305,61 +310,43 @@ export const GroupSetDetail = () => {
                         }
                         onJump={onJumpToCrumb}
                     />
-                    <OrgUnitField />
-                    {tab === 'overview' && levels.length > 0 && (
-                        <FilterBarField label={i18n.t('Rows')}>
-                            <SingleSelectField
-                                dense
-                                selected={String(effectiveRowLevel)}
-                                onChange={({ selected }) =>
-                                    setRowLevel(Number(selected))
-                                }
-                                inputWidth="240px"
-                            >
-                                {levels.map((l) => (
-                                    <SingleSelectOption
-                                        key={l.level}
-                                        value={String(l.level)}
-                                        // One complete string with
-                                        // placeholders rather than
-                                        // translated fragments joined in
-                                        // English word order -- see
-                                        // src/utils/interpolate.ts for why
-                                        // the call itself takes no second
-                                        // argument.
-                                        label={interpolate(
-                                            i18n.t('{name} (level {level})'),
-                                            {
-                                                name: l.displayName,
-                                                level: l.level,
-                                            }
-                                        )}
-                                    />
-                                ))}
-                            </SingleSelectField>
-                        </FilterBarField>
-                    )}
-                </FilterBar>
-            )}
-            <div className={styles.header}>
-                <div>
-                    <h1 className={styles.title}>{set.displayName}</h1>
-                    <div className={styles.badges}>
-                        {set.compulsory && (
-                            <Tag positive>{i18n.t('Compulsory')}</Tag>
-                        )}
-                        {set.dataDimension && (
-                            <Tag positive>{i18n.t('Data dimension')}</Tag>
-                        )}
-                        <Tag neutral>{groupsLabel(set.groups.length)}</Tag>
-                    </div>
-                </div>
-                <div className={styles.actions}>
-                    <MetadataFreshness
-                        loadedAt={status?.loadedAt[set.objectType] ?? null}
-                    />
+                )}
+                {isOrgUnitSet && <OrgUnitField />}
+                {isOrgUnitSet && tab === 'overview' && levels.length > 0 && (
+                    <FilterBarField label={i18n.t('Rows')}>
+                        <SingleSelectField
+                            dense
+                            selected={String(effectiveRowLevel)}
+                            onChange={({ selected }) =>
+                                setRowLevel(Number(selected))
+                            }
+                            inputWidth="240px"
+                        >
+                            {levels.map((l) => (
+                                <SingleSelectOption
+                                    key={l.level}
+                                    value={String(l.level)}
+                                    // One complete string with
+                                    // placeholders rather than
+                                    // translated fragments joined in
+                                    // English word order -- see
+                                    // src/utils/interpolate.ts for why
+                                    // the call itself takes no second
+                                    // argument.
+                                    label={interpolate(
+                                        i18n.t('{name} (level {level})'),
+                                        {
+                                            name: l.displayName,
+                                            level: l.level,
+                                        }
+                                    )}
+                                />
+                            ))}
+                        </SingleSelectField>
+                    </FilterBarField>
+                )}
+                <FilterBarField label={i18n.t('Group set')}>
                     <Button
-                        small
                         disabled={!set.canWrite}
                         title={
                             set.canWrite
@@ -372,6 +359,18 @@ export const GroupSetDetail = () => {
                     >
                         {i18n.t('Group set properties…')}
                     </Button>
+                </FilterBarField>
+            </FilterBar>
+            <div className={styles.header}>
+                <h1 className={styles.title}>{set.displayName}</h1>
+                <div className={styles.badges}>
+                    {set.compulsory && (
+                        <Tag positive>{i18n.t('Compulsory')}</Tag>
+                    )}
+                    {set.dataDimension && (
+                        <Tag positive>{i18n.t('Data dimension')}</Tag>
+                    )}
+                    <Tag neutral>{groupsLabel(set.groups.length)}</Tag>
                 </div>
             </div>
             <LoadProgress status={status} />

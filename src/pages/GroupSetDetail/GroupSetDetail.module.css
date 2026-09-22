@@ -1,33 +1,43 @@
+/* Manual review 3: the page is exactly as tall as the shell's content area
+   (`.app-shell-app`, a flex item of the adapter, so 100% resolves) and
+   scrolls itself, so a tab body that wants the rest of the height -- the
+   objects table -- can take it instead of stopping at a fixed 600px with
+   the window's remainder empty below. `height`, not `min-height`: a flex
+   chain with no ceiling lets the list grow to its content (measured: a
+   1,332-row list made the page 43,559px tall), and a min-height is not a
+   ceiling. A tab taller than the page (a long overview matrix) scrolls
+   the page, as the shell scrolled before. */
 .page {
     padding: var(--spacers-dp16);
     display: flex;
     flex-direction: column;
     gap: var(--spacers-dp12);
+    height: 100%;
+    box-sizing: border-box;
+    overflow: auto;
+}
+/* Takes whatever height the page has left after the bar, header and tabs,
+   and hands it down as a flex column (ObjectsTab -> ObjectsTable). */
+.fill {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
 }
 .header {
     display: flex;
-    gap: var(--spacers-dp12);
-    align-items: flex-start;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: var(--spacers-dp4);
 }
 .title {
     font-size: var(--gsi-font-size-heading, 20px);
     font-weight: 500;
-    margin: 0 0 var(--spacers-dp4);
+    margin: 0;
 }
 .badges {
     display: flex;
     gap: var(--spacers-dp4);
     flex-wrap: wrap;
-}
-/* Freshness line above the properties button, both against the right
-   edge: the two things about this page that are not the set itself. */
-.actions {
-    margin-left: auto;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: var(--spacers-dp8);
 }
 .overview {
     display: flex;

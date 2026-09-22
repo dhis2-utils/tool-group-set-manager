@@ -20,8 +20,19 @@
     background: var(--colors-grey100);
     height: 32px;
 }
+/* Manual review 3: the list takes the height the page has left (see
+   GroupSetDetail.module.css's .page/.fill chain) instead of a fixed 600px
+   that left the window's remainder empty; the floor keeps it a usable list
+   when little is left. */
+.table {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
 .scroll {
-    height: 600px;
+    flex: 1;
+    min-height: 320px;
     overflow: auto;
     border: 1px solid var(--colors-grey300);
 }

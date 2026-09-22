@@ -970,12 +970,12 @@ describe('usage tab (Task 5)', () => {
     })
 })
 
-// Manual review 2: for a set whose type has no scope, the page opened with
-// a bare "Dashboard" breadcrumb on one line and a boxed filter bar holding
-// nothing but the freshness line on the next. The freshness line belongs
-// with the other page-level item (the properties button), the bar only
-// exists when it has fields, and the breadcrumb duplicated the nav tab.
-describe('page header (manual review 2)', () => {
+// Manual review 3: every group set page has the one bar the dashboard has.
+// The scope fields appear only for a type that has a scope; the group set's
+// own action and the freshness line are in it for every type -- not in a
+// header column of their own, and not (manual review 2's interim state)
+// in a bar that only existed for organisation unit sets.
+describe('page header (manual review 3)', () => {
     // The freshness line renders nothing until this type has a load stamp
     // (MetadataFreshness.tsx), so both tests give it one.
     beforeEach(() => {
@@ -993,20 +993,30 @@ describe('page header (manual review 2)', () => {
         }
     })
 
-    it('renders no breadcrumb and no empty filter bar for a set without scope fields', async () => {
+    it('puts the properties button and the freshness line in the bar, with no scope fields, for a set without scope', async () => {
         renderDetail({ objectType: 'dataElement' })
         await screen.findByText('Overview')
         expect(screen.queryByRole('link', { name: 'Dashboard' })).toBeNull()
-        expect(screen.queryByTestId('filter-bar')).toBeNull()
-        expect(screen.getByTestId('metadata-freshness')).toBeInTheDocument()
+        const bar = screen.getByTestId('filter-bar')
+        expect(within(bar).queryByText('Organisation unit')).toBeNull()
+        expect(
+            within(bar).getByRole('button', { name: 'Group set properties…' })
+        ).toBeInTheDocument()
+        expect(
+            within(bar).getByTestId('metadata-freshness')
+        ).toBeInTheDocument()
     })
 
-    it('keeps the scope fields for an organisation unit set, with the freshness line out of the bar', async () => {
+    it('keeps the scope fields beside them for an organisation unit set', async () => {
         renderDetail({ objectType: 'organisationUnit' })
         await screen.findByText('Overview')
         const bar = screen.getByTestId('filter-bar')
         expect(within(bar).getByText('Organisation unit')).toBeInTheDocument()
-        expect(within(bar).queryByTestId('metadata-freshness')).toBeNull()
-        expect(screen.getByTestId('metadata-freshness')).toBeInTheDocument()
+        expect(
+            within(bar).getByRole('button', { name: 'Group set properties…' })
+        ).toBeInTheDocument()
+        expect(
+            within(bar).getByTestId('metadata-freshness')
+        ).toBeInTheDocument()
     })
 })

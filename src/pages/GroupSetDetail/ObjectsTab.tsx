@@ -157,7 +157,7 @@ export const ObjectsTab = ({
             ? String(filter.group)
             : 'all'
     return (
-        <div>
+        <div className={styles.fill}>
             <div className={styles.filters}>
                 <SingleSelectField
                     dense

@@ -564,7 +564,7 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
         gridTemplateColumns: isOrgUnit ? undefined : '3fr 130px 2fr',
     }
     return (
-        <div>
+        <div className={styles.table}>
             <p className={styles.count} data-test="objects-count">
                 {objectsCountLabel(current.total)}
                 {isLoading && ` · ${i18n.t('Loading more rows…')}`}
