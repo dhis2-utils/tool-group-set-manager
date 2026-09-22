@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-09-18T13:36:55.815Z\n"
-"PO-Revision-Date: 2026-09-18T13:36:55.815Z\n"
+"POT-Creation-Date: 2026-09-22T09:16:03.612Z\n"
+"PO-Revision-Date: 2026-09-22T09:16:03.614Z\n"
 
 msgid "Move to catch-all group"
 msgstr "Move to catch-all group"
@@ -654,12 +654,6 @@ msgstr "Issues"
 msgid "Usage (least used first)"
 msgstr "Usage (least used first)"
 
-msgid "Data"
-msgstr "Data"
-
-msgid "Reload data"
-msgstr "Reload data"
-
 msgid "Loading failed"
 msgstr "Loading failed"
 
@@ -711,6 +705,9 @@ msgstr "Rows"
 
 msgid "{name} (level {level})"
 msgstr "{name} (level {level})"
+
+msgid "Group set"
+msgstr "Group set"
 
 msgid "You do not have permission to change this group set"
 msgstr "You do not have permission to change this group set"
@@ -956,9 +953,6 @@ msgstr "When"
 
 msgid "Who"
 msgstr "Who"
-
-msgid "Group set"
-msgstr "Group set"
 
 msgid "Action"
 msgstr "Action"

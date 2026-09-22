@@ -1,10 +1,5 @@
 import i18n from '@dhis2/d2-i18n'
-import {
-    Button,
-    NoticeBox,
-    SingleSelectField,
-    SingleSelectOption,
-} from '@dhis2/ui'
+import { NoticeBox, SingleSelectField, SingleSelectOption } from '@dhis2/ui'
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import styles from './Dashboard.module.css'
@@ -117,7 +112,7 @@ const usageSortHelpText = (status: UsageStatus) => {
 }
 
 export const Dashboard = () => {
-    const { client, status, error, sourceKind, nameSource, fellBack, reload } =
+    const { client, status, error, sourceKind, nameSource, fellBack } =
         useEngine()
     const { rootId, isReady } = useScope()
     const navigate = useNavigate()
@@ -328,14 +323,6 @@ export const Dashboard = () => {
                         />
                     </SingleSelectField>
                 </FilterBarField>
-                {/* The cache is reused across restarts, so a user who has
-                    just fixed data elsewhere needs a way to say "look
-                    again" without clearing browser storage. */}
-                <FilterBarField label={i18n.t('Data')}>
-                    <Button onClick={() => void reload(true)}>
-                        {i18n.t('Reload data')}
-                    </Button>
-                </FilterBarField>
             </FilterBar>
             {error && (
                 <NoticeBox error title={i18n.t('Loading failed')}>
@@ -343,27 +330,36 @@ export const Dashboard = () => {
                 </NoticeBox>
             )}
             <LoadProgress status={status} />
-            {sourceKind && (
-                <p className={styles.note}>
-                    {sourceLabel(sourceKind, nameSource)}
-                </p>
+            {(sourceKind || usage.status === 'ready') && (
+                // Manual review 3: these two lines were separate `<p>`s
+                // with default margins, each also a child of the page's
+                // 16px flex gap -- three gaps' worth of white space for two
+                // lines of grey text. One block, margins off, 4px apart.
+                <div className={styles.notes}>
+                    {sourceKind && (
+                        <p className={styles.note}>
+                            {sourceLabel(sourceKind, nameSource)}
+                        </p>
+                    )}
+                    {
+                        // Fix round 2 (Important 2): spec 3.6 requires every
+                        // surface showing a count to carry the caveat, not
+                        // just the tab -- otherwise the dashboard's cards
+                        // show a favourites count with none at all. One
+                        // line here, not one per card: the plan's own
+                        // words for this were "the tab is where the full
+                        // sentence lives; the card carries the short form",
+                        // and this is that short form.
+                        usage.status === 'ready' && (
+                            <p className={styles.note}>
+                                {i18n.t(
+                                    'Usage counts are indicative — they cover saved favourites and their recorded views.'
+                                )}
+                            </p>
+                        )
+                    }
+                </div>
             )}
-            {
-                // Fix round 2 (Important 2): spec 3.6 requires every
-                // surface showing a count to carry the caveat, not just the
-                // Usage tab (which has the full sentence) -- the cards
-                // below show a favourites count with none at all. One line
-                // here, not one per card: the plan's own words for this
-                // were "the tab is where the full sentence lives; the card
-                // carries the short form", and this is that short form.
-                usage.status === 'ready' && (
-                    <p className={styles.note}>
-                        {i18n.t(
-                            'Usage counts are indicative — they cover saved favourites and their recorded views.'
-                        )}
-                    </p>
-                )
-            }
             {
                 // Closes Plan 2's deferred item: the D4 fallback is silent
                 // per-load, so a broken SQL view degrades every load with

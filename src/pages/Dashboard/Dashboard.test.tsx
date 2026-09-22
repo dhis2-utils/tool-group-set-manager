@@ -622,12 +622,14 @@ it('renders its filter fields in the fixed order', () => {
     const labels = screen
         .getAllByText(/^(Organisation unit|Object type|Show|Sort by|Data)$/)
         .map((el) => el.textContent)
+    // Manual review 3: no "Data / Reload data" field any more -- it did
+    // exactly what the freshness indicator's Refresh already does
+    // (`reload(true)`), and the indicator is on every page.
     expect(labels).toEqual([
         'Organisation unit',
         'Object type',
         'Show',
         'Sort by',
-        'Data',
     ])
 })
 
@@ -643,7 +645,7 @@ it('gives every field one label, not a second one from its own library control',
             <Dashboard />
         </MemoryRouter>
     )
-    ;['Organisation unit', 'Object type', 'Show', 'Sort by', 'Data'].forEach(
+    ;['Organisation unit', 'Object type', 'Show', 'Sort by'].forEach(
         (label) => {
             expect(screen.getAllByText(label)).toHaveLength(1)
         }
