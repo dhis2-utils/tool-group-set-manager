@@ -22,6 +22,7 @@ jobs:
         runs-on: ubuntu-latest
         env:
             TAG: ${{ inputs.tag || github.ref_name }}
+            DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         steps:
             - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
               with:
@@ -56,8 +57,18 @@ jobs:
               # changelog section must NOT fail the job — that would burn the
               # version number with no way to retry it. Warn and fall back to a
               # generic note instead.
+              #
+              # A tag from before CHANGELOG.md existed (v1.0.0, released by
+              # hand through workflow_dispatch) has no changelog in its own
+              # tree; the default branch's copy is used for it.
               run: |
                   VERSION="${TAG#v}"
+                  if [ ! -f CHANGELOG.md ]; then
+                    echo "::notice::No CHANGELOG.md at $TAG; reading the one on $DEFAULT_BRANCH"
+                    git fetch --depth=1 origin "$DEFAULT_BRANCH" \
+                      && git show FETCH_HEAD:CHANGELOG.md > CHANGELOG.md \
+                      || : > CHANGELOG.md
+                  fi
                   awk -v ver="$VERSION" '
                     BEGIN { pat = ver; gsub(/\./, "\\.", pat) }
                     # Accept both "## [1.2.3] - date" and "## 1.2.3 - date"
