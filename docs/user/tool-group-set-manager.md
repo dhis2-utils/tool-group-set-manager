@@ -259,7 +259,7 @@ The dialog shows **The group set was updated on the server.**, and the tool coun
 
 ## Revert a change from History { #tool-group-set-manager-revert }
 
-History lists every membership change made with the tool on this instance, by any user. You can export a change, or revert it.
+History lists every membership change made with the tool on this instance, by any user. You can export any change. You can revert a change for 24 hours after it was made; after that, History shows **Can no longer be reverted (older than 24 hours)** instead of the **Revert** button, and the change can still be exported.
 
 ![The History page with a change set](resources/images/tool-group-set-manager/history.png)
 
@@ -349,6 +349,7 @@ The tool deletes the copy in this browser and loads all data from the server aga
 - **The SQL views are readable by every user.** The `GSI_*` SQL views and the usage SQL view are shared publicly with read access to metadata and data. Any logged-in user can read the organisation unit hierarchy and the organisation unit group memberships through the API, even without access to the tool.
 - **Organisation unit names are not translated on the SQL view path.** When the tool loads data through the SQL views, it shows organisation unit names as they are stored, not in your language. The line under the dashboard filter bar says which source the tool used.
 - **A bulk fix uses the data that the page loaded.** The tool plans a fix from the data it read when it opened or when you last clicked **Refresh**. It reads a group again from the server only when that group has more than 5,000 changes. If other administrators may be editing the same groups, click **Refresh** before you fix.
+- **Only changes from the last 24 hours can be reverted.** An older change stays in History and can be exported, but the tool no longer reverts it, because a revert would undo everything that happened to those objects since.
 - **A revert skips objects that have moved.** A revert from History does not change an object that has moved to another group after the original change, or whose group has left the set.
 - **History covers only this tool.** History records membership changes made with the tool. It does not record changes made in the **Maintenance** app or through the API, changes to the properties of a group set, or catch-all groups that the tool created.
 - **The DHIS2 integrity counts are national.** DHIS2 counts each integrity check across the whole instance and across every group set of the type. The tool cannot ask DHIS2 for a count for one set or one organisation unit.

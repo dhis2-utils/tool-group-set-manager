@@ -59,6 +59,7 @@ A change set records one user action on one group set: a move, an assignment or 
 ```
 
 - `action` is `move`, `assign` or `revert`. A revert also has `revertOf`, the id of the change set that it undoes.
+- `createdAt` also decides whether History still offers a revert: only for 24 hours (`REVERT_WINDOW_MS` in `src/data/revertWindow.ts`). The app never deletes change sets; older ones stay in the dataStore and in the list, export only.
 - `targetGroupId` is present only when the action has one target group.
 - The id is a base-36 timestamp followed by 8 random characters. Ids therefore sort in creation order, and the **History** page sorts the key list newest first and reads only the documents of the page it shows. The id is never sent to DHIS2 as a metadata id.
 - The app does not save a change set when the server confirmed nothing.

@@ -19,6 +19,16 @@ the project uses [Semantic Versioning](https://semver.org/).
 - History, settings and the `GSI_*` SQL views are kept: they are stored on
   the server under names that do not depend on the app key.
 
+### Changed
+
+- History offers **Revert** only for changes made in the last 24 hours. Older
+  changes stay listed and can still be exported.
+
+### Fixed
+
+- The group dropdown in the objects table is wide enough to read when no
+  group is selected.
+
 ## [1.0.0] - 2026-09-22
 
 First release.

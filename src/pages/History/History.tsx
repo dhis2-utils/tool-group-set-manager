@@ -25,6 +25,7 @@ import type {
 } from '@/components/ChangeSetPreview/ChangeSetPreview'
 import { ChangeSetPreview } from '@/components/ChangeSetPreview/ChangeSetPreview'
 import { toCsv } from '@/data/csv'
+import { canStillRevert } from '@/data/revertWindow'
 import {
     aggregateOutcomes,
     mergeOutcomes,
@@ -85,6 +86,9 @@ const groupSetsLoadFailedTooltip = () =>
     i18n.t(
         'Group set information could not be loaded, so this change cannot be reverted from here'
     )
+
+const revertWindowClosedLabel = () =>
+    i18n.t('Can no longer be reverted (older than 24 hours)')
 
 /** Filesystem-unsafe characters a group set's own display name could contain. Same rule as BulkFixDialog's. */
 function safeFileName(name: string): string {
@@ -247,6 +251,12 @@ const RevertDialog = ({ changeSet, onClose, onApplied }: RevertDialogProps) => {
 
     const handleRevert = () => {
         if (!plan || !set) {
+            return
+        }
+        // The dialog may have been opened just inside the window and left
+        // open past it.
+        if (!canStillRevert(changeSet, Date.now())) {
+            setLoadError(revertWindowClosedLabel())
             return
         }
         setStep('apply')
@@ -498,6 +508,14 @@ export const History = () => {
         reload,
     } = useChangeSets()
     const [revertTarget, setRevertTarget] = useState<ChangeSet | null>(null)
+    // The revert window is judged against this clock rather than one read
+    // during render, and it advances each minute so a page left open closes
+    // the window on time. The dialog checks again when Revert is clicked.
+    const [now, setNow] = useState(() => Date.now())
+    useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), 60_000)
+        return () => clearInterval(timer)
+    }, [])
     const [exportingId, setExportingId] = useState<string | null>(null)
     const [exportError, setExportError] = useState<string | null>(null)
 
@@ -663,6 +681,7 @@ export const History = () => {
                             // silently behaving like "still loading".
                             const loadFailed =
                                 !groupSetsLoaded && !!groupSetsError
+                            const expired = !canStillRevert(cs, now)
                             return (
                                 <DataTableRow key={cs.id}>
                                     <DataTableCell>
@@ -700,7 +719,16 @@ export const History = () => {
                                             >
                                                 {i18n.t('Export')}
                                             </Button>
-                                            {setExists && (
+                                            {expired && (
+                                                <span
+                                                    className={
+                                                        styles.windowClosed
+                                                    }
+                                                >
+                                                    {revertWindowClosedLabel()}
+                                                </span>
+                                            )}
+                                            {!expired && setExists && (
                                                 <Button
                                                     small
                                                     onClick={() =>
@@ -710,7 +738,7 @@ export const History = () => {
                                                     {i18n.t('Revert')}
                                                 </Button>
                                             )}
-                                            {setMissing && (
+                                            {!expired && setMissing && (
                                                 <Tooltip
                                                     content={missingGroupSetTooltip()}
                                                 >
@@ -742,7 +770,7 @@ export const History = () => {
                                                     )}
                                                 </Tooltip>
                                             )}
-                                            {loadFailed && (
+                                            {!expired && loadFailed && (
                                                 <Tooltip
                                                     content={groupSetsLoadFailedTooltip()}
                                                 >
@@ -774,7 +802,8 @@ export const History = () => {
                                                     )}
                                                 </Tooltip>
                                             )}
-                                            {!setExists &&
+                                            {!expired &&
+                                                !setExists &&
                                                 !setMissing &&
                                                 !loadFailed && (
                                                     // Still loading: nothing

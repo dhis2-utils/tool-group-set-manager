@@ -76,7 +76,8 @@ jest.mock('@/hooks/useMembershipWrite', () => ({
 function changeSet(overrides: Partial<ChangeSet> = {}): ChangeSet {
     return {
         id: 'cs1',
-        createdAt: '2024-01-01T00:00:00.000Z',
+        // Inside the 24-hour revert window.
+        createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
         createdBy: { id: 'u1', displayName: 'Ann Author' },
         objectType: 'organisationUnit',
         groupSetId: 'own',
@@ -159,6 +160,25 @@ describe('History', () => {
         expect(screen.getByText('bulk fix')).toBeInTheDocument()
         // Two membership changes recorded (one addition, one deletion).
         expect(screen.getByText('2 membership changes')).toBeInTheDocument()
+    })
+
+    it('a change set older than 24 hours is listed and exportable, but cannot be reverted', () => {
+        mockChangeSets.changeSets = [
+            changeSet({
+                createdAt: new Date(
+                    Date.now() - 25 * 60 * 60 * 1000
+                ).toISOString(),
+            }),
+        ]
+        render(<History />)
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled()
+        expect(
+            screen.queryByRole('button', { name: 'Revert' })
+        ).not.toBeInTheDocument()
+        expect(
+            screen.getByText('Can no longer be reverted (older than 24 hours)')
+        ).toBeInTheDocument()
     })
 
     it('shows an empty-state message when there is no history yet', () => {

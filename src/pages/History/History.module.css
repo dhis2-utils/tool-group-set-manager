@@ -22,3 +22,11 @@
     flex-direction: column;
     gap: var(--spacers-dp8);
 }
+/* Sits in the button strip in place of Revert: the small button's height,
+   so the text lines up with Export beside it. */
+.windowClosed {
+    display: inline-block;
+    line-height: 28px;
+    font-size: var(--gsi-font-size-sm, 12px);
+    color: var(--colors-grey600);
+}
