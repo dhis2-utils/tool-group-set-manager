@@ -110,7 +110,12 @@ const settle = async (label: string, total: number, count = 200) => {
         groups: [0],
     }))
     await actAndFlush(() => {
-        pending.resolve({ total, offset, items })
+        pending.resolve({
+            total,
+            offset,
+            hasMore: offset + count < total,
+            items,
+        })
     })
     await actAndFlush(() => {
         lastPendingFor('resolveParents').resolve(items.map(() => null))
@@ -259,8 +264,8 @@ test('assigns a row loaded through the real paging pipeline, confirming before i
         action: 'assign',
         targetGroupId: 'b',
         changes: [
-            { groupId: 'a', additions: [], deletions: ['Row-0'] },
             { groupId: 'b', additions: ['Row-0'], deletions: [] },
+            { groupId: 'a', additions: [], deletions: ['Row-0'] },
         ],
     })
 })

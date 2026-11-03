@@ -55,6 +55,7 @@ interface FakeResult {
     total: number
     /** echoed back by the real store, so the fake echoes it too */
     offset: number
+    hasMore: boolean
     items: ReturnType<typeof makeItems>
 }
 
@@ -165,13 +166,23 @@ function createControllableEngineQuery() {
     }
     // The offset is stamped on from the request itself, exactly as the store
     // echoes back the offset it was asked for.
-    const resolve = (args: unknown[], result: Omit<FakeResult, 'offset'>) => {
+    // `hasMore` is derived the way the store derives it for a list that
+    // has not changed under the table, unless a test states it.
+    const resolve = (
+        args: unknown[],
+        result: Omit<FakeResult, 'offset' | 'hasMore'> & { hasMore?: boolean }
+    ) => {
         const key = JSON.stringify(args)
         const entry = resolvers.get(key)
         if (!entry) {
             throw new Error(`no pending request for ${key}`)
         }
-        entry.resolve({ ...result, offset: args[3] as number })
+        const offset = args[3] as number
+        entry.resolve({
+            hasMore: offset + result.items.length < result.total,
+            ...result,
+            offset,
+        })
     }
     const reject = (args: unknown[], message: string) => {
         const key = JSON.stringify(args)
@@ -385,6 +396,118 @@ test('pages by offset and appends, never re-requesting the rows it already has',
     })
     await waitFor(() => expect(screen.getByText('Item 0')).toBeInTheDocument())
     expect(pageRequests()).toEqual(['0/200', '200/200', '400/200'])
+})
+
+test('M9a: asks for the next page after the last row it holds, and stops when the engine has no more', async () => {
+    const { useFakeQuery, resolve, resolveParentsFor } =
+        createControllableEngineQuery()
+    mockUseEngineQuery.mockImplementation(useFakeQuery)
+
+    render(<ObjectsTable set={set} scope={scope} filter={{}} />)
+    const firstPageArgs = lastCallArgs()
+    // No cursor for the first page.
+    expect(firstPageArgs[5]).toBeNull()
+    const firstPageItems = makeItems(200)
+    // The engine's total says 400, but it reports nothing after this page
+    // (rows moved out of the filter since): the table believes hasMore,
+    // not its own row count.
+    await actAndFlush(() => {
+        resolve(firstPageArgs, {
+            total: 400,
+            hasMore: true,
+            items: firstPageItems,
+        })
+    })
+    await actAndFlush(() => {
+        resolveParentsFor(firstPageItems)
+    })
+    const scrollEl = getScrollEl()
+    act(() => {
+        scrollEl.scrollTop = 6000
+        fireEvent.scroll(scrollEl)
+    })
+    await waitFor(() => expect(lastCallArgs()[3]).toBe(200))
+    // The cursor is the id of the last row held.
+    expect(lastCallArgs()[5]).toBe('o199')
+
+    const secondPageItems = makeItems(10, { offset: 200 })
+    await actAndFlush(() => {
+        resolve(lastCallArgs(), {
+            total: 210,
+            hasMore: false,
+            items: secondPageItems,
+        })
+    })
+    await actAndFlush(() => {
+        resolveParentsFor(secondPageItems)
+    })
+    act(() => {
+        scrollEl.scrollTop = 7000
+        fireEvent.scroll(scrollEl)
+    })
+    expect(pageRequests()).toEqual(['0/200', '200/200'])
+    expect(screen.getByTestId('objects-count')).toHaveTextContent('210 objects')
+})
+
+test('M9a: a repeat of the held page after an engine change updates the count, not the rows', async () => {
+    const { useFakeQuery, resolve, resolveParentsFor, rerun } =
+        createControllableEngineQuery()
+    mockUseEngineQuery.mockImplementation(useFakeQuery)
+
+    render(<ObjectsTable set={set} scope={scope} filter={{}} />)
+    const items = makeItems(5)
+    await actAndFlush(() => {
+        resolve(lastCallArgs(), { total: 5, items })
+    })
+    await actAndFlush(() => {
+        resolveParentsFor(items)
+    })
+    // An inline fix moved one row out of the filter; the engine revision
+    // re-issues the same request.
+    await actAndFlush(() => {
+        rerun()
+    })
+    await actAndFlush(() => {
+        resolve(lastCallArgs(), { total: 4, items: items.slice(1) })
+    })
+    await actAndFlush(() => {
+        resolveParentsFor(items.slice(1))
+    })
+    expect(screen.getByTestId('objects-count')).toHaveTextContent('4 objects')
+    // The row stays where the user left it.
+    expect(screen.getByText('Item 0')).toBeInTheDocument()
+})
+
+test('L5: says it is loading more rows in one sentence with the count', async () => {
+    const { useFakeQuery, resolve, resolveParentsFor } =
+        createControllableEngineQuery()
+    mockUseEngineQuery.mockImplementation(useFakeQuery)
+    render(<ObjectsTable set={set} scope={scope} filter={{}} />)
+    const items = makeItems(200)
+    await actAndFlush(() => {
+        resolve(lastCallArgs(), { total: 1000, items })
+    })
+    await actAndFlush(() => {
+        resolveParentsFor(items)
+    })
+    const scrollEl = getScrollEl()
+    act(() => {
+        scrollEl.scrollTop = 6000
+        fireEvent.scroll(scrollEl)
+    })
+    await waitFor(() =>
+        expect(screen.getByTestId('objects-count')).toHaveTextContent(
+            '1,000 objects, loading more rows…'
+        )
+    )
+})
+
+test('L7: says so when nothing matches the filter, rather than showing an empty box', () => {
+    mockObjectsPage({ total: 0, offset: 0, items: [] })
+    render(<ObjectsTable set={set} scope={scope} filter={{}} />)
+    expect(screen.getByTestId('objects-empty')).toHaveTextContent(
+        'No objects match this filter.'
+    )
 })
 
 test('keeps the rows already loaded when a later page fails, and Try again re-requests that page', async () => {
@@ -825,9 +948,11 @@ describe('interactive membership control', () => {
         fireEvent.click(screen.getAllByRole('button')[1])
         fireEvent.click(screen.getByText('Assign'))
         await waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1))
+        // M4: the addition first, so a failed addition cannot leave the
+        // object in no group.
         expect(mockWrite.mock.calls[0][0].changes).toEqual([
-            { groupId: 'a', additions: [], deletions: ['o2'] },
             { groupId: 'b', additions: ['o2'], deletions: [] },
+            { groupId: 'a', additions: [], deletions: ['o2'] },
         ])
     })
 
@@ -1091,6 +1216,23 @@ describe('computeMembershipChanges re-checks canWrite itself (M6)', () => {
     it('plans the move when every group involved is writable', () => {
         expect(computeMembershipChanges(row, writable, 1)).toEqual([
             { groupId: 'a', additions: [], deletions: ['o1'] },
+        ])
+    })
+
+    it('M4: puts the addition before every deletion', () => {
+        // Changes are written in order. Adding first means a failed
+        // addition leaves the object in two groups (a conflict the tool
+        // shows), not in none.
+        const three = [
+            ...writable,
+            { id: 'c', displayName: 'Other', canWrite: true },
+        ]
+        expect(
+            computeMembershipChanges({ id: 'o1', groups: [0, 1] }, three, 2)
+        ).toEqual([
+            { groupId: 'c', additions: ['o1'], deletions: [] },
+            { groupId: 'a', additions: [], deletions: ['o1'] },
+            { groupId: 'b', additions: [], deletions: ['o1'] },
         ])
     })
 
