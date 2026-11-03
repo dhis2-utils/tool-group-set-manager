@@ -1,12 +1,23 @@
-function csvField(value: string): string {
-    return /[,"\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+// A spreadsheet reads a cell that starts with one of these as a formula.
+// Names and History notes are free text any app user can write, so an
+// export opened in Excel would run them (CSV formula injection).
+const FORMULA_START = /^[=+\-@\t\r]/
+const NEEDS_QUOTES = /[,"\r\n]/
+
+function csvField(raw: string): string {
+    // The leading apostrophe makes the spreadsheet treat the cell as text.
+    // Only the writer adds it: `parseCsv` reads SQL view data, which never
+    // passes through here, so nothing has to strip it again.
+    const value = FORMULA_START.test(raw) ? `'${raw}` : raw
+    return NEEDS_QUOTES.test(value) ? `"${value.replace(/"/g, '""')}"` : value
 }
 
 /**
  * Minimal RFC 4180 writer, the counterpart to `parseCsv` below. Rows are
  * joined with CRLF, the line ending the format specifies, and a field is
  * quoted (with any embedded quote doubled) only when it actually needs it
- * -- a comma, a quote, or either kind of newline.
+ * -- a comma, a quote, or either kind of newline. A field a spreadsheet
+ * would run as a formula is prefixed with an apostrophe first.
  */
 export function toCsv(rows: string[][]): string {
     return rows.map((row) => row.map(csvField).join(',')).join('\r\n') + '\r\n'
