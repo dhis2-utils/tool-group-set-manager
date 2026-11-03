@@ -110,6 +110,7 @@ export const MembershipControl = ({
             title={disabled && disabledReason ? disabledReason : undefined}
         >
             <SingleSelect
+                className={styles.select}
                 dense
                 disabled={disabled}
                 selected={selected}

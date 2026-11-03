@@ -44,6 +44,14 @@
     gap: var(--spacers-dp4);
     min-width: 0;
 }
+/* A fixed width rather than the content's: with nothing selected the
+   placeholder alone set the width, and the option menu, which takes its
+   width from the select, became too narrow to read. */
+.select {
+    flex: 0 0 auto;
+    width: 240px;
+    max-width: 100%;
+}
 .conflictNames {
     font-size: var(--gsi-font-size-sm, 12px);
     font-weight: 500;
