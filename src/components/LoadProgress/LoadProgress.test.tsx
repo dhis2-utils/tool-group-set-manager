@@ -32,10 +32,12 @@ test('says what it is doing as one whole sentence, not fragments joined by punct
             })}
         />
     )
+    // L5: one sentence, the counter inside it, not glued on with " · ".
     expect(
-        screen.getByText(/Loading group memberships for organisation units/)
+        screen.getByText(
+            'Loading group memberships for organisation units, 3 of 7'
+        )
     ).toBeInTheDocument()
-    expect(screen.getByText(/3 of 7/)).toBeInTheDocument()
     expect(screen.queryByText(/organisationUnitGroups/)).not.toBeInTheDocument()
 })
 

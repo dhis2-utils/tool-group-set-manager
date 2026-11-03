@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { SummaryMatrix } from './SummaryMatrix'
@@ -326,6 +326,25 @@ test('opens a picker on the Other groups cell instead of calling onCell', async 
     expect(screen.getByText('Group 11')).toBeInTheDocument()
 })
 
+/**
+ * In the open picker, drops Group 0 and adds Group 8, then saves. The
+ * checkboxes are looked up within the picker's own list: a role query over
+ * the whole screen also walks every cell button of the matrix behind the
+ * modal, which made these tests slow enough to time out under load.
+ */
+const pinGroup0Off8On = async () => {
+    const picker = screen
+        .getByText('Choose which groups to show')
+        .closest('[role="dialog"]') as HTMLElement
+    await userEvent.click(
+        within(picker).getByRole('checkbox', { name: 'Group 0' })
+    )
+    await userEvent.click(
+        within(picker).getByRole('checkbox', { name: 'Group 8' })
+    )
+    await userEvent.click(within(picker).getByText('Save'))
+}
+
 // A repeat query through the worker (src/engine/client.ts) structured-clones
 // its response, so `useEngineQuery` re-issuing the same query -- which it
 // does "several times per load" per its own comment, and again on reload --
@@ -342,9 +361,7 @@ test('keeps a pinned selection across a re-render carrying a new but identical `
     // queried by role rather than by their label text, since the same
     // group name is already on screen as a column header behind the modal.
     await userEvent.click(screen.getByText('12'))
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Group 0' }))
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Group 8' }))
-    await userEvent.click(screen.getByText('Save'))
+    await pinGroup0Off8On()
     expect(screen.queryByText('Group 0')).not.toBeInTheDocument()
     expect(screen.getByText('Group 8')).toBeInTheDocument()
 
@@ -369,9 +386,7 @@ test('drops a pinned selection once the matrix actually shows a different set (d
         <SummaryMatrix result={manyGroupsResult} onCell={onCell} />
     )
     await userEvent.click(screen.getByText('12'))
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Group 0' }))
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Group 8' }))
-    await userEvent.click(screen.getByText('Save'))
+    await pinGroup0Off8On()
     expect(screen.getByText('Group 8')).toBeInTheDocument()
 
     // A different set's matrix: different group ids entirely.
@@ -416,4 +431,47 @@ test('does not let the Other groups cell in the aggregate "above the row level" 
     expect(
         screen.queryByText('Choose which groups to show')
     ).not.toBeInTheDocument()
+})
+
+test('M12: each clickable cell holds a real button that works from the keyboard', async () => {
+    const onCell = jest.fn()
+    render(<SummaryMatrix result={result} onCell={onCell} />)
+    const missing = screen.getByRole('button', { name: '61' })
+    missing.focus()
+    await userEvent.keyboard('{Enter}')
+    expect(onCell).toHaveBeenCalledWith(result.rows[0].row, { kind: 'missing' })
+    // The "above the row level" row cannot be filtered, so its cells hold
+    // no button at all.
+    const aboveRow = screen
+        .getByText('Above the row level')
+        .closest('tr') as HTMLTableRowElement
+    expect(aboveRow.querySelector('button')).toBeNull()
+})
+
+test('L7: heads the row column for what a flat type actually lists', () => {
+    const flatResult = {
+        groups: [{ id: 'g', displayName: 'Group', canWrite: true }],
+        rows: [
+            {
+                object: -1,
+                row: null,
+                perGroup: [1],
+                missing: 0,
+                unassigned: 0,
+                conflict: 0,
+                total: 1,
+            },
+        ],
+    }
+    const { rerender } = render(
+        <SummaryMatrix result={flatResult} onCell={jest.fn()} flat />
+    )
+    expect(
+        screen.getByRole('columnheader', { name: 'Objects' })
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Organisation unit')).not.toBeInTheDocument()
+    rerender(<SummaryMatrix result={result} onCell={jest.fn()} />)
+    expect(
+        screen.getByRole('columnheader', { name: 'Organisation unit' })
+    ).toBeInTheDocument()
 })

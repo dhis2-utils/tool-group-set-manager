@@ -39,8 +39,12 @@ test('renders the counts passed in rather than recomputing them', () => {
     render(<GroupsPanel plan={plan} total={4500} />)
     // group(0, 900) -- the count shown must be the one on the plan, not a
     // sum this component derives from `total` or from the other groups.
-    expect(screen.getByText('900 objects')).toBeInTheDocument()
-    expect(screen.queryByText('1 object')).not.toBeInTheDocument()
+    expect(
+        screen.getByText('900 objects only in this group')
+    ).toBeInTheDocument()
+    expect(
+        screen.queryByText('1 object only in this group')
+    ).not.toBeInTheDocument()
 })
 
 test('reveals the ninth group once Show all is activated', async () => {
