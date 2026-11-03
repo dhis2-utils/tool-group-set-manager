@@ -391,3 +391,31 @@ export async function setGroupSetProperties(
         throw new MetadataWriteError('updateSet', response.status)
     }
 }
+
+/**
+ * A group set's `compulsory` and `dataDimension` as the server holds them
+ * now, uncached. Reverting a property change from History compares these
+ * with what the change set it reverts recorded, so it never overwrites a
+ * value someone has changed again since.
+ */
+export async function readGroupSetProperties(
+    fetcher: Fetcher,
+    set: Pick<GroupSetMeta, 'id' | 'objectType'>
+): Promise<{ compulsory: boolean; dataDimension: boolean }> {
+    const endpoint = ENDPOINTS[set.objectType]
+    const response = await fetcher(
+        `${endpoint.groupSets}/${set.id}?fields=compulsory,dataDimension`,
+        { cache: 'no-store' }
+    )
+    if (!response.ok) {
+        throw new MetadataWriteError('updateSet', response.status)
+    }
+    const body = (await response.json()) as {
+        compulsory?: boolean
+        dataDimension?: boolean
+    }
+    return {
+        compulsory: body.compulsory ?? false,
+        dataDimension: body.dataDimension ?? false,
+    }
+}

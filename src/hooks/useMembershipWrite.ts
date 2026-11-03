@@ -1,5 +1,6 @@
 import { useConfig } from '@dhis2/app-runtime'
 import { useCallback, useState } from 'react'
+import { generateChangeSetId, useChangeSetAuthor } from './useChangeSetAuthor'
 import { useEngine } from './useEngine'
 import { useIntegrity } from './useIntegrity'
 import { deleteChangeSet, saveChangeSet } from '@/data/datastore'
@@ -9,17 +10,6 @@ import type { WriteResult } from '@/data/writes'
 import { writeMemberships } from '@/data/writes'
 import type { ChangeSet, GroupChange } from '@/engine/changeSet'
 import type { GroupSetMeta } from '@/engine/types'
-import { useApiDataQuery } from '@/utils/useApiDataQuery'
-
-interface Identity {
-    id: string
-    displayName: string
-}
-
-// Used when the identity query has not settled yet -- a write must never
-// wait on a cosmetic field. The change set is still recorded, just with a
-// blank author, rather than blocking an already-confirmed server change.
-const UNKNOWN_IDENTITY: Identity = { id: '', displayName: '' }
 
 export interface MembershipWriteInput {
     set: GroupSetMeta
@@ -80,15 +70,6 @@ export interface MembershipWriteResult extends WriteResult {
  * sentence for it.
  */
 export const NO_ENGINE_CLIENT = 'no-engine-client'
-
-/**
- * DHIS2 uid rules don't apply here: a change set's `id` is only ever used
- * as a dataStore key (`history-<id>`), never sent as a metadata object id,
- * so it only needs to be unique and URL-safe.
- */
-function generateChangeSetId(): string {
-    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
-}
 
 function plannedCount(changes: GroupChange[]): number {
     return changes.reduce(
@@ -227,13 +208,7 @@ export function useMembershipWrite(): {
     // rather than fixing a live fault.
     const [writeCount, setWriteCount] = useState(0)
 
-    // D3: this hook's own query, distinct from useUserScope's ['me','scope']
-    // query, which serves a different purpose (the org unit tree roots).
-    const { data: identity } = useApiDataQuery<Identity>({
-        queryKey: ['me', 'identity'],
-        query: { resource: 'me', params: { fields: 'id,displayName' } },
-        staleTime: Infinity,
-    })
+    const identity = useChangeSetAuthor()
 
     const write = useCallback(
         async (input: MembershipWriteInput): Promise<MembershipWriteResult> => {
@@ -251,7 +226,7 @@ export function useMembershipWrite(): {
                 const record: ChangeSet = {
                     id: generateChangeSetId(),
                     createdAt: new Date().toISOString(),
-                    createdBy: identity ?? UNKNOWN_IDENTITY,
+                    createdBy: identity,
                     objectType,
                     groupSetId: input.set.id,
                     groupSetName: input.set.displayName,

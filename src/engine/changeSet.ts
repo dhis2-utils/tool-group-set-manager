@@ -21,7 +21,7 @@ export interface ChangeSet {
     objectType: ObjectType
     groupSetId: string
     groupSetName: string
-    action: 'move' | 'assign' | 'revert'
+    action: 'move' | 'assign' | 'revert' | 'properties'
     note: string
     targetGroupId?: string
     changes: GroupChange[]
@@ -36,6 +36,34 @@ export interface ChangeSet {
     status?: 'pending'
     /** On a pending record, how many membership changes the write set out to make. */
     planned?: number
+    /**
+     * Set on a change to the group set itself (action `properties`, and
+     * the `revert` of one), which has no membership changes: the
+     * properties that changed, before and after. Only changed properties
+     * are present.
+     */
+    properties?: {
+        before: Partial<GroupSetProperties>
+        after: Partial<GroupSetProperties>
+    }
+}
+
+/** The group set properties this app can change (SetPropertiesDialog). */
+export interface GroupSetProperties {
+    compulsory: boolean
+    dataDimension: boolean
+}
+
+export const GROUP_SET_PROPERTY_KEYS: (keyof GroupSetProperties)[] = [
+    'compulsory',
+    'dataDimension',
+]
+
+/** Whether a record is a change to the group set's properties rather than to memberships. */
+export function isPropertiesChange(
+    changeSet: Pick<ChangeSet, 'properties'>
+): boolean {
+    return changeSet.properties !== undefined
 }
 
 /** Whether a record's write finished. A record without `status` always did. */
