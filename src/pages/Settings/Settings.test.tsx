@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { Settings } from './Settings'
+import { SqlViewActionError } from '@/data/sources/sqlViewSharing'
 import {
     checkUsageView,
     installUsageView,
@@ -10,6 +11,26 @@ import { actAndFlush } from '@/testing/actAndFlush'
 
 jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://localhost:8080', apiVersion: 41 }),
+}))
+
+// Only the sharing choice's user group list goes through the fetcher here;
+// every other server call is in a mocked module.
+jest.mock('@/data/fetcher', () => ({
+    createFetcher: () => (path: string) =>
+        Promise.resolve(
+            new Response(
+                JSON.stringify(
+                    path.startsWith('userGroups')
+                        ? {
+                              userGroups: [
+                                  { id: 'ug1', displayName: 'Data managers' },
+                              ],
+                          }
+                        : {}
+                ),
+                { status: 200 }
+            )
+        ),
 }))
 
 // Settings depends on @/hooks/useUsage only for `useUsageRefresh` -- mocked
@@ -72,13 +93,21 @@ jest.mock('@/hooks/useGsiConfig', () => ({
 }))
 
 const mockCheckSqlViews = jest.fn()
-const mockCanCreateSqlViews = jest.fn()
+const mockSqlViewAuthorities = jest.fn()
 const mockCreateOrRepairSqlViews = jest.fn()
 jest.mock('@/data/sources/sqlViewAdmin', () => ({
     checkSqlViews: (...args: unknown[]) => mockCheckSqlViews(...args),
-    canCreateSqlViews: (...args: unknown[]) => mockCanCreateSqlViews(...args),
+    sqlViewAuthorities: (...args: unknown[]) => mockSqlViewAuthorities(...args),
     createOrRepairSqlViews: (...args: unknown[]) =>
         mockCreateOrRepairSqlViews(...args),
+}))
+
+const mockLoadSharing = jest.fn()
+const mockSaveSharing = jest.fn()
+jest.mock('@/data/sources/sqlViewSharing', () => ({
+    ...jest.requireActual('@/data/sources/sqlViewSharing'),
+    loadSqlViewSharing: (...args: unknown[]) => mockLoadSharing(...args),
+    saveSqlViewSharing: (...args: unknown[]) => mockSaveSharing(...args),
 }))
 
 jest.mock('@/data/sources/usageAdmin', () => ({
@@ -102,16 +131,36 @@ const usableCheck = (code: string, name: string) => ({
     name,
     id: `id-${code}`,
     type: 'VIEW',
-    readable: true,
+    status: 'usable',
     usable: true,
+    view: null,
 })
 const missingCheck = (code: string, name: string) => ({
     code,
     name,
     id: null,
     type: undefined,
-    readable: false,
+    status: 'missing',
     usable: false,
+    view: null,
+})
+
+/** A usage check as `checkUsageView` returns it. */
+const usageCheck = (
+    id: string | null,
+    status: 'missing' | 'needsRepair' | 'usable'
+) => ({
+    id,
+    status,
+    usable: status === 'usable',
+    view: id
+        ? {
+              id,
+              code: 'GSI_GROUPSET_USAGE',
+              type: 'VIEW',
+              access: { data: { read: true } },
+          }
+        : null,
 })
 
 const ALL_USABLE = [
@@ -136,7 +185,11 @@ beforeEach(() => {
     // -- `allUsable`/`anyUnusable` distinguish "not yet known" (null) from
     // "checked, nothing there" ([]), and `undefined` satisfies neither.
     mockCheckSqlViews.mockResolvedValue([])
-    mockCanCreateSqlViews.mockReset()
+    mockSqlViewAuthorities.mockReset()
+    mockLoadSharing.mockReset()
+    mockLoadSharing.mockResolvedValue({ kind: 'public' })
+    mockSaveSharing.mockReset()
+    mockSaveSharing.mockResolvedValue(undefined)
     mockCreateOrRepairSqlViews.mockReset()
     // Cleared (not just re-configured in each usage test's own beforeEach)
     // so call-count assertions like `toHaveBeenCalledTimes` aren't polluted
@@ -154,12 +207,23 @@ beforeEach(() => {
 })
 
 /**
- * `canManage` drives `canCreateSqlViews` -- the same authority governs
+ * `canManage` drives `sqlViewAuthorities` -- the same authority governs
  * creating the three GSI_* views and creating the usage view, so one flag
- * covers both sections' create/repair buttons.
+ * covers both sections' create/repair buttons, and (unless `canRemove`
+ * says otherwise) removing the usage view.
  */
-const renderSettings = ({ canManage }: { canManage: boolean | null }) => {
-    mockCanCreateSqlViews.mockResolvedValue(canManage)
+const renderSettings = ({
+    canManage,
+    canRemove = canManage,
+}: {
+    canManage: boolean | null
+    canRemove?: boolean | null
+}) => {
+    mockSqlViewAuthorities.mockResolvedValue(
+        canManage === null
+            ? null
+            : { create: canManage, remove: canRemove === true }
+    )
     return render(<Settings />)
 }
 
@@ -203,7 +267,8 @@ describe('SQL view status', () => {
         })
         expect(mockCreateOrRepairSqlViews).toHaveBeenCalledWith(
             expect.anything(),
-            ALL_MISSING
+            ALL_MISSING,
+            { kind: 'public' }
         )
         await waitFor(() =>
             expect(screen.getByText(/created 3 sql views/i)).toBeInTheDocument()
@@ -433,7 +498,7 @@ describe('tracker toggle', () => {
         mockSetIncludeTracker.mockRejectedValueOnce(new Error('HTTP 403'))
         renderSettings({ canManage: true })
         const checkbox = await screen.findByLabelText(
-            /include tracker attributes/i
+            /include tracker data elements/i
         )
         await actAndFlush(() => {
             fireEvent.click(checkbox)
@@ -463,11 +528,7 @@ describe('clear cache', () => {
 
 describe('Settings — group set usage', () => {
     beforeEach(() => {
-        mockCheckUsage.mockResolvedValue({
-            id: null,
-            readable: false,
-            usable: false,
-        })
+        mockCheckUsage.mockResolvedValue(usageCheck(null, 'missing'))
         mockInstallUsage.mockResolvedValue({
             installed: true,
             variant: 'eventvisualization',
@@ -547,7 +608,13 @@ describe('Settings — group set usage', () => {
         mockInstallUsage.mockResolvedValue({
             installed: false,
             variant: null,
-            failures: [{ variant: 'eventvisualization', message: 'HTTP 409' }],
+            failures: [
+                {
+                    variant: 'eventvisualization',
+                    reason: 'other',
+                    message: 'HTTP 409',
+                },
+            ],
         })
         renderSettings({ canManage: true })
         fireEvent.click(
@@ -566,11 +633,7 @@ describe('Settings — group set usage', () => {
     })
 
     it('offers removal once the view is usable, and removes it', async () => {
-        mockCheckUsage.mockResolvedValue({
-            id: 'v1',
-            readable: true,
-            usable: true,
-        })
+        mockCheckUsage.mockResolvedValue(usageCheck('v1', 'usable'))
         renderSettings({ canManage: true })
         fireEvent.click(
             await screen.findByRole('button', { name: 'Remove usage SQL view' })
@@ -591,11 +654,8 @@ describe('Settings — group set usage', () => {
     // distinct "still checking" state the tag would assert "Missing" before
     // anything had looked.
     it('shows neither Missing nor Usable while the check is still pending, and Missing once it resolves', async () => {
-        let resolveCheck: (value: {
-            id: string | null
-            readable: boolean
-            usable: boolean
-        }) => void = () => undefined
+        let resolveCheck: (value: ReturnType<typeof usageCheck>) => void = () =>
+            undefined
         mockCheckUsage.mockReturnValue(
             new Promise((resolve) => {
                 resolveCheck = resolve
@@ -606,11 +666,7 @@ describe('Settings — group set usage', () => {
         expect(screen.queryByText('Missing')).not.toBeInTheDocument()
         expect(screen.queryByText('Usable')).not.toBeInTheDocument()
 
-        resolveCheck({
-            id: null,
-            readable: false,
-            usable: false,
-        })
+        resolveCheck(usageCheck(null, 'missing'))
         expect(await screen.findByText('Missing')).toBeInTheDocument()
     })
 
@@ -619,11 +675,7 @@ describe('Settings — group set usage', () => {
     // mid-session) would otherwise wipe the tag and both buttons with no way
     // back except reloading the page.
     it('leaves the remove button and the view row on screen when removal fails, reporting the error alongside them', async () => {
-        mockCheckUsage.mockResolvedValue({
-            id: 'v1',
-            readable: true,
-            usable: true,
-        })
+        mockCheckUsage.mockResolvedValue(usageCheck('v1', 'usable'))
         mockRemoveUsage.mockRejectedValue(new Error('HTTP 403'))
         renderSettings({ canManage: true })
         const button = await screen.findByRole('button', {
@@ -651,16 +703,8 @@ describe('Settings — group set usage', () => {
     // happens, and "Usable" replaces "Missing" despite the error shown.
     it('re-checks the server after an unexpected install failure, instead of leaving a stale status', async () => {
         mockCheckUsage
-            .mockResolvedValueOnce({
-                id: null,
-                readable: false,
-                usable: false,
-            })
-            .mockResolvedValueOnce({
-                id: 'v2',
-                readable: true,
-                usable: true,
-            })
+            .mockResolvedValueOnce(usageCheck(null, 'missing'))
+            .mockResolvedValueOnce(usageCheck('v2', 'usable'))
         mockInstallUsage.mockRejectedValueOnce(new Error('boom'))
         renderSettings({ canManage: true })
         fireEvent.click(
@@ -688,11 +732,7 @@ describe('Settings — group set usage', () => {
             screen.queryByRole('button', { name: 'Install usage SQL view' })
         ).not.toBeInTheDocument()
 
-        mockCheckUsage.mockResolvedValue({
-            id: null,
-            readable: false,
-            usable: false,
-        })
+        mockCheckUsage.mockResolvedValue(usageCheck(null, 'missing'))
         fireEvent.click(screen.getByRole('button', { name: /try again/i }))
         await waitFor(() => expect(mockCheckUsage).toHaveBeenCalledTimes(2))
         expect(await screen.findByText('Missing')).toBeInTheDocument()
@@ -702,15 +742,13 @@ describe('Settings — group set usage', () => {
     // view already there", not a SQL variant name, and must not reach the
     // "{variant} query variant" wording.
     it('names an existing-view repair failure without the query-variant wording', async () => {
-        mockCheckUsage.mockResolvedValue({
-            id: 'v1',
-            readable: true,
-            usable: false,
-        })
+        mockCheckUsage.mockResolvedValue(usageCheck('v1', 'needsRepair'))
         mockInstallUsage.mockResolvedValue({
             installed: false,
             variant: null,
-            failures: [{ variant: 'existing', message: 'HTTP 500' }],
+            failures: [
+                { variant: 'existing', reason: 'other', message: 'HTTP 500' },
+            ],
         })
         renderSettings({ canManage: true })
         fireEvent.click(
@@ -734,7 +772,9 @@ describe('catch-all group', () => {
         renderSettings({ canManage: true })
         await screen.findByText('Catch-all group')
         expect(
-            screen.queryByRole('button', { name: 'Clear' })
+            screen.queryByRole('button', {
+                name: /^Clear the catch-all group/,
+            })
         ).not.toBeInTheDocument()
     })
 
@@ -746,7 +786,11 @@ describe('catch-all group', () => {
         renderSettings({ canManage: true })
         await screen.findByText('Catch-all group')
 
-        fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+        fireEvent.click(
+            screen.getByRole('button', {
+                name: 'Clear the catch-all group of Ownership',
+            })
+        )
 
         await waitFor(() =>
             expect(mockClearCatchAllGroup).toHaveBeenCalledWith('own')
@@ -767,10 +811,152 @@ describe('catch-all group', () => {
         renderSettings({ canManage: true })
         await screen.findByText('Catch-all group')
 
-        fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+        fireEvent.click(
+            screen.getByRole('button', {
+                name: 'Clear the catch-all group of Ownership',
+            })
+        )
 
         expect(
             await screen.findByText('Could not save the catch-all group')
         ).toBeInTheDocument()
+    })
+})
+
+describe('catch-all group, accessibility and stale values', () => {
+    // M12: the select is named by the set, and each Clear button says which
+    // set it clears.
+    it('names each select by its group set', async () => {
+        renderSettings({ canManage: true })
+        expect(
+            await screen.findByRole('group', { name: 'Ownership' })
+        ).toBeInTheDocument()
+    })
+
+    // L6: a group deleted or moved out of the set since it was chosen.
+    it('says the configured group is gone instead of showing its raw id', async () => {
+        mockGsiConfig.config = {
+            catchAllGroup: { own: 'goneGroupId' },
+            includeTracker: false,
+        }
+        renderSettings({ canManage: true })
+        expect(
+            await screen.findByText(
+                'The configured catch-all group no longer exists in this set.'
+            )
+        ).toBeInTheDocument()
+        expect(screen.queryByText('goneGroupId')).not.toBeInTheDocument()
+        expect(screen.getByText('Choose catch-all group')).toBeInTheDocument()
+        expect(
+            screen.getByRole('button', {
+                name: 'Clear the catch-all group of Ownership',
+            })
+        ).toBeInTheDocument()
+    })
+})
+
+describe('SQL view failures in words', () => {
+    it.each([
+        ['forbidden', /another administrator probably owns it/i],
+        ['conflicting', /delete it in the maintenance app/i],
+        ['hiddenDuplicate', /already exists but is not shared with you/i],
+    ])('explains a %s failure', async (reason, text) => {
+        mockCheckSqlViews.mockResolvedValue(ALL_MISSING)
+        mockCreateOrRepairSqlViews.mockResolvedValue({
+            created: [],
+            repaired: [],
+            failed: [{ code: 'GSI_ORGUNITS', reason, message: 'HTTP 4xx' }],
+        })
+        renderSettings({ canManage: true })
+        fireEvent.click(
+            await screen.findByRole('button', { name: /create sql views/i })
+        )
+        expect(await screen.findByText(text)).toBeInTheDocument()
+    })
+})
+
+describe('usage view removal', () => {
+    beforeEach(() => {
+        mockCheckUsage.mockResolvedValue(usageCheck('v1', 'usable'))
+    })
+
+    it('is not offered without the authority to delete SQL views', async () => {
+        renderSettings({ canManage: true, canRemove: false })
+        expect(await screen.findByText('Group set usage view')).toBeVisible()
+        await waitFor(() => expect(mockCheckUsage).toHaveBeenCalled())
+        expect(
+            screen.queryByRole('button', { name: 'Remove usage SQL view' })
+        ).not.toBeInTheDocument()
+    })
+
+    it('explains a refused removal in words', async () => {
+        mockRemoveUsage.mockRejectedValue(
+            new SqlViewActionError('forbidden', 'HTTP 403')
+        )
+        renderSettings({ canManage: true })
+        fireEvent.click(
+            await screen.findByRole('button', { name: 'Remove usage SQL view' })
+        )
+        expect(
+            await screen.findByText(/you may not delete the usage sql view/i)
+        ).toBeInTheDocument()
+    })
+})
+
+describe('SQL view sharing', () => {
+    it('is offered only to a user who can create SQL views', async () => {
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        renderSettings({ canManage: false })
+        await screen.findByText('GSI org unit hierarchy')
+        expect(
+            screen.queryByText('Who can read the SQL views')
+        ).not.toBeInTheDocument()
+    })
+
+    it('saves a user group choice and applies it to the existing views', async () => {
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        mockCreateOrRepairSqlViews.mockResolvedValue({
+            created: [],
+            repaired: ['GSI_ORGUNITS'],
+            failed: [],
+        })
+        mockCheckUsage.mockResolvedValue(usageCheck(null, 'missing'))
+        renderSettings({ canManage: true })
+        const groupOption = await screen.findByLabelText(
+            'Only the members of one user group'
+        )
+        await actAndFlush(() => {
+            fireEvent.click(groupOption)
+        })
+        await actAndFlush(() => {
+            fireEvent.click(screen.getByText('Choose a user group'))
+        })
+        await actAndFlush(() => {
+            fireEvent.click(screen.getByText('Data managers'))
+        })
+        await actAndFlush(() => {
+            fireEvent.click(
+                screen.getByRole('button', {
+                    name: 'Save and apply to the SQL views',
+                })
+            )
+        })
+        const choice = { kind: 'userGroup', userGroupId: 'ug1' }
+        expect(mockSaveSharing).toHaveBeenCalledWith(expect.anything(), choice)
+        expect(mockCheckSqlViews).toHaveBeenCalledWith(
+            expect.anything(),
+            choice
+        )
+        // The fixtures' usable views carry no server row, so there is no
+        // existing view to patch here; the call itself is what is checked.
+        expect(mockCreateOrRepairSqlViews).toHaveBeenCalledWith(
+            expect.anything(),
+            [],
+            choice
+        )
+        expect(
+            await screen.findByText(/the sharing setting was saved/i)
+        ).toBeInTheDocument()
+        expect(mockReload).toHaveBeenCalledWith(true)
     })
 })

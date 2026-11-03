@@ -173,6 +173,39 @@ describe('sqlViewSource', () => {
         expect(calls[0]).toContain('indicators?fields=')
         expect(payload.ids).toEqual(['i'])
     })
+
+    // A view under our code whose query someone changed would otherwise be
+    // read by position: swapped columns load every unit as "missing".
+    it('refuses a hierarchy view whose header row is not the definition', async () => {
+        const fetcher = () =>
+            Promise.resolve(csvResponse('parent,level,uid\n,1,r\n'))
+        await expect(
+            createSqlViewSource(fetcher, views).loadObjects(
+                'organisationUnit',
+                () => undefined
+            )
+        ).rejects.toThrow(/expected/)
+    })
+
+    it('refuses a membership view with swapped columns', async () => {
+        const fetcher = () =>
+            Promise.resolve(csvResponse('ouid,groupid\na,g1\n'))
+        await expect(
+            createSqlViewSource(fetcher, views).loadMemberships(
+                'organisationUnit',
+                ['g1'],
+                () => undefined
+            )
+        ).rejects.toThrow(/expected/)
+    })
+
+    it('refuses a names view with an extra column', async () => {
+        const fetcher = () =>
+            Promise.resolve(csvResponse('uid,name,code\na,Alpha,A\n'))
+        await expect(
+            createSqlViewSource(fetcher, views).loadNames('organisationUnit')
+        ).rejects.toThrow(/expected/)
+    })
 })
 
 describe('SQL_VIEW_DEFINITIONS', () => {

@@ -27,8 +27,14 @@
     flex: 0 0 220px;
     font-weight: 500;
 }
+/* Also a <fieldset> labelled by the set name (CatchAllSection), so the
+   browser's fieldset border, padding and margin are taken off. */
 .field {
     flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
 }
 .viewRow {
     display: flex;

@@ -1,508 +1,384 @@
 import type { SqlViewCheck } from './sqlViewAdmin'
 import {
-    canCreateSqlViews,
     checkSqlViews,
     createOrRepairSqlViews,
+    sqlViewAuthorities,
 } from './sqlViewAdmin'
-import { SQL_VIEW_CODES } from './sqlViewSource'
+import type { AdminSqlViewRow, SqlViewSharing } from './sqlViewSharing'
+import { SQL_VIEW_CODES, SQL_VIEW_DEFINITIONS } from './sqlViewSource'
 
-const jsonResponse = (body: unknown, status = 200) =>
+const respond = (status: number, body: unknown = {}) =>
     new Response(JSON.stringify(body), { status })
+
+const PUBLIC: SqlViewSharing = { kind: 'public' }
+const GROUP: SqlViewSharing = { kind: 'userGroup', userGroupId: 'ug1' }
+
+const defOf = (code: string) => {
+    const def = SQL_VIEW_DEFINITIONS.find((d) => d.code === code)
+    if (!def) {
+        throw new Error(code)
+    }
+    return def
+}
+
+/** A view exactly as the app creates it, unless overridden. */
+const row = (
+    code: string,
+    patch: Partial<AdminSqlViewRow> = {}
+): AdminSqlViewRow => ({
+    id: `id-${code}`,
+    code,
+    type: 'VIEW',
+    sqlQuery: defOf(code).sqlQuery,
+    sharing: { public: 'r-r-----' },
+    access: { data: { read: true } },
+    ...patch,
+})
+
+interface Call {
+    method: string
+    path: string
+    body?: unknown
+}
+
+/**
+ * A fake server: the lookup returns `views`, every read probe answers
+ * `probe`, and other calls answer from `statuses` (default 200, and a uid
+ * for a create).
+ */
+const server = ({
+    views,
+    probe = 200,
+    statuses = {},
+}: {
+    views: AdminSqlViewRow[]
+    probe?: number
+    statuses?: Record<string, number>
+}) => {
+    const calls: Call[] = []
+    const fetcher = (path: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET'
+        calls.push({
+            method,
+            path,
+            body: init?.body ? JSON.parse(String(init.body)) : undefined,
+        })
+        const key = `${method} ${path}`
+        if (key in statuses) {
+            return Promise.resolve(respond(statuses[key]))
+        }
+        if (path.startsWith('sqlViews?')) {
+            return Promise.resolve(respond(200, { sqlViews: views }))
+        }
+        if (path.includes('/data.csv')) {
+            return Promise.resolve(respond(probe))
+        }
+        if (key === 'POST sqlViews') {
+            const body = JSON.parse(String(init?.body)) as { code: string }
+            return Promise.resolve(
+                respond(201, { response: { uid: `new-${body.code}` } })
+            )
+        }
+        return Promise.resolve(respond(200))
+    }
+    return { calls, fetcher }
+}
+
+const ORGUNITS = SQL_VIEW_CODES.orgUnits
+const statusOf = (checks: SqlViewCheck[], code: string) =>
+    checks.find((c) => c.code === code)?.status
 
 describe('checkSqlViews', () => {
     it('reports each of the three views as missing when the server has none', async () => {
-        const fetcher = () => Promise.resolve(jsonResponse({ sqlViews: [] }))
-        const checks = await checkSqlViews(fetcher)
-        expect(checks).toHaveLength(3)
-        expect(checks.every((c) => c.id === null && !c.usable)).toBe(true)
+        const { fetcher } = server({ views: [] })
+        const checks = await checkSqlViews(fetcher, PUBLIC)
+        expect(checks.map((c) => c.status)).toEqual([
+            'missing',
+            'missing',
+            'missing',
+        ])
     })
 
-    it('reports a view as usable only when its code, type and read access all check out', async () => {
-        const fetcher = () =>
-            Promise.resolve(
-                jsonResponse({
-                    sqlViews: [
-                        {
-                            id: 'v1',
-                            code: SQL_VIEW_CODES.orgUnits,
-                            type: 'VIEW',
-                            access: { data: { read: true } },
-                        },
-                    ],
-                })
-            )
-        const checks = await checkSqlViews(fetcher)
-        const orgUnits = checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)
-        expect(orgUnits?.usable).toBe(true)
-        expect(orgUnits?.id).toBe('v1')
+    it('asks the server for the query and the sharing too', async () => {
+        const { calls, fetcher } = server({ views: [] })
+        await checkSqlViews(fetcher, PUBLIC)
+        expect(calls[0].path).toContain('sqlQuery')
+        expect(calls[0].path).toContain('sharing')
     })
 
-    it('reports an existing view with no read access as not usable', async () => {
-        const fetcher = () =>
-            Promise.resolve(
-                jsonResponse({
-                    sqlViews: [
-                        {
-                            id: 'v1',
-                            code: SQL_VIEW_CODES.orgUnits,
-                            type: 'VIEW',
-                            access: { data: { read: false } },
-                        },
-                    ],
-                })
-            )
-        const checks = await checkSqlViews(fetcher)
-        const orgUnits = checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)
-        expect(orgUnits?.id).toBe('v1')
-        expect(orgUnits?.usable).toBe(false)
+    it('is usable when type, query and sharing match and a real read succeeds', async () => {
+        const { fetcher } = server({ views: [row(ORGUNITS)] })
+        const checks = await checkSqlViews(fetcher, PUBLIC)
+        expect(statusOf(checks, ORGUNITS)).toBe('usable')
+        expect(checks.find((c) => c.code === ORGUNITS)?.usable).toBe(true)
     })
 
-    it('reports a materialized view as not usable', async () => {
-        const fetcher = () =>
-            Promise.resolve(
-                jsonResponse({
-                    sqlViews: [
-                        {
-                            id: 'v1',
-                            code: SQL_VIEW_CODES.orgUnits,
-                            type: 'MATERIALIZED_VIEW',
-                            access: { data: { read: true } },
-                        },
-                    ],
-                })
-            )
-        const checks = await checkSqlViews(fetcher)
-        const orgUnits = checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)
-        expect(orgUnits?.usable).toBe(false)
+    // C1: metadata alone cannot tell an executed view from an orphaned one.
+    it('needs repair when everything looks right but the read fails', async () => {
+        const { fetcher } = server({ views: [row(ORGUNITS)], probe: 500 })
+        expect(statusOf(await checkSqlViews(fetcher, PUBLIC), ORGUNITS)).toBe(
+            'needsRepair'
+        )
     })
 
-    // C1: metadata alone cannot tell an executed view from an orphaned one
-    // (a failed create-then-execute, or a view someone else created and
-    // never ran) -- both pass every metadata field checked above.
-    it('treats a metadata-eligible view as not usable when its data cannot actually be read (an orphaned, never-executed view)', async () => {
-        const fetcher = (path: string) => {
-            if (path.startsWith('sqlViews?')) {
-                return Promise.resolve(
-                    jsonResponse({
-                        sqlViews: [
-                            {
-                                id: 'v1',
-                                code: SQL_VIEW_CODES.orgUnits,
-                                type: 'VIEW',
-                                access: { data: { read: true } },
-                            },
-                        ],
-                    })
-                )
-            }
-            if (path.includes('/data.csv')) {
-                return Promise.resolve(
-                    new Response('<html>500</html>', { status: 500 })
-                )
-            }
-            return Promise.reject(new Error(`unexpected call ${path}`))
-        }
-        const checks = await checkSqlViews(fetcher)
-        const orgUnits = checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)
-        expect(orgUnits?.id).toBe('v1')
-        expect(orgUnits?.usable).toBe(false)
+    it('needs repair when materialised, without reading it', async () => {
+        const { calls, fetcher } = server({
+            views: [row(ORGUNITS, { type: 'MATERIALIZED_VIEW' })],
+        })
+        expect(statusOf(await checkSqlViews(fetcher, PUBLIC), ORGUNITS)).toBe(
+            'needsRepair'
+        )
+        expect(calls.some((c) => c.path.includes('/data.csv'))).toBe(false)
     })
 
-    it('treats a metadata-eligible view as usable when its data can actually be read', async () => {
-        const fetcher = (path: string) => {
-            if (path.startsWith('sqlViews?')) {
-                return Promise.resolve(
-                    jsonResponse({
-                        sqlViews: [
-                            {
-                                id: 'v1',
-                                code: SQL_VIEW_CODES.orgUnits,
-                                type: 'VIEW',
-                                access: { data: { read: true } },
-                            },
-                        ],
-                    })
-                )
-            }
-            if (path.includes('/data.csv')) {
-                return Promise.resolve(
-                    new Response('uid\nabc', { status: 200 })
-                )
-            }
-            return Promise.reject(new Error(`unexpected call ${path}`))
-        }
-        const checks = await checkSqlViews(fetcher)
-        const orgUnits = checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)
-        expect(orgUnits?.usable).toBe(true)
+    it('needs repair when its query was changed', async () => {
+        const { fetcher } = server({
+            views: [row(ORGUNITS, { sqlQuery: 'select 1' })],
+        })
+        expect(statusOf(await checkSqlViews(fetcher, PUBLIC), ORGUNITS)).toBe(
+            'needsRepair'
+        )
     })
 
-    it('does not probe a view that already fails the metadata bar', async () => {
-        const calls: string[] = []
-        const fetcher = (path: string) => {
-            calls.push(path)
-            if (path.startsWith('sqlViews?')) {
-                return Promise.resolve(
-                    jsonResponse({
-                        sqlViews: [
-                            {
-                                id: 'v1',
-                                code: SQL_VIEW_CODES.orgUnits,
-                                type: 'MATERIALIZED_VIEW',
-                                access: { data: { read: true } },
-                            },
-                        ],
-                    })
-                )
-            }
-            return Promise.reject(new Error(`unexpected call ${path}`))
-        }
-        const checks = await checkSqlViews(fetcher)
-        expect(
-            checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)?.usable
-        ).toBe(false)
-        expect(calls.some((p) => p.includes('/data.csv'))).toBe(false)
+    // M7: a superuser reads every view whatever its sharing says, so the
+    // current user's access is no measure of whether others can read it.
+    it('needs repair when the sharing gives others no data read, even though this user can read it', async () => {
+        const { fetcher } = server({
+            views: [row(ORGUNITS, { sharing: { public: 'r-------' } })],
+        })
+        expect(statusOf(await checkSqlViews(fetcher, PUBLIC), ORGUNITS)).toBe(
+            'needsRepair'
+        )
+    })
+
+    it('needs repair when it is public but the choice is one user group', async () => {
+        const { fetcher } = server({ views: [row(ORGUNITS)] })
+        expect(statusOf(await checkSqlViews(fetcher, GROUP), ORGUNITS)).toBe(
+            'needsRepair'
+        )
+    })
+
+    it('says "not shared with you" when the sharing is the chosen group and this user is not in it', async () => {
+        const { calls, fetcher } = server({
+            views: [
+                row(ORGUNITS, {
+                    sharing: {
+                        public: '--------',
+                        userGroups: { ug1: { id: 'ug1', access: 'r-r-----' } },
+                    },
+                    access: { data: { read: false } },
+                }),
+            ],
+        })
+        expect(statusOf(await checkSqlViews(fetcher, GROUP), ORGUNITS)).toBe(
+            'notSharedWithYou'
+        )
+        expect(calls.some((c) => c.path.includes('/data.csv'))).toBe(false)
     })
 })
 
-describe('canCreateSqlViews', () => {
-    it('returns true for a superuser (ALL authority)', async () => {
-        const fetcher = () =>
-            Promise.resolve(jsonResponse({ authorities: ['ALL'] }))
-        expect(await canCreateSqlViews(fetcher)).toBe(true)
+describe('sqlViewAuthorities', () => {
+    const me = (authorities: string[]) => () =>
+        Promise.resolve(respond(200, { authorities }))
+
+    it('grants both to a superuser', async () => {
+        await expect(sqlViewAuthorities(me(['ALL']))).resolves.toEqual({
+            create: true,
+            remove: true,
+        })
     })
 
-    it('returns true for a user with the specific SQL view create authority', async () => {
-        const fetcher = () =>
-            Promise.resolve(
-                jsonResponse({ authorities: ['F_SQLVIEW_PUBLIC_ADD'] })
-            )
-        expect(await canCreateSqlViews(fetcher)).toBe(true)
+    it('reads create and delete separately', async () => {
+        await expect(
+            sqlViewAuthorities(me(['F_SQLVIEW_PUBLIC_ADD']))
+        ).resolves.toEqual({ create: true, remove: false })
+        await expect(
+            sqlViewAuthorities(me(['F_SQLVIEW_DELETE']))
+        ).resolves.toEqual({ create: false, remove: true })
     })
 
-    it('returns false for a user with neither authority', async () => {
-        const fetcher = () =>
-            Promise.resolve(jsonResponse({ authorities: ['F_SOMETHING_ELSE'] }))
-        expect(await canCreateSqlViews(fetcher)).toBe(false)
-    })
-
-    it('returns null (unknown) when the authority check itself fails', async () => {
-        const fetcher = () => {
-            return Promise.reject(new Error('network down'))
-        }
-        expect(await canCreateSqlViews(fetcher)).toBeNull()
+    it('returns null (unknown) when the check itself fails', async () => {
+        await expect(
+            sqlViewAuthorities(() => Promise.reject(new Error('offline')))
+        ).resolves.toBeNull()
     })
 })
+
+const checksFor = (
+    views: AdminSqlViewRow[],
+    sharing: SqlViewSharing = PUBLIC,
+    probe = 200
+) => checkSqlViews(server({ views, probe }).fetcher, sharing)
 
 describe('createOrRepairSqlViews', () => {
-    const missingChecks = (): SqlViewCheck[] => [
-        {
-            code: SQL_VIEW_CODES.orgUnits,
-            name: 'a',
-            id: null,
-            type: undefined,
-            readable: false,
-            usable: false,
-        },
-        {
-            code: SQL_VIEW_CODES.orgUnitNames,
-            name: 'b',
-            id: null,
-            type: undefined,
-            readable: false,
-            usable: false,
-        },
-        {
-            code: SQL_VIEW_CODES.orgUnitMemberships,
-            name: 'c',
-            id: null,
-            type: undefined,
-            readable: false,
-            usable: false,
-        },
-    ]
-
-    it('skips a view that is already usable', async () => {
-        const calls: string[] = []
-        const fetcher = (path: string) => {
-            calls.push(path)
-            return Promise.resolve(jsonResponse({}))
-        }
-        const checks: SqlViewCheck[] = [
-            {
-                code: SQL_VIEW_CODES.orgUnits,
-                name: 'a',
-                id: 'v1',
-                type: 'VIEW',
-                readable: true,
-                usable: true,
-            },
-        ]
-        const result = await createOrRepairSqlViews(fetcher, checks)
-        expect(calls).toEqual([])
+    it('skips views that are already usable', async () => {
+        const views = SQL_VIEW_DEFINITIONS.map((d) => row(d.code))
+        const checks = await checksFor(views)
+        const { calls, fetcher } = server({ views })
+        const result = await createOrRepairSqlViews(fetcher, checks, PUBLIC)
         expect(result).toEqual({ created: [], repaired: [], failed: [] })
+        expect(calls).toEqual([])
     })
 
-    it('creates then executes a missing view, in that order, and reports it as created', async () => {
-        const calls: { path: string; method?: string }[] = []
-        const fetcher = (path: string, init?: RequestInit) => {
-            calls.push({ path, method: init?.method })
-            if (init?.method === 'POST' && path === 'sqlViews') {
-                return Promise.resolve(
-                    jsonResponse({ response: { uid: 'newId1' } }, 201)
-                )
-            }
-            if (init?.method === 'POST' && path === 'sqlViews/newId1/execute') {
-                return Promise.resolve(jsonResponse({ status: 'OK' }, 201))
-            }
-            return Promise.reject(new Error(`unexpected call ${path}`))
-        }
-        const result = await createOrRepairSqlViews(fetcher, [
-            missingChecks()[0],
-        ])
-        expect(calls.map((c) => c.path)).toEqual([
-            'sqlViews',
-            'sqlViews/newId1/execute',
-        ])
-        expect(result).toEqual({
-            created: [SQL_VIEW_CODES.orgUnits],
-            repaired: [],
-            failed: [],
+    it('creates then executes a missing view with NO_CACHE and public data read', async () => {
+        const checks = await checksFor([])
+        const { calls, fetcher } = server({ views: [] })
+        const result = await createOrRepairSqlViews(fetcher, checks, PUBLIC)
+        expect(result.created).toHaveLength(3)
+        expect(calls[0]).toMatchObject({
+            method: 'POST',
+            path: 'sqlViews',
+            body: {
+                code: ORGUNITS,
+                type: 'VIEW',
+                cacheStrategy: 'NO_CACHE',
+                sharing: { public: 'r-r-----' },
+            },
+        })
+        expect(calls[1]).toMatchObject({
+            method: 'POST',
+            path: `sqlViews/new-${ORGUNITS}/execute`,
         })
     })
 
-    // Plan 7 Task 1: the definition carrying `cacheStrategy` is only half
-    // the fix -- it has to reach the server. Left off the create body, DHIS2
-    // applies RESPECT_SYSTEM_SETTING and the browser may serve this view's
-    // data for a fortnight without asking again.
-    it('sends NO_CACHE as the created view cacheStrategy', async () => {
-        let body: Record<string, unknown> | undefined
-        const fetcher = (path: string, init?: RequestInit) => {
-            if (init?.method === 'POST' && path === 'sqlViews') {
-                body = JSON.parse(String(init.body))
-                return Promise.resolve(
-                    jsonResponse({ response: { uid: 'newId1' } }, 201)
-                )
-            }
-            return Promise.resolve(jsonResponse({ status: 'OK' }, 201))
-        }
-        await createOrRepairSqlViews(fetcher, [missingChecks()[0]])
-        expect(body).toMatchObject({ cacheStrategy: 'NO_CACHE' })
+    it('creates a view shared with only the chosen group', async () => {
+        const checks = await checksFor([], GROUP)
+        const { calls, fetcher } = server({ views: [] })
+        await createOrRepairSqlViews(fetcher, checks, GROUP)
+        expect(calls[0].body).toMatchObject({
+            sharing: {
+                public: '--------',
+                userGroups: { ug1: { id: 'ug1', access: 'r-r-----' } },
+            },
+        })
     })
 
-    // Manual review 2 (implement.im, 2.41.10): every view the app had
-    // created answered its own read with 409 E4312 "Current user is not
-    // authorised to read data from SQL view". `r-------` grants metadata
-    // read only; reading a SQL view's *data* needs the data-read bit, and
-    // on the broker instances the users carry ALL, which is why nothing
-    // ever noticed. The user this surfaced for is an administrator without
-    // ALL -- the common case on a real instance.
-    it('creates the view with public data read, not just metadata read', async () => {
-        let body: Record<string, unknown> | undefined
-        const fetcher = (path: string, init?: RequestInit) => {
-            if (init?.method === 'POST' && path === 'sqlViews') {
-                body = JSON.parse(String(init.body))
-                return Promise.resolve(
-                    jsonResponse({ response: { uid: 'newId1' } }, 201)
-                )
-            }
-            return Promise.resolve(jsonResponse({ status: 'OK' }, 201))
-        }
-        await createOrRepairSqlViews(fetcher, [missingChecks()[0]])
-        expect(body).toMatchObject({ sharing: { public: 'r-r-----' } })
-    })
-
-    // The same defect on a view that already exists: re-executing it (the
-    // whole of "repair" until now) changes nothing about who may read it,
-    // so Settings kept saying "Not usable yet" however many times the
-    // button was pressed. A view the current user cannot read data from
-    // has its public sharing patched before the execute.
-    it('grants public data read before re-executing an existing view the user cannot read', async () => {
-        const calls: { path: string; method?: string; body?: string }[] = []
-        const fetcher = (path: string, init?: RequestInit) => {
-            calls.push({
-                path,
-                method: init?.method,
-                body: init?.body === undefined ? undefined : String(init.body),
+    it('deletes a view it just created when its execute then fails', async () => {
+        const checks = await checksFor([])
+        const { calls, fetcher } = server({
+            views: [],
+            statuses: { [`POST sqlViews/new-${ORGUNITS}/execute`]: 500 },
+        })
+        const result = await createOrRepairSqlViews(fetcher, checks, PUBLIC)
+        expect(result.failed.map((f) => f.code)).toEqual([ORGUNITS])
+        expect(result.created).not.toContain(ORGUNITS)
+        expect(calls).toContainEqual(
+            expect.objectContaining({
+                method: 'DELETE',
+                path: `sqlViews/new-${ORGUNITS}`,
             })
-            return Promise.resolve(jsonResponse({ status: 'OK' }))
-        }
-        const check: SqlViewCheck = {
-            code: SQL_VIEW_CODES.orgUnits,
-            name: 'a',
-            id: 'existingId',
-            type: 'VIEW',
-            readable: false,
-            usable: false,
-        }
-        const result = await createOrRepairSqlViews(fetcher, [check])
-        expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
-            'PATCH sqlViews/existingId',
-            'POST sqlViews/existingId/execute',
+        )
+    })
+
+    it('says a create refused for a duplicate code is a view hidden from this user', async () => {
+        const checks = await checksFor([])
+        const fetcher = (path: string, init?: RequestInit) =>
+            Promise.resolve(
+                init?.method === 'POST' && path === 'sqlViews'
+                    ? respond(409, {
+                          response: { errorReports: [{ errorCode: 'E5003' }] },
+                      })
+                    : respond(200)
+            )
+        const result = await createOrRepairSqlViews(fetcher, checks, PUBLIC)
+        expect(result.failed.map((f) => f.reason)).toEqual([
+            'hiddenDuplicate',
+            'hiddenDuplicate',
+            'hiddenDuplicate',
         ])
-        expect(JSON.parse(calls[0].body ?? '')).toEqual([
+    })
+
+    // M7: it used to only re-execute, and report a materialised view as
+    // "Repaired" while it stayed unusable.
+    it('patches a materialised view back to a readable type before reporting it repaired', async () => {
+        const views = [row(ORGUNITS, { type: 'MATERIALIZED_VIEW' })]
+        const checks = (await checksFor(views)).filter(
+            (c) => c.code === ORGUNITS
+        )
+        const { calls, fetcher } = server({ views })
+        const result = await createOrRepairSqlViews(fetcher, checks, PUBLIC)
+        expect(result.repaired).toEqual([ORGUNITS])
+        expect(calls).toEqual([
+            {
+                method: 'PATCH',
+                path: `sqlViews/id-${ORGUNITS}`,
+                body: [{ op: 'replace', path: '/type', value: 'QUERY' }],
+            },
+        ])
+    })
+
+    it('patches a changed query and the sharing back, then executes, never re-creating', async () => {
+        const views = [
+            row(ORGUNITS, {
+                sqlQuery: 'select 1',
+                sharing: { public: 'r-------' },
+            }),
+        ]
+        const checks = (await checksFor(views)).filter(
+            (c) => c.code === ORGUNITS
+        )
+        const { calls, fetcher } = server({ views })
+        const result = await createOrRepairSqlViews(fetcher, checks, PUBLIC)
+        expect(result.repaired).toEqual([ORGUNITS])
+        expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+            `PATCH sqlViews/id-${ORGUNITS}`,
+            `POST sqlViews/id-${ORGUNITS}/execute`,
+        ])
+        expect(calls[0].body).toEqual([
+            {
+                op: 'replace',
+                path: '/sqlQuery',
+                value: defOf(ORGUNITS).sqlQuery,
+            },
             { op: 'replace', path: '/sharing/public', value: 'r-r-----' },
         ])
-        expect(result).toEqual({
-            created: [],
-            repaired: [SQL_VIEW_CODES.orgUnits],
-            failed: [],
-        })
     })
 
-    it('leaves sharing alone when the existing view is readable and only needs executing', async () => {
-        const calls: string[] = []
-        const fetcher = (path: string, init?: RequestInit) => {
-            calls.push(`${init?.method} ${path}`)
-            return Promise.resolve(jsonResponse({ status: 'OK' }))
-        }
-        const check: SqlViewCheck = {
-            code: SQL_VIEW_CODES.orgUnits,
-            name: 'a',
-            id: 'existingId',
-            type: 'VIEW',
-            readable: true,
-            usable: false,
-        }
-        await createOrRepairSqlViews(fetcher, [check])
-        expect(calls).toEqual(['POST sqlViews/existingId/execute'])
-    })
-
-    it('reports a refused sharing patch as that view failing, and does not execute it', async () => {
-        const calls: string[] = []
-        const fetcher = (path: string, init?: RequestInit) => {
-            calls.push(`${init?.method} ${path}`)
-            return Promise.resolve(new Response('{}', { status: 403 }))
-        }
-        const check: SqlViewCheck = {
-            code: SQL_VIEW_CODES.orgUnits,
-            name: 'a',
-            id: 'existingId',
-            type: 'VIEW',
-            readable: false,
-            usable: false,
-        }
-        const result = await createOrRepairSqlViews(fetcher, [check])
-        expect(calls).toEqual(['PATCH sqlViews/existingId'])
-        expect(result.repaired).toEqual([])
-        expect(result.failed).toHaveLength(1)
-        expect(result.failed[0].message).toMatch(/403/)
-    })
-
-    it('treats a failed execute as a failed creation, not a partial success', async () => {
-        const fetcher = (path: string, init?: RequestInit) => {
-            if (init?.method === 'POST' && path === 'sqlViews') {
-                return Promise.resolve(
-                    jsonResponse({ response: { uid: 'newId1' } }, 201)
-                )
-            }
-            if (init?.method === 'POST' && path === 'sqlViews/newId1/execute') {
-                return Promise.resolve(
-                    new Response('<html>500</html>', { status: 500 })
-                )
-            }
-            return Promise.reject(new Error(`unexpected call ${path}`))
-        }
-        const result = await createOrRepairSqlViews(fetcher, [
-            missingChecks()[0],
-        ])
-        expect(result.created).toEqual([])
-        expect(result.failed).toHaveLength(1)
-        expect(result.failed[0].code).toBe(SQL_VIEW_CODES.orgUnits)
-    })
-
-    // C1: a failed execute must not leave the just-created view behind for
-    // findSqlViews/checkSqlViews to later accept as usable.
-    it('deletes a view it just created when its execute then fails, restoring the pre-click state', async () => {
-        const calls: { path: string; method?: string }[] = []
-        const fetcher = (path: string, init?: RequestInit) => {
-            calls.push({ path, method: init?.method })
-            if (init?.method === 'POST' && path === 'sqlViews') {
-                return Promise.resolve(
-                    jsonResponse({ response: { uid: 'newId1' } }, 201)
-                )
-            }
-            if (init?.method === 'POST' && path === 'sqlViews/newId1/execute') {
-                return Promise.resolve(
-                    new Response('<html>500</html>', { status: 500 })
-                )
-            }
-            if (init?.method === 'DELETE' && path === 'sqlViews/newId1') {
-                return Promise.resolve(new Response('', { status: 200 }))
-            }
-            return Promise.reject(new Error(`unexpected call ${path}`))
-        }
-        const result = await createOrRepairSqlViews(fetcher, [
-            missingChecks()[0],
-        ])
+    it('re-executes an unreadable view whose metadata is right, without patching it', async () => {
+        const views = [row(ORGUNITS)]
+        const checks = (await checksFor(views, PUBLIC, 500)).filter(
+            (c) => c.code === ORGUNITS
+        )
+        const { calls, fetcher } = server({ views })
+        await createOrRepairSqlViews(fetcher, checks, PUBLIC)
         expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
-            'POST sqlViews',
-            'POST sqlViews/newId1/execute',
-            'DELETE sqlViews/newId1',
+            `POST sqlViews/id-${ORGUNITS}/execute`,
         ])
-        expect(result.created).toEqual([])
-        expect(result.failed).toHaveLength(1)
     })
 
-    // D3: repair never deletes -- a re-execute failure on a view this call
-    // did not create must leave that view exactly as it was, not remove it.
-    it('does not delete an existing view when its repair re-execute fails', async () => {
-        const calls: { path: string; method?: string }[] = []
-        const fetcher = (path: string, init?: RequestInit) => {
-            calls.push({ path, method: init?.method })
-            if (
-                init?.method === 'POST' &&
-                path === 'sqlViews/existingId/execute'
-            ) {
-                return Promise.resolve(
-                    new Response('<html>500</html>', { status: 500 })
-                )
-            }
-            return Promise.reject(new Error(`unexpected call ${path}`))
-        }
-        const check: SqlViewCheck = {
-            code: SQL_VIEW_CODES.orgUnits,
-            name: 'a',
-            id: 'existingId',
-            type: 'VIEW',
-            readable: true,
-            usable: false,
-        }
-        const result = await createOrRepairSqlViews(fetcher, [check])
-        expect(calls).toEqual([
-            { path: 'sqlViews/existingId/execute', method: 'POST' },
-        ])
-        expect(result.repaired).toEqual([])
-        expect(result.failed).toHaveLength(1)
-    })
-
-    it('repairs an existing-but-unusable view by re-executing it, never re-creating', async () => {
-        const calls: { path: string; method?: string }[] = []
-        const fetcher = (path: string, init?: RequestInit) => {
-            calls.push({ path, method: init?.method })
-            if (
-                init?.method === 'POST' &&
-                path === 'sqlViews/existingId/execute'
-            ) {
-                return Promise.resolve(jsonResponse({ status: 'OK' }, 201))
-            }
-            return Promise.reject(new Error(`unexpected call ${path}`))
-        }
-        const check: SqlViewCheck = {
-            code: SQL_VIEW_CODES.orgUnits,
-            name: 'a',
-            id: 'existingId',
-            type: 'VIEW',
-            readable: true,
-            usable: false,
-        }
-        const result = await createOrRepairSqlViews(fetcher, [check])
-        expect(calls).toEqual([
-            { path: 'sqlViews/existingId/execute', method: 'POST' },
-        ])
-        expect(result).toEqual({
-            created: [],
-            repaired: [SQL_VIEW_CODES.orgUnits],
-            failed: [],
+    it('reports a view another administrator owns as forbidden, and never deletes it', async () => {
+        const views = [row(ORGUNITS, { sharing: { public: 'r-------' } })]
+        const checks = (await checksFor(views)).filter(
+            (c) => c.code === ORGUNITS
+        )
+        const { calls, fetcher } = server({
+            views,
+            statuses: { [`PATCH sqlViews/id-${ORGUNITS}`]: 403 },
         })
+        const result = await createOrRepairSqlViews(fetcher, checks, PUBLIC)
+        expect(result.failed).toEqual([
+            expect.objectContaining({ code: ORGUNITS, reason: 'forbidden' }),
+        ])
+        expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+        expect(calls.some((c) => c.path.endsWith('/execute'))).toBe(false)
+    })
+
+    it('leaves a view that is right but not shared with this user alone', async () => {
+        const views = [
+            row(ORGUNITS, {
+                sharing: {
+                    public: '--------',
+                    userGroups: { ug1: { id: 'ug1', access: 'r-r-----' } },
+                },
+                access: { data: { read: false } },
+            }),
+        ]
+        const checks = (await checksFor(views, GROUP)).filter(
+            (c) => c.code === ORGUNITS
+        )
+        const { calls, fetcher } = server({ views })
+        const result = await createOrRepairSqlViews(fetcher, checks, GROUP)
+        expect(result).toEqual({ created: [], repaired: [], failed: [] })
+        expect(calls).toEqual([])
     })
 })

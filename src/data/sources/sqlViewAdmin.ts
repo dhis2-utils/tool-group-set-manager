@@ -1,45 +1,60 @@
 import type { Fetcher } from './DataSource'
 import { fetchJson } from './DataSource'
+import type {
+    AdminSqlViewRow,
+    RepairTarget,
+    SqlViewFailureReason,
+    SqlViewSharing,
+} from './sqlViewSharing'
 import {
-    SQL_VIEW_DEFINITIONS,
-    sqlViewLookupPath,
-    USABLE_SQL_VIEW_TYPES,
-} from './sqlViewSource'
+    createError,
+    executeView,
+    failureMessage,
+    failureReason,
+    repairExistingView,
+    sameSql,
+    sharingBody,
+    sharingMatches,
+    typeUsable,
+} from './sqlViewSharing'
+import type { SqlViewDefinition } from './sqlViewSource'
+import { SQL_VIEW_DEFINITIONS, sqlViewLookupPath } from './sqlViewSource'
 
-interface SqlViewRow {
-    id: string
-    code?: string
-    type?: string
-    access: { data?: { read?: boolean } }
-}
+/**
+ * - `missing`: no view with this code exists, or the current user cannot
+ *   see it.
+ * - `needsRepair`: it exists, but its type, query or sharing is not the
+ *   app's, or the current user can read it and a real read just failed.
+ * - `notSharedWithYou`: type, query and sharing are right, but the current
+ *   user may not read the rows (group sharing, and they are not in the
+ *   group). The app reads through the metadata API for them; the view may
+ *   well be fine for everyone in the group.
+ * - `usable`: everything checks out and a real read just succeeded.
+ */
+export type SqlViewStatus =
+    | 'missing'
+    | 'needsRepair'
+    | 'notSharedWithYou'
+    | 'usable'
 
 export interface SqlViewCheck {
     code: string
     name: string
-    /** null when no view with this code exists on the server yet */
+    /** null when no view with this code exists (or is visible) yet */
     id: string | null
     type: string | undefined
-    readable: boolean
-    /** exists, is a VIEW/QUERY, and is readable -- selectSource's own bar */
+    status: SqlViewStatus
+    /** `status === 'usable'`, kept as a flag for the many readers that only ask that */
     usable: boolean
+    /** the server's row, for repair to compare against; null when missing */
+    view: AdminSqlViewRow | null
 }
 
 /**
- * C1: metadata alone (code, type, `access.data.read`) cannot tell an
- * executed view from an orphaned one that was created but never
- * successfully executed -- a failed create-then-execute (see
- * `createOrRepairSqlViews`) or a view someone else created by hand and
- * never ran look identical to a healthy one on every field this endpoint
- * returns. Only an actual read proves the database view exists, so
- * "usable" has to mean "was just read successfully", not "looks right on
- * paper" -- otherwise Settings reports an unreadable view as Usable, and
- * the repair button skips it forever because it already looks fine.
- *
- * `pageSize=1` (rather than `paging=false`, which the real read path in
- * `sqlViewSource.ts` uses) keeps this cheap regardless of how large the
- * underlying view's result set is -- this runs on every Settings page
- * load, for up to three views, and must never itself become the slow
- * metadata-API-scale request this whole feature exists to avoid.
+ * C1: metadata alone cannot tell an executed view from an orphaned one that
+ * was created but never successfully executed, so "usable" also needs a
+ * real read. `pageSize=1` keeps this cheap however large the view is: this
+ * runs on every Settings page load.
  */
 async function probeReadable(fetcher: Fetcher, id: string): Promise<boolean> {
     try {
@@ -51,122 +66,116 @@ async function probeReadable(fetcher: Fetcher, id: string): Promise<boolean> {
 }
 
 /**
- * The current server-side status of the three GSI SQL views, one entry per
- * definition regardless of whether it exists yet. Only reads: the one
- * additional call this makes beyond the metadata lookup is the read probe
- * above, never a create or an execute, so it is safe to call just to render
- * the Settings page.
+ * Judges a view on its own type, query and sharing, then reads it when the
+ * current user may. Shared with the usage view's check.
  */
-export async function checkSqlViews(fetcher: Fetcher): Promise<SqlViewCheck[]> {
+export async function viewStatus(
+    fetcher: Fetcher,
+    view: AdminSqlViewRow | undefined,
+    target: RepairTarget
+): Promise<SqlViewStatus> {
+    if (!view) {
+        return 'missing'
+    }
+    const definitionOk =
+        typeUsable(view.type) && target.acceptQuery(view.sqlQuery)
+    if (!definitionOk || !sharingMatches(target.sharing, view.sharing)) {
+        return 'needsRepair'
+    }
+    if (!view.access.data?.read) {
+        return 'notSharedWithYou'
+    }
+    return (await probeReadable(fetcher, view.id)) ? 'usable' : 'needsRepair'
+}
+
+/**
+ * The current server-side status of the three GSI SQL views, one entry per
+ * definition whether it exists or not. Only reads: never a create, patch or
+ * execute, so it is safe to call just to render the Settings page.
+ */
+export async function checkSqlViews(
+    fetcher: Fetcher,
+    sharing: SqlViewSharing
+): Promise<SqlViewCheck[]> {
     const codes = SQL_VIEW_DEFINITIONS.map((d) => d.code)
-    const body = await fetchJson<{ sqlViews: SqlViewRow[] }>(
+    const body = await fetchJson<{ sqlViews: AdminSqlViewRow[] }>(
         fetcher,
         sqlViewLookupPath(codes)
     )
     const byCode = new Map(body.sqlViews.map((v) => [v.code, v]))
     return Promise.all(
         SQL_VIEW_DEFINITIONS.map(async (def) => {
-            const v = byCode.get(def.code)
-            const readable = Boolean(v?.access.data?.read)
-            const metadataUsable = Boolean(
-                v &&
-                readable &&
-                v.type !== undefined &&
-                USABLE_SQL_VIEW_TYPES.includes(v.type)
+            const view = byCode.get(def.code)
+            const status = await viewStatus(
+                fetcher,
+                view,
+                repairTarget(def, sharing)
             )
-            // Only probe when the metadata bar already passes: a view with
-            // the wrong code, type or sharing is already known unusable,
-            // and there is nothing to gain from also reading its data.
-            const usable =
-                metadataUsable && v ? await probeReadable(fetcher, v.id) : false
             return {
                 code: def.code,
                 name: def.name,
-                id: v?.id ?? null,
-                type: v?.type,
-                readable,
-                usable,
+                id: view?.id ?? null,
+                type: view?.type,
+                status,
+                usable: status === 'usable',
+                view: view ?? null,
             }
         })
     )
 }
 
-const CREATE_AUTHORITIES = new Set(['ALL', 'F_SQLVIEW_PUBLIC_ADD'])
+export interface SqlViewAuthorities {
+    /** `F_SQLVIEW_PUBLIC_ADD`: create (and so repair) the views */
+    create: boolean
+    /** `F_SQLVIEW_DELETE`: remove the usage view */
+    remove: boolean
+}
 
 /**
- * D5: whether this user can create SQL views, found out by checking their
- * actual authorities rather than assuming -- `F_SQLVIEW_PUBLIC_ADD` is the
- * authority the server's own sqlView schema names for `CREATE_PUBLIC`
- * (verified against a live 2.43 instance's `/api/schemas/sqlView.json`).
- * Returns null, not false, when the check itself cannot be answered (a
- * network error), so a caller can tell "known no" from "unknown" and avoid
- * asserting something it does not actually know.
+ * D5: whether this user can create and delete SQL views, from their actual
+ * authorities. `F_SQLVIEW_PUBLIC_ADD` and `F_SQLVIEW_DELETE` are the
+ * authorities the server's own sqlView schema names for `CREATE_PUBLIC`
+ * and `DELETE`. Returns null, not false, when the check itself cannot be
+ * answered (a network error), so a caller can tell "known no" from
+ * "unknown".
  */
-export async function canCreateSqlViews(
+export async function sqlViewAuthorities(
     fetcher: Fetcher
-): Promise<boolean | null> {
+): Promise<SqlViewAuthorities | null> {
     try {
         const me = await fetchJson<{ authorities: string[] }>(
             fetcher,
             'me?fields=authorities'
         )
-        return me.authorities.some((a) => CREATE_AUTHORITIES.has(a))
+        const has = (authority: string) =>
+            me.authorities.includes('ALL') || me.authorities.includes(authority)
+        return {
+            create: has('F_SQLVIEW_PUBLIC_ADD'),
+            remove: has('F_SQLVIEW_DELETE'),
+        }
     } catch {
         return null
     }
 }
 
-/**
- * Metadata read *and* data read for every user. `r-------` -- what these
- * views were created with until manual review 2 -- is metadata read alone,
- * and reading a SQL view's rows needs the data-read bit: without it the
- * server answers every read with 409 E4312 ("Current user is not authorised
- * to read data from SQL view"), including for the administrator who
- * created the view a second earlier, unless that user happens to hold ALL.
- * The broker instances' users do, which is how it went unnoticed; the
- * administrator this surfaced for on implement.im (2.41.10) does not.
- */
-export const SQL_VIEW_PUBLIC_SHARING = 'r-r-----'
-
-/**
- * Grants the public sharing above on an existing view, as one JSON-patch
- * of `/sharing/public` -- never a whole-object PUT (which would need the
- * full view body) and never the `/api/sharing` endpoint (whose POST
- * replaces user and user-group accesses as well as the public string).
- */
-export async function shareViewPublicly(
-    fetcher: Fetcher,
-    id: string
-): Promise<void> {
-    const response = await fetcher(`sqlViews/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json-patch+json' },
-        body: JSON.stringify([
-            {
-                op: 'replace',
-                path: '/sharing/public',
-                value: SQL_VIEW_PUBLIC_SHARING,
-            },
-        ]),
-    })
-    if (!response.ok) {
-        throw new Error(
-            `Failed to share SQL view ${id}: HTTP ${response.status}`
-        )
-    }
+export interface SqlViewFailure {
+    code: string
+    reason: SqlViewFailureReason
+    message: string
 }
 
 export interface CreateOrRepairResult {
     /** codes of views that did not exist and were created and executed */
     created: string[]
-    /** codes of views that already existed and were re-shared or re-executed */
+    /** codes of views that already existed and were patched or re-executed */
     repaired: string[]
-    failed: { code: string; message: string }[]
+    failed: SqlViewFailure[]
 }
 
 async function createView(
     fetcher: Fetcher,
-    def: (typeof SQL_VIEW_DEFINITIONS)[number]
+    def: SqlViewDefinition,
+    sharing: SqlViewSharing
 ): Promise<string> {
     const response = await fetcher('sqlViews', {
         method: 'POST',
@@ -182,103 +191,86 @@ async function createView(
             // asking again -- a fortnight on a stock install.
             cacheStrategy: def.cacheStrategy,
             sqlQuery: def.sqlQuery,
-            // Public read sharing (brief): every user who can use this app
-            // must be able to read the view's data, not just its creator --
-            // which takes the data-read bit, see SQL_VIEW_PUBLIC_SHARING.
-            sharing: { public: SQL_VIEW_PUBLIC_SHARING },
+            // Data read, not just metadata read, for everyone or for the
+            // chosen user group: see `SqlViewSharing`.
+            sharing: sharingBody(sharing),
         }),
     })
     if (!response.ok) {
-        throw new Error(`Failed to create ${def.code}: HTTP ${response.status}`)
+        throw await createError(
+            response,
+            `Failed to create ${def.code}: HTTP ${response.status}`
+        )
     }
     const body = (await response.json()) as { response: { uid: string } }
     return body.response.uid
 }
 
 /**
- * D2: the database view does not exist until this call succeeds. D3: this
- * is also the whole of "repair" -- a second execute on an already-executed
- * view is a safe no-op server-side.
- */
-async function executeView(fetcher: Fetcher, id: string): Promise<void> {
-    const response = await fetcher(`sqlViews/${id}/execute`, {
-        method: 'POST',
-    })
-    if (!response.ok) {
-        throw new Error(
-            `Failed to execute SQL view ${id}: HTTP ${response.status}`
-        )
-    }
-}
-
-/**
  * Best-effort: the view was just created by this same call and its execute
- * failed, so there is nothing left to preserve. If the delete itself also
- * fails there is nothing more this function can do about it -- the
- * original execute failure is still what gets reported to the caller, and
- * a later Settings load will find the orphan again (now correctly reported
- * as unusable by `checkSqlViews`'s read probe) rather than an app that
- * silently prefers it.
+ * failed, so there is nothing left to preserve.
  */
 async function deleteView(fetcher: Fetcher, id: string): Promise<void> {
     await fetcher(`sqlViews/${id}`, { method: 'DELETE' })
 }
 
+/** What an existing GSI view is repaired back to. */
+export function repairTarget(
+    def: SqlViewDefinition,
+    sharing: SqlViewSharing
+): RepairTarget {
+    return {
+        type: def.type,
+        sqlQuery: def.sqlQuery,
+        acceptQuery: (sql) => sameSql(sql, def.sqlQuery),
+        sharing,
+    }
+}
+
 /**
- * Creates every missing view and repairs every existing-but-unusable one,
- * skipping anything already usable. D2: creating is two calls -- create,
- * then execute -- and a create whose execute then fails is reported as a
- * failure, never as a partial "created".
+ * Creates every missing view and repairs every existing one that needs it.
+ * D2: creating is two calls -- create, then execute -- and a create whose
+ * execute then fails is deleted again and reported as a failure, never as
+ * a partial "created".
  *
- * C1: D2 held only at the level of this function's return value -- it
- * correctly reported a failed execute as `failed`, but the view it had just
- * created was left behind on the server, where `findSqlViews` and
- * `checkSqlViews`'s old metadata-only check would both have accepted it
- * (right code, right type, readable) and the app would switch to a source
- * that 500s on every read. Deleting the view when ONLY its own execute
- * fails closes that hole at the source rather than merely reporting it:
- * the server is left exactly as it was before this click, for a view this
- * call itself just created.
- *
- * D3 stands for everything else: an existing view (one this call did not
- * just create) is never deleted, whether its repair-execute succeeds or
- * fails -- deleting something this app did not create on a re-execute
- * failure would be a much larger, unrelated destructive action, not a
- * repair. Its unusable state after a failed repair is now also visible and
- * repair-again-able, thanks to `checkSqlViews`'s read probe.
+ * Repair patches an existing view's type, query and sharing back to the
+ * definition and the administrator's sharing choice where they differ, then
+ * executes it. It used to only re-execute, so a view switched to
+ * MATERIALIZED_VIEW was reported "Repaired" and stayed unusable. An
+ * existing view is never deleted: it may be someone else's. When it cannot
+ * be set back, the failure says why (`SqlViewFailureReason`) so Settings
+ * can tell the administrator what to do.
  */
 export async function createOrRepairSqlViews(
     fetcher: Fetcher,
-    checks: SqlViewCheck[]
+    checks: SqlViewCheck[],
+    sharing: SqlViewSharing
 ): Promise<CreateOrRepairResult> {
     const created: string[] = []
     const repaired: string[] = []
-    const failed: { code: string; message: string }[] = []
+    const failed: SqlViewFailure[] = []
 
     /* oxlint-disable no-await-in-loop -- one view at a time: a view that fails to execute is deleted before the next is created */
     for (const check of checks) {
-        if (check.usable) {
+        const def = SQL_VIEW_DEFINITIONS.find((d) => d.code === check.code)
+        if (!def || check.status === 'usable') {
+            continue
+        }
+        // Right definition and sharing, and only this user cannot read it:
+        // there is nothing to repair, and nothing this user could verify.
+        if (check.status === 'notSharedWithYou') {
             continue
         }
         try {
-            if (check.id) {
-                // `readable` is `access.data.read` for the current user.
-                // Re-executing a view they may not read changes nothing
-                // about that, so "repair" first grants the sharing the
-                // create path grants, then executes.
-                if (!check.readable) {
-                    await shareViewPublicly(fetcher, check.id)
-                }
-                await executeView(fetcher, check.id)
+            if (check.view) {
+                await repairExistingView(
+                    fetcher,
+                    check.view,
+                    repairTarget(def, sharing)
+                )
                 repaired.push(check.code)
             } else {
-                const def = SQL_VIEW_DEFINITIONS.find(
-                    (d) => d.code === check.code
-                )
-                if (!def) {
-                    continue
-                }
-                const id = await createView(fetcher, def)
+                const id = await createView(fetcher, def, sharing)
                 try {
                     await executeView(fetcher, id)
                 } catch (executeError) {
@@ -290,7 +282,8 @@ export async function createOrRepairSqlViews(
         } catch (e) {
             failed.push({
                 code: check.code,
-                message: e instanceof Error ? e.message : String(e),
+                reason: failureReason(e),
+                message: failureMessage(e),
             })
         }
     }
