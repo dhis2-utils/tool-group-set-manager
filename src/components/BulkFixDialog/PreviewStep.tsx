@@ -1,11 +1,5 @@
 import i18n from '@dhis2/d2-i18n'
-import {
-    Button,
-    ButtonStrip,
-    CircularLoader,
-    InputField,
-    NoticeBox,
-} from '@dhis2/ui'
+import { Button, CircularLoader, InputField, NoticeBox } from '@dhis2/ui'
 import React from 'react'
 import styles from './BulkFixDialog.module.css'
 import type { Action } from './constants'
@@ -178,21 +172,27 @@ export const PreviewStep: React.FC<PreviewStepProps> = ({
                     groups={groups}
                     objects={previewObjects}
                 />
-                <ButtonStrip>
-                    <Button small loading={csvBusy} onClick={onDownloadCsv}>
-                        {i18n.t('Download full list as CSV')}
-                    </Button>
-                </ButtonStrip>
-                {csvError && <NoticeBox error>{csvError}</NoticeBox>}
-                <InputField
-                    // See the catch-all name fields in
-                    // ActionStep.tsx: without `name` the label
-                    // associates with nothing.
-                    name="note"
-                    label={i18n.t('Note for History (optional)')}
-                    value={note}
-                    onChange={({ value }) => onNoteChange(value ?? '')}
-                />
+                {/* L2: one column with its own spacing. The CSV button
+                    used to sit in a ButtonStrip directly above the note
+                    field, and the field's label was drawn under the
+                    button. */}
+                <div className={styles.previewFooter}>
+                    <div>
+                        <Button small loading={csvBusy} onClick={onDownloadCsv}>
+                            {i18n.t('Download full list as CSV')}
+                        </Button>
+                    </div>
+                    {csvError && <NoticeBox error>{csvError}</NoticeBox>}
+                    <InputField
+                        // See the catch-all name fields in
+                        // ActionStep.tsx: without `name` the label
+                        // associates with nothing.
+                        name="note"
+                        label={i18n.t('Note for History (optional)')}
+                        value={note}
+                        onChange={({ value }) => onNoteChange(value ?? '')}
+                    />
+                </div>
             </>
         )}
     </div>
