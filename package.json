@@ -1,6 +1,6 @@
 {
     "name": "tool-group-set-manager",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "Finds and fixes objects that are in more than one group, or missing from a compulsory group, of a DHIS2 group set.",
     "license": "BSD-3-Clause",
     "private": true,
