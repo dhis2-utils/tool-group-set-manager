@@ -1,5 +1,5 @@
 import i18n from '@dhis2/d2-i18n'
-import { FavouriteType } from '@/data/sources/usageSqlView'
+import type { FavouriteType } from '@/data/sources/usageSqlView'
 
 /**
  * DHIS2's own object names are not what a user of this app recognises: a
@@ -16,5 +16,7 @@ export function favouriteTypeLabel(type: FavouriteType): string {
             return i18n.t('Maps')
         case 'eventVisualization':
             return i18n.t('Event reports and line lists')
+        // Exhaustive: TypeScript rejects this function if a case is missing.
+        // no default
     }
 }

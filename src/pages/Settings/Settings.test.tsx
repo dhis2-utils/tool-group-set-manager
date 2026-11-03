@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { Settings } from './Settings'
 import {
@@ -6,6 +6,7 @@ import {
     installUsageView,
     removeUsageView,
 } from '@/data/sources/usageAdmin'
+import { actAndFlush } from '@/testing/actAndFlush'
 
 jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://localhost:8080', apiVersion: 41 }),
@@ -36,7 +37,7 @@ const mockGroupSets = [
 ]
 
 const mockReload = jest.fn()
-const mockClearCache = jest.fn(async () => undefined)
+const mockClearCache = jest.fn(() => Promise.resolve(undefined))
 const mockEngine = {
     groupSets: mockGroupSets,
     client: null as { call: jest.Mock } | null,
@@ -47,9 +48,9 @@ jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => mockEngine,
 }))
 
-const mockSetCatchAllGroup = jest.fn(async () => undefined)
-const mockClearCatchAllGroup = jest.fn(async () => undefined)
-const mockSetIncludeTracker = jest.fn(async () => undefined)
+const mockSetCatchAllGroup = jest.fn(() => Promise.resolve(undefined))
+const mockClearCatchAllGroup = jest.fn(() => Promise.resolve(undefined))
+const mockSetIncludeTracker = jest.fn(() => Promise.resolve(undefined))
 const mockGsiConfig: {
     config: {
         catchAllGroup: Record<string, string>
@@ -197,7 +198,7 @@ describe('SQL view status', () => {
             name: /create sql views/i,
         })
         mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(button)
         })
         expect(mockCreateOrRepairSqlViews).toHaveBeenCalledWith(
@@ -229,7 +230,7 @@ describe('SQL view status', () => {
         const button = await screen.findByRole('button', {
             name: /create sql views/i,
         })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(button)
         })
         expect(screen.getByText(/GSI_ORGUNIT_MEMBERSHIPS/)).toBeInTheDocument()
@@ -258,7 +259,7 @@ describe('SQL view status', () => {
         const button = await screen.findByRole('button', {
             name: /create sql views/i,
         })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(button)
         })
         await waitFor(() =>
@@ -271,7 +272,7 @@ describe('SQL view status', () => {
         const buttonAgain = await screen.findByRole('button', {
             name: /create sql views/i,
         })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(buttonAgain)
         })
 
@@ -306,7 +307,7 @@ describe('SQL view status', () => {
         const button = await screen.findByRole('button', {
             name: /create sql views/i,
         })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(button)
         })
         expect(mockReload).not.toHaveBeenCalled()
@@ -359,7 +360,7 @@ describe('SQL view status', () => {
 
         // Retrying re-runs the same, safe (read-only) status check.
         mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: /try again/i }))
         })
         await waitFor(() =>
@@ -392,11 +393,11 @@ describe('catch-all mapping', () => {
         mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
         renderSettings({ canManage: true })
         const placeholder = await screen.findByText('Choose catch-all group')
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(placeholder)
         })
         const option = await screen.findByText('Group two')
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(option)
         })
         await waitFor(() =>
@@ -410,11 +411,11 @@ describe('catch-all mapping', () => {
         mockSetCatchAllGroup.mockRejectedValueOnce(new Error('HTTP 403'))
         renderSettings({ canManage: true })
         const placeholder = await screen.findByText('Choose catch-all group')
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(placeholder)
         })
         const option = await screen.findByText('Group two')
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(option)
         })
         await waitFor(() =>
@@ -434,7 +435,7 @@ describe('tracker toggle', () => {
         const checkbox = await screen.findByLabelText(
             /include tracker attributes/i
         )
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(checkbox)
         })
         await waitFor(() =>
@@ -452,7 +453,7 @@ describe('clear cache', () => {
         const button = await screen.findByRole('button', {
             name: /clear cache/i,
         })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(button)
         })
         expect(mockClearCache).toHaveBeenCalledTimes(1)

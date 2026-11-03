@@ -9,15 +9,14 @@ import React, {
     useState,
 } from 'react'
 import { createFetcher } from '@/data/fetcher'
+import type { CheckSummary, ResolvedCheck } from '@/data/integrity'
 import {
-    CheckSummary,
     readDetails,
     readSummaries,
     resolveChecks,
-    ResolvedCheck,
     startRun,
 } from '@/data/integrity'
-import { ObjectType } from '@/engine/types'
+import type { ObjectType } from '@/engine/types'
 import { useApiDataQuery } from '@/utils/useApiDataQuery'
 
 export interface IntegrityState {
@@ -38,7 +37,7 @@ const IntegrityContext = createContext<IntegrityState | null>(null)
 
 // Finding 6: the overlay is gated on ALL or F_PERFORM_MAINTENANCE. A user
 // with neither must never cause a single dataIntegrity request.
-const REQUIRED_AUTHORITIES = ['ALL', 'F_PERFORM_MAINTENANCE']
+const REQUIRED_AUTHORITIES = new Set(['ALL', 'F_PERFORM_MAINTENANCE'])
 
 interface Me {
     authorities: string[]
@@ -60,6 +59,12 @@ const POLL_INITIAL_INTERVAL_MS = 300
 const POLL_BACKOFF_FACTOR = 1.5
 const POLL_MAX_INTERVAL_MS = 5000
 const POLL_MAX_ATTEMPTS = 12
+
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms)
+    })
+}
 
 const EMPTY_SUMMARIES: Record<string, CheckSummary> = {}
 
@@ -196,7 +201,7 @@ export const IntegrityProvider = ({
             return
         }
         const authorized = me.authorities.some((a) =>
-            REQUIRED_AUTHORITIES.includes(a)
+            REQUIRED_AUTHORITIES.has(a)
         )
         if (!authorized) {
             disable()
@@ -251,6 +256,7 @@ export const IntegrityProvider = ({
     }, [loadSummaries])
 
     const run = useCallback(
+        // oxlint-disable-next-line complexity -- predates the lint migration; splitting it is a refactor of its own, not part of adopting the linter
         async (names: string[]) => {
             if (
                 disabledRef.current ||
@@ -316,6 +322,7 @@ export const IntegrityProvider = ({
                 // the details cache the tab actually reads is still stale.
                 let interval = POLL_INITIAL_INTERVAL_MS
                 let advanced = false
+                /* oxlint-disable no-await-in-loop -- polling: each attempt waits for the previous one and backs off */
                 for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
                     const [rows, detailsRows] = await Promise.all([
                         readSummaries(fetcher, names),
@@ -351,9 +358,7 @@ export const IntegrityProvider = ({
                     if (attempt === POLL_MAX_ATTEMPTS - 1) {
                         break
                     }
-                    await new Promise((resolve) =>
-                        setTimeout(resolve, interval)
-                    )
+                    await delay(interval)
                     if (disabledRef.current || unmountedRef.current) {
                         return
                     }
@@ -362,6 +367,7 @@ export const IntegrityProvider = ({
                         POLL_MAX_INTERVAL_MS
                     )
                 }
+                /* oxlint-enable no-await-in-loop */
                 if (!advanced && !unmountedRef.current) {
                     // Diagnostic text, not user-facing as written --
                     // translate before display, same as engineError and

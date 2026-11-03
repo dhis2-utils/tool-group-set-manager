@@ -8,13 +8,15 @@ import React, {
     useRef,
     useState,
 } from 'react'
-import { Cache, openCache } from '@/data/cache'
+import type { Cache } from '@/data/cache'
+import { openCache } from '@/data/cache'
 import { createFetcher } from '@/data/fetcher'
-import { loadAll, LoadStatus } from '@/data/loadAll'
+import type { LoadStatus } from '@/data/loadAll'
+import { loadAll } from '@/data/loadAll'
 import { selectSource } from '@/data/sources/selectSource'
 import { EngineClient } from '@/engine/client'
 import { createEngineWorker } from '@/engine/createWorker'
-import { GroupSetMeta, ObjectType } from '@/engine/types'
+import type { GroupSetMeta, ObjectType } from '@/engine/types'
 
 interface EngineContextValue {
     client: EngineClient | null
@@ -212,6 +214,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
             // at the next isCurrent() check instead of calling loadAll on a
             // terminated worker (whose postMessage is a silent no-op, so the
             // call would never settle) and setting state on a gone tree.
+            // oxlint-disable-next-line react-hooks/exhaustive-deps -- a generation counter, not a DOM ref: the cleanup must bump its latest value
             generationRef.current++
             created.terminate()
             setClient(null)

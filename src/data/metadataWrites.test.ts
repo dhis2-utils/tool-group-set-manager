@@ -4,7 +4,7 @@ import {
     NAME_OWNED_BY_ANOTHER_SET,
     setGroupSetProperties,
 } from './metadataWrites'
-import { GroupSetMeta } from '@/engine/types'
+import type { GroupSetMeta } from '@/engine/types'
 
 const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status })
@@ -53,7 +53,7 @@ const lookupPath = (displayName: string) =>
  */
 function scriptedFetcher(script: Record<string, () => Response>) {
     const calls: Call[] = []
-    const fetcher = async (path: string, init?: RequestInit) => {
+    const fetcher = (path: string, init?: RequestInit) => {
         const headers = new Headers(init?.headers)
         calls.push({
             path,
@@ -64,9 +64,9 @@ function scriptedFetcher(script: Record<string, () => Response>) {
         const key = `${init?.method ?? 'GET'} ${path}`
         const handler = script[key]
         if (!handler) {
-            throw new Error(`Unhandled request: ${key}`)
+            return Promise.reject(new Error(`Unhandled request: ${key}`))
         }
-        return handler()
+        return Promise.resolve(handler())
     }
     return { fetcher, calls }
 }
@@ -254,7 +254,9 @@ describe('createCatchAllGroup', () => {
         // M1: rw------ (owner metadata read/write only), never rwrw---- --
         // that would grant every user metadata AND data write on a group
         // this app created.
-        expect((createCall?.body as { sharing: unknown }).sharing).toEqual({
+        expect(
+            (createCall?.body as { sharing: unknown } | undefined)?.sharing
+        ).toEqual({
             public: 'rw------',
             users: {},
             userGroups: {},
@@ -501,7 +503,7 @@ describe('setGroupSetProperties', () => {
     })
 
     it('throws when the patch fails', async () => {
-        const fetcher = async () => json({}, 500)
+        const fetcher = () => Promise.resolve(json({}, 500))
         await expect(
             setGroupSetProperties(
                 fetcher,

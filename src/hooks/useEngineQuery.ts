@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useEngine } from './useEngine'
-import { EngineMethod } from '@/engine/protocol'
+import type { EngineMethod } from '@/engine/protocol'
 
 interface EngineQueryState<T> {
     data: T | undefined
@@ -119,6 +119,7 @@ export function useEngineQuery<T>(
         // the comment on its declaration above. `queryKey` covers both
         // `method` and `argsKey`, which are listed anyway for the linter.
         // `attempt` is bumped by refetch() and nothing else.
+        // oxlint-disable-next-line react-hooks/exhaustive-deps -- depends on hasClient, not the client object; see the comment on hasClient above
     }, [
         hasClient,
         method,

@@ -1,7 +1,8 @@
-import { GroupChange } from './changeSet'
+import type { GroupChange } from './changeSet'
 import * as rules from './rules'
 import { EngineStore } from './store'
-import { GroupSetMeta, Status } from './types'
+import type { GroupSetMeta } from './types'
+import { Status } from './types'
 
 const indicatorSet: GroupSetMeta = {
     id: 'ind',
@@ -977,7 +978,7 @@ describe('EngineStore.planAssignment', () => {
         const plan = store.planAssignment('own', scope, { level: 3 }, 'pub')
         // a2 and b1 both need a deletion from priv, which is read-only.
         expect(plan.skippedCount).toBe(2)
-        expect(plan.skippedSample.slice().sort()).toEqual(['a2', 'b1'])
+        expect([...plan.skippedSample].sort()).toEqual(['a2', 'b1'])
         expect(plan.affected).toBe(0)
         expect(plan.changes).toEqual([])
     })

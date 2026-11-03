@@ -1,4 +1,5 @@
-import { CachedType, createMemoryCache } from './cache'
+import type { CachedType } from './cache'
+import { createMemoryCache } from './cache'
 
 const value: CachedType = {
     objects: {

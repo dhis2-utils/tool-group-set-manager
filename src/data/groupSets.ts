@@ -1,11 +1,8 @@
 import { ENDPOINTS } from './endpoints'
-import { fetchJson, Fetcher } from './sources/DataSource'
-import {
-    GroupMeta,
-    GroupSetMeta,
-    OBJECT_TYPES,
-    ObjectType,
-} from '@/engine/types'
+import type { Fetcher } from './sources/DataSource'
+import { fetchJson } from './sources/DataSource'
+import type { GroupMeta, GroupSetMeta, ObjectType } from '@/engine/types'
+import { OBJECT_TYPES } from '@/engine/types'
 
 interface GroupRow {
     id: string
@@ -44,14 +41,12 @@ async function loadType(
             compulsory: row.compulsory === true,
             dataDimension: row.dataDimension === true,
             canWrite: row.access.write === true,
-            groups: groups.map(
-                (g): GroupMeta => ({
-                    id: g.id,
-                    displayName: g.displayName,
-                    code: g.code,
-                    canWrite: g.access.write === true,
-                })
-            ),
+            groups: groups.map((g): GroupMeta => ({
+                id: g.id,
+                displayName: g.displayName,
+                code: g.code,
+                canWrite: g.access.write === true,
+            })),
         }
     })
 }

@@ -1,5 +1,6 @@
 import i18n from '@dhis2/d2-i18n'
-import { BatchOutcome, UNPARSEABLE_RESPONSE } from './writes'
+import type { BatchOutcome } from './writes'
+import { UNPARSEABLE_RESPONSE } from './writes'
 import { interpolate } from '@/utils/interpolate'
 
 /**
@@ -62,7 +63,7 @@ export function aggregateOutcomes(outcomes: BatchOutcome[]): GroupOutcome[] {
         existing.batches.push(o)
         byGroup.set(o.groupId, existing)
     })
-    return Array.from(byGroup.values())
+    return [...byGroup.values()]
 }
 
 export type OutcomeTone = 'valid' | 'warning' | 'error'

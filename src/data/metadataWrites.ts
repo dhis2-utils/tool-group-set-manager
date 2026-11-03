@@ -1,6 +1,7 @@
 import { ENDPOINTS } from './endpoints'
-import { fetchJson, Fetcher } from './sources/DataSource'
-import { GroupSetMeta, ObjectType } from '@/engine/types'
+import type { Fetcher } from './sources/DataSource'
+import { fetchJson } from './sources/DataSource'
+import type { GroupSetMeta, ObjectType } from '@/engine/types'
 
 const MAX_SHORT_NAME_LENGTH = 50
 

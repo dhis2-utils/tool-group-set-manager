@@ -190,29 +190,25 @@ describe('matrix', () => {
 
 describe('listObjects', () => {
     it('returns indexes in the scope in depth-first order', () => {
-        expect(Array.from(listObjects(status, m, h, 0, {}))).toEqual([
+        expect([...listObjects(status, m, h, 0, {})]).toEqual([
             0, 1, 3, 4, 2, 5,
         ])
     })
+
     it('filters by status, level, group and ancestor', () => {
-        expect(
-            Array.from(
-                listObjects(status, m, h, 0, { statuses: [Status.Conflict] })
-            )
-        ).toEqual([4])
-        expect(Array.from(listObjects(status, m, h, 0, { level: 2 }))).toEqual([
-            1, 2,
+        expect([
+            ...listObjects(status, m, h, 0, { statuses: [Status.Conflict] }),
+        ]).toEqual([4])
+        expect([...listObjects(status, m, h, 0, { level: 2 })]).toEqual([1, 2])
+        expect([...listObjects(status, m, h, 0, { group: 1 })]).toEqual([5])
+        expect([...listObjects(status, m, h, 0, { group: -1 })]).toEqual([
+            0, 1, 2,
         ])
-        expect(Array.from(listObjects(status, m, h, 0, { group: 1 }))).toEqual([
-            5,
+        expect([...listObjects(status, m, h, 0, { ancestor: 2 })]).toEqual([
+            2, 5,
         ])
-        expect(Array.from(listObjects(status, m, h, 0, { group: -1 }))).toEqual(
-            [0, 1, 2]
-        )
-        expect(
-            Array.from(listObjects(status, m, h, 0, { ancestor: 2 }))
-        ).toEqual([2, 5])
     })
+
     it('lists exactly the objects the "no group, not required" column counts', () => {
         // The filter the matrix's new column drills into: status Ok *and* no
         // group. Status alone would also list every object that is in a
@@ -226,22 +222,18 @@ describe('listObjects', () => {
             Status.Conflict,
             Status.Ok,
         ])
-        expect(
-            Array.from(
-                listObjects(permissive, m, h, 0, {
-                    group: -1,
-                    statuses: [Status.Ok],
-                })
-            )
-        ).toEqual([0, 1, 2])
+        expect([
+            ...listObjects(permissive, m, h, 0, {
+                group: -1,
+                statuses: [Status.Ok],
+            }),
+        ]).toEqual([0, 1, 2])
     })
 
     it('works for flat types', () => {
-        expect(
-            Array.from(
-                listObjects(status, m, null, -1, { statuses: [Status.Ok] })
-            )
-        ).toEqual([3, 5])
+        expect([
+            ...listObjects(status, m, null, -1, { statuses: [Status.Ok] }),
+        ]).toEqual([3, 5])
     })
 
     // No existing test combined two *object* filters (as opposed to status
@@ -251,14 +243,20 @@ describe('listObjects', () => {
         // Object 4 is at level 3 but is the conflicting object (in both
         // G0 and G1), so its `groupOf` is the conflict marker (-2), not 1
         // -- only object 5 is at level 3 *and* genuinely in group 1.
-        expect(
-            Array.from(listObjects(status, m, h, 0, { level: 3, group: 1 }))
-        ).toEqual([5])
+        expect([
+            ...listObjects(status, m, h, 0, {
+                level: 3,
+                group: 1,
+            }),
+        ]).toEqual([5])
         // Same two predicates, but no object at level 2 is in group 1, so
         // the combination (as opposed to either alone) excludes everything.
-        expect(
-            Array.from(listObjects(status, m, h, 0, { level: 2, group: 1 }))
-        ).toEqual([])
+        expect([
+            ...listObjects(status, m, h, 0, {
+                level: 2,
+                group: 1,
+            }),
+        ]).toEqual([])
     })
 
     // A flat type (no hierarchy: dataElement, indicator, categoryOption)
@@ -289,31 +287,30 @@ describe('listObjects', () => {
 
     it('filters by an id predicate, combined with other filters', () => {
         const ids = ['root', 'A', 'B', 'a1', 'a2', 'b1']
-        expect(
-            Array.from(listObjects(status, m, h, 0, { ids: ['a1', 'b1'] }, ids))
-        ).toEqual([3, 5])
+        expect([
+            ...listObjects(status, m, h, 0, { ids: ['a1', 'b1'] }, ids),
+        ]).toEqual([3, 5])
         // Combined with a status filter that excludes one of the ids.
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { ids: ['a1', 'a2'], statuses: [Status.Ok] },
-                    ids
-                )
-            )
-        ).toEqual([3])
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                {
+                    ids: ['a1', 'a2'],
+                    statuses: [Status.Ok],
+                },
+                ids
+            ),
+        ]).toEqual([3])
     })
 
     it('matches nothing when filter.ids is given but the id array is not', () => {
         // A caller that asks for the `ids` predicate but forgets to pass
         // the type's id array gets an empty result, not the predicate
         // silently ignored (which would return the whole population).
-        expect(
-            Array.from(listObjects(status, m, h, 0, { ids: ['a1'] }))
-        ).toEqual([])
+        expect([...listObjects(status, m, h, 0, { ids: ['a1'] })]).toEqual([])
     })
 })
 
@@ -331,187 +328,175 @@ describe('listObjects text predicate', () => {
     const namesLower = names.map((n) => n.toLowerCase())
 
     it('matches a substring in the middle of a name', () => {
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { text: 'school' },
-                    undefined,
-                    namesLower
-                )
-            )
-        ).toEqual([3])
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                { text: 'school' },
+                undefined,
+                namesLower
+            ),
+        ]).toEqual([3])
     })
 
     it('matches case-insensitively in both directions', () => {
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { text: 'SCHOOL' },
-                    undefined,
-                    namesLower
-                )
-            )
-        ).toEqual([3])
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                { text: 'SCHOOL' },
+                undefined,
+                namesLower
+            ),
+        ]).toEqual([3])
         const upperNames = names.map((n) => n.toUpperCase())
         const upperLower = upperNames.map((n) => n.toLowerCase())
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { text: 'school' },
-                    undefined,
-                    upperLower
-                )
-            )
-        ).toEqual([3])
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                { text: 'school' },
+                undefined,
+                upperLower
+            ),
+        ]).toEqual([3])
     })
 
     it('trims the query before matching', () => {
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { text: '  school  ' },
-                    undefined,
-                    namesLower
-                )
-            )
-        ).toEqual([3])
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                { text: '  school  ' },
+                undefined,
+                namesLower
+            ),
+        ]).toEqual([3])
     })
 
     it('treats an empty or whitespace-only query as no filter', () => {
-        const all = Array.from(listObjects(status, m, h, 0, {}))
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { text: '' },
-                    undefined,
-                    namesLower
-                )
-            )
-        ).toEqual(all)
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { text: '   ' },
-                    undefined,
-                    namesLower
-                )
-            )
-        ).toEqual(all)
+        const all = [...listObjects(status, m, h, 0, {})]
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                { text: '' },
+                undefined,
+                namesLower
+            ),
+        ]).toEqual(all)
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                { text: '   ' },
+                undefined,
+                namesLower
+            ),
+        ]).toEqual(all)
     })
 
     it('matches nothing when names are not loaded, not everything', () => {
         // The worse failure mode: a type whose names have not loaded yet
         // must not read a search as "everything matches".
-        expect(
-            Array.from(
-                listObjects(status, m, h, 0, { text: 'alpha' }, undefined, null)
-            )
-        ).toEqual([])
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { text: 'alpha' },
-                    undefined,
-                    undefined
-                )
-            )
-        ).toEqual([])
+        expect([
+            ...listObjects(status, m, h, 0, { text: 'alpha' }, undefined, null),
+        ]).toEqual([])
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                { text: 'alpha' },
+                undefined,
+                undefined
+            ),
+        ]).toEqual([])
     })
 
     it('composes with a status filter, narrowing rather than replacing it', () => {
         // Objects 1 (Alpha) and 3 (Alpha School A1) both match "alpha", but
         // only 3 has Status.Ok; 1 is MissingError.
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { text: 'alpha', statuses: [Status.Ok] },
-                    undefined,
-                    namesLower
-                )
-            )
-        ).toEqual([3])
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                {
+                    text: 'alpha',
+                    statuses: [Status.Ok],
+                },
+                undefined,
+                namesLower
+            ),
+        ]).toEqual([3])
     })
 
     it('composes with an ancestor filter, narrowing rather than replacing it', () => {
         // "Alpha" matches objects 1, 3, 4; restricting to the subtree
         // rooted at B (object 2) leaves none of them, even though "Beta"
         // (object 2, 5) is under B and matches nothing on its own here.
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { text: 'alpha', ancestor: 2 },
-                    undefined,
-                    namesLower
-                )
-            )
-        ).toEqual([])
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { text: 'beta', ancestor: 2 },
-                    undefined,
-                    namesLower
-                )
-            )
-        ).toEqual([2, 5])
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                {
+                    text: 'alpha',
+                    ancestor: 2,
+                },
+                undefined,
+                namesLower
+            ),
+        ]).toEqual([])
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                {
+                    text: 'beta',
+                    ancestor: 2,
+                },
+                undefined,
+                namesLower
+            ),
+        ]).toEqual([2, 5])
     })
 
     it('composes with a level filter, narrowing rather than replacing it', () => {
         // "Alpha" matches objects 1 (level 2), 3 and 4 (level 3); the level
         // filter alone would also admit object 2 (Beta, level 3).
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { text: 'alpha', level: 3 },
-                    undefined,
-                    namesLower
-                )
-            )
-        ).toEqual([3, 4])
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                {
+                    text: 'alpha',
+                    level: 3,
+                },
+                undefined,
+                namesLower
+            ),
+        ]).toEqual([3, 4])
     })
 
     it('composes with a group filter, narrowing rather than replacing it', () => {
@@ -519,38 +504,40 @@ describe('listObjects text predicate', () => {
         // matches 0, 1, 2 (see the "filters by status, level, group and
         // ancestor" test above). Neither predicate alone gives the
         // intersection: only object 1 is both "alpha" and in no group.
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { text: 'alpha', group: -1 },
-                    undefined,
-                    namesLower
-                )
-            )
-        ).toEqual([1])
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                {
+                    text: 'alpha',
+                    group: -1,
+                },
+                undefined,
+                namesLower
+            ),
+        ]).toEqual([1])
     })
 
     it('composes with an ids filter, narrowing rather than replacing it', () => {
         // "Alpha" matches objects 1, 3, 4; restricting ids to 'A' and 'b1'
         // (objects 1 and 5) leaves only their intersection, object 1.
         const idsArr = ['root', 'A', 'B', 'a1', 'a2', 'b1']
-        expect(
-            Array.from(
-                listObjects(
-                    status,
-                    m,
-                    h,
-                    0,
-                    { text: 'alpha', ids: ['A', 'b1'] },
-                    idsArr,
-                    namesLower
-                )
-            )
-        ).toEqual([1])
+        expect([
+            ...listObjects(
+                status,
+                m,
+                h,
+                0,
+                {
+                    text: 'alpha',
+                    ids: ['A', 'b1'],
+                },
+                idsArr,
+                namesLower
+            ),
+        ]).toEqual([1])
     })
 })
 
@@ -567,7 +554,7 @@ describe('forEachInScope corruption handling', () => {
         )
         const cm = buildSetMembership(3, [])
         const cstatus = Uint8Array.from([Status.Ok, Status.Ok, Status.Ok])
-        const result = Array.from(listObjects(cstatus, cm, corrupted, -1, {}))
+        const result = [...listObjects(cstatus, cm, corrupted, -1, {})]
         // Object 0 (the only reachable node) appears at most once; the
         // unreachable nodes 1 and 2 have no valid order position and are
         // not visited.

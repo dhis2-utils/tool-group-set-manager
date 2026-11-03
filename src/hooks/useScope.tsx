@@ -86,6 +86,7 @@ function readStoredScope(baseUrl: string): Root | null {
 export const ScopeProvider = ({ children }: { children: React.ReactNode }) => {
     const { baseUrl } = useConfig()
     const { roots, isLoading } = useUserScope()
+    // oxlint-disable-next-line react/hook-use-state -- `setRoot` is the context's persisting setter below, which wraps this raw one
     const [root, setRootState] = useState<Root | null>(() =>
         readStoredScope(baseUrl)
     )

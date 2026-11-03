@@ -2,7 +2,7 @@ import i18n from '@dhis2/d2-i18n'
 import { Tag } from '@dhis2/ui'
 import React from 'react'
 import styles from './IntegrityLine.module.css'
-import { CheckSummary, ResolvedCheck } from '@/data/integrity'
+import type { CheckSummary, ResolvedCheck } from '@/data/integrity'
 import { interpolate } from '@/utils/interpolate'
 
 interface Props {

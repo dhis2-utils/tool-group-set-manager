@@ -19,11 +19,12 @@ import { FilterBar, FilterBarField } from '@/components/FilterBar/FilterBar'
 import { OrgUnitField } from '@/components/FilterBar/OrgUnitField'
 import { LoadProgress } from '@/components/LoadProgress/LoadProgress'
 import { MetadataFreshness } from '@/components/MetadataFreshness/MetadataFreshness'
-import { ScopeCrumb, ScopeTrail } from '@/components/ScopeTrail/ScopeTrail'
+import type { ScopeCrumb } from '@/components/ScopeTrail/ScopeTrail'
+import { ScopeTrail } from '@/components/ScopeTrail/ScopeTrail'
 import { SetPropertiesDialog } from '@/components/SetPropertiesDialog/SetPropertiesDialog'
-import { MatrixColumn } from '@/components/SummaryMatrix/SummaryMatrix'
-import { ObjectFilter } from '@/engine/queries'
-import { ObjectRef, ScopeRef } from '@/engine/store'
+import type { MatrixColumn } from '@/components/SummaryMatrix/SummaryMatrix'
+import type { ObjectFilter } from '@/engine/queries'
+import type { ObjectRef, ScopeRef } from '@/engine/store'
 import { Status } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
@@ -43,6 +44,7 @@ type DetailTab = 'overview' | 'objects' | 'usage' | 'integrity'
 /** Used only while nothing at all is known about the scope's level yet. */
 const DEFAULT_LEVEL = 1
 
+// oxlint-disable-next-line complexity -- predates the lint migration; splitting it is a refactor of its own, not part of adopting the linter
 export const GroupSetDetail = () => {
     const { setId = '' } = useParams()
     const location = useLocation()

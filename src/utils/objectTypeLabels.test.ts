@@ -1,10 +1,10 @@
+import i18n from '@dhis2/d2-i18n'
+import { typeLabel, typeObjectsLabel } from './objectTypeLabels'
+
 jest.mock('@dhis2/d2-i18n', () => ({
     __esModule: true,
     default: { t: jest.fn((s: string) => s) },
 }))
-
-import i18n from '@dhis2/d2-i18n'
-import { typeLabel, typeObjectsLabel } from './objectTypeLabels'
 
 // A record built by calling i18n.t at module evaluation time freezes
 // whatever locale was active the moment the module was first imported --

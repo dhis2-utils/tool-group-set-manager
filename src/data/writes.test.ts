@@ -5,8 +5,8 @@ import {
     takesPatchRoute,
     writeMemberships,
 } from './writes'
-import { GroupChange } from '@/engine/changeSet'
-import { ObjectType } from '@/engine/types'
+import type { GroupChange } from '@/engine/changeSet'
+import type { ObjectType } from '@/engine/types'
 
 const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status })
@@ -19,13 +19,13 @@ const okStats = (total: number) =>
 describe('writeMemberships', () => {
     it("sends one group's additions and deletions as a single request", async () => {
         const calls: { path: string; method: string; body: unknown }[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push({
                 path,
                 method: init?.method ?? 'GET',
                 body: init?.body ? JSON.parse(init.body as string) : undefined,
             })
-            return okStats(2)
+            return Promise.resolve(okStats(2))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a', 'b'], deletions: ['c'] },
@@ -59,11 +59,13 @@ describe('writeMemberships', () => {
         expect(DEFAULT_BATCH_SIZE).toBe(5000)
 
         const calls: unknown[] = []
-        const fetcher = async (_path: string, init?: RequestInit) => {
+        const fetcher = (_path: string, init?: RequestInit) => {
             calls.push(JSON.parse(String(init?.body)))
-            return okStats(
-                (JSON.parse(String(init?.body)) as { additions: unknown[] })
-                    .additions.length
+            return Promise.resolve(
+                okStats(
+                    (JSON.parse(String(init?.body)) as { additions: unknown[] })
+                        .additions.length
+                )
             )
         }
         // One more than a single batch's worth, so the split is observable.
@@ -82,13 +84,15 @@ describe('writeMemberships', () => {
 
     it('splits a change larger than the batch size and reports progress once per batch', async () => {
         const calls: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push(JSON.parse(init?.body as string))
             const body = JSON.parse(init?.body as string) as {
                 additions: unknown[]
                 deletions: unknown[]
             }
-            return okStats(body.additions.length + body.deletions.length)
+            return Promise.resolve(
+                okStats(body.additions.length + body.deletions.length)
+            )
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
@@ -117,14 +121,21 @@ describe('writeMemberships', () => {
     })
 
     it('reports a partial failure when the server accepts fewer changes than it was sent', async () => {
-        const fetcher = async () =>
-            new Response(
-                JSON.stringify({
-                    response: {
-                        stats: { total: 1, updated: 1, deleted: 0, ignored: 0 },
-                    },
-                }),
-                { status: 200 }
+        const fetcher = () =>
+            Promise.resolve(
+                new Response(
+                    JSON.stringify({
+                        response: {
+                            stats: {
+                                total: 1,
+                                updated: 1,
+                                deleted: 0,
+                                ignored: 0,
+                            },
+                        },
+                    }),
+                    { status: 200 }
+                )
             )
         const result = await writeMemberships(
             fetcher,
@@ -144,7 +155,7 @@ describe('writeMemberships', () => {
     })
 
     it('treats a response with no stats at all as nothing accepted', async () => {
-        const fetcher = async () => json({})
+        const fetcher = () => Promise.resolve(json({}))
         const result = await writeMemberships(
             fetcher,
             'organisationUnit',
@@ -163,11 +174,13 @@ describe('writeMemberships', () => {
     })
 
     it('records a non-200 response as an error against that group without stopping the rest', async () => {
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             if (path.includes('g1')) {
-                return new Response('forbidden', { status: 403 })
+                return Promise.resolve(
+                    new Response('forbidden', { status: 403 })
+                )
             }
-            return okStats(1)
+            return Promise.resolve(okStats(1))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a'], deletions: [] },
@@ -198,18 +211,20 @@ describe('writeMemberships', () => {
     })
 
     it('an addition already present (ignored by the server) still counts as accepted', async () => {
-        const fetcher = async () =>
-            json({
-                response: {
-                    stats: {
-                        total: 1,
-                        created: 0,
-                        updated: 0,
-                        deleted: 0,
-                        ignored: 1,
+        const fetcher = () =>
+            Promise.resolve(
+                json({
+                    response: {
+                        stats: {
+                            total: 1,
+                            created: 0,
+                            updated: 0,
+                            deleted: 0,
+                            ignored: 1,
+                        },
                     },
-                },
-            })
+                })
+            )
         const result = await writeMemberships(
             fetcher,
             'organisationUnit',
@@ -224,9 +239,9 @@ describe('writeMemberships', () => {
 
     it('one request per group, sequential, in the order the changes were given', async () => {
         const order: string[] = []
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             order.push(path)
-            return okStats(1)
+            return Promise.resolve(okStats(1))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a'], deletions: [] },
@@ -246,9 +261,9 @@ describe('writeMemberships', () => {
 
     it('a group with nothing to change makes no request', async () => {
         const calls: string[] = []
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             calls.push(path)
-            return okStats(0)
+            return Promise.resolve(okStats(0))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: [], deletions: [] },
@@ -287,10 +302,12 @@ describe('writeMemberships', () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {
             // silence the expected diagnostic log
         })
-        const fetcher = async () =>
-            new Response('<html>not json</html>', {
-                status: 200,
-            })
+        const fetcher = () =>
+            Promise.resolve(
+                new Response('<html>not json</html>', {
+                    status: 200,
+                })
+            )
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a'], deletions: [] },
         ]
@@ -310,11 +327,11 @@ describe('writeMemberships', () => {
     })
 
     it('a network failure on one group is recorded as an error and does not stop the rest', async () => {
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             if (path.includes('g1')) {
-                throw new Error('network down')
+                return Promise.reject(new Error('network down'))
             }
-            return okStats(1)
+            return Promise.resolve(okStats(1))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a'], deletions: [] },
@@ -347,13 +364,15 @@ describe('writeMemberships', () => {
         // skip", so this uses a group split into three one-id batches.
         const calls: string[] = []
         let requestCount = 0
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             calls.push(path)
             requestCount += 1
             if (requestCount === 1) {
-                return new Response('server error', { status: 500 })
+                return Promise.resolve(
+                    new Response('server error', { status: 500 })
+                )
             }
-            return okStats(1)
+            return Promise.resolve(okStats(1))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
@@ -390,13 +409,13 @@ describe('writeMemberships', () => {
         // got an HTTP response at all (a dropped connection, say).
         const calls: string[] = []
         let requestCount = 0
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             calls.push(path)
             requestCount += 1
             if (requestCount === 1) {
-                throw new Error('network down')
+                return Promise.reject(new Error('network down'))
             }
-            return okStats(1)
+            return Promise.resolve(okStats(1))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
@@ -435,12 +454,14 @@ describe('writeMemberships', () => {
 
     it("skips a group's remaining batches once one comes back forbidden, but still records an outcome for each", async () => {
         const calls: string[] = []
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             calls.push(path)
             if (path.includes('g1')) {
-                return new Response('forbidden', { status: 403 })
+                return Promise.resolve(
+                    new Response('forbidden', { status: 403 })
+                )
             }
-            return okStats(1)
+            return Promise.resolve(okStats(1))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
@@ -486,7 +507,7 @@ describe('writeMemberships', () => {
     })
 
     it('outcomes has one entry per batch, not one per group', async () => {
-        const fetcher = async () => okStats(1)
+        const fetcher = () => Promise.resolve(okStats(1))
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
             { groupId: 'g2', additions: ['d'], deletions: [] },
@@ -508,9 +529,9 @@ describe('writeMemberships', () => {
         'builds the request path from the endpoint map for %s',
         async (objectType, endpoint) => {
             const calls: string[] = []
-            const fetcher = async (path: string) => {
+            const fetcher = (path: string) => {
                 calls.push(path)
-                return okStats(1)
+                return Promise.resolve(okStats(1))
             }
             await writeMemberships(
                 fetcher,
@@ -531,12 +552,12 @@ describe('writeMemberships', () => {
 
         it('uses the collection endpoint for a change at the threshold', async () => {
             const calls: string[] = []
-            const fetcher = async (path: string, init?: RequestInit) => {
+            const fetcher = (path: string, init?: RequestInit) => {
                 calls.push(path)
                 const body = JSON.parse(String(init?.body)) as {
                     additions: unknown[]
                 }
-                return okStats(body.additions.length)
+                return Promise.resolve(okStats(body.additions.length))
             }
             await writeMemberships(
                 fetcher,
@@ -562,13 +583,13 @@ describe('writeMemberships', () => {
                 method?: string
                 headers?: unknown
             }[] = []
-            const fetcher = async (path: string, init?: RequestInit) => {
+            const fetcher = (path: string, init?: RequestInit) => {
                 calls.push({
                     path,
                     method: init?.method,
                     headers: init?.headers,
                 })
-                return json({})
+                return Promise.resolve(json({}))
             }
             await writeMemberships(
                 fetcher,
@@ -590,9 +611,9 @@ describe('writeMemberships', () => {
             let body:
                 | { op: string; path: string; value: { id: string }[] }[]
                 | undefined
-            const fetcher = async (_path: string, init?: RequestInit) => {
+            const fetcher = (_path: string, init?: RequestInit) => {
                 body = JSON.parse(String(init?.body))
-                return json({})
+                return Promise.resolve(json({}))
             }
             await writeMemberships(
                 fetcher,
@@ -617,7 +638,7 @@ describe('writeMemberships', () => {
                     value: expect.any(Array),
                 },
             ])
-            const sent = body![0].value.map((o) => o.id)
+            const sent = body?.[0]?.value.map((o) => o.id)
             expect(sent).toContain('keep1')
             expect(sent).toContain('new0')
             expect(sent).not.toContain('gone1')
@@ -636,9 +657,11 @@ describe('writeMemberships', () => {
                 // silence the expected diagnostic log
             })
             const calls: string[] = []
-            const fetcher = async (path: string) => {
+            const fetcher = (path: string) => {
                 calls.push(path)
-                return new Response('not found', { status: 404 })
+                return Promise.resolve(
+                    new Response('not found', { status: 404 })
+                )
             }
             const result = await writeMemberships(
                 fetcher,
@@ -666,21 +689,26 @@ describe('writeMemberships', () => {
             const warn = jest.spyOn(console, 'warn').mockImplementation(() => {
                 // silence the expected diagnostic log
             })
-            const fetcher = async () =>
-                new Response(
-                    JSON.stringify({
-                        httpStatus: 'Conflict',
-                        httpStatusCode: 409,
-                        status: 'ERROR',
-                        message:
-                            'One or more errors occurred, please see full details in import report.',
-                        response: {
-                            errorReports: [
-                                { message: 'Invalid reference [Zz9GhOsT000]' },
-                            ],
-                        },
-                    }),
-                    { status: 409 }
+            const fetcher = () =>
+                Promise.resolve(
+                    new Response(
+                        JSON.stringify({
+                            httpStatus: 'Conflict',
+                            httpStatusCode: 409,
+                            status: 'ERROR',
+                            message:
+                                'One or more errors occurred, please see full details in import report.',
+                            response: {
+                                errorReports: [
+                                    {
+                                        message:
+                                            'Invalid reference [Zz9GhOsT000]',
+                                    },
+                                ],
+                            },
+                        }),
+                        { status: 409 }
+                    )
                 )
             const result = await writeMemberships(
                 fetcher,
@@ -699,12 +727,12 @@ describe('writeMemberships', () => {
         // The structural safety property: no fresh membership, no replace-all.
         it('falls back to batched above the threshold when no complete membership is given', async () => {
             const calls: { path: string; method?: string }[] = []
-            const fetcher = async (path: string, init?: RequestInit) => {
+            const fetcher = (path: string, init?: RequestInit) => {
                 calls.push({ path, method: init?.method })
                 const body = JSON.parse(String(init?.body)) as {
                     additions: unknown[]
                 }
-                return okStats(body.additions.length)
+                return Promise.resolve(okStats(body.additions.length))
             }
             await writeMemberships(
                 fetcher,
@@ -717,7 +745,7 @@ describe('writeMemberships', () => {
         })
 
         it('reports a patch group in WriteResult exactly as a batched one', async () => {
-            const fetcher = async () => json({})
+            const fetcher = () => Promise.resolve(json({}))
             const result = await writeMemberships(
                 fetcher,
                 'organisationUnit',
@@ -736,15 +764,15 @@ describe('writeMemberships', () => {
 
         it('routes exactly the changes takesPatchRoute flags, when every group has a complete membership', async () => {
             const patched: string[] = []
-            const fetcher = async (path: string, init?: RequestInit) => {
+            const fetcher = (path: string, init?: RequestInit) => {
                 if (init?.method === 'PATCH') {
                     patched.push(path)
-                    return json({})
+                    return Promise.resolve(json({}))
                 }
                 const body = JSON.parse(String(init?.body)) as {
                     additions: unknown[]
                 }
-                return okStats(body.additions.length)
+                return Promise.resolve(okStats(body.additions.length))
             }
             const changes = [
                 bigChange(DEFAULT_BATCH_SIZE),
@@ -771,15 +799,15 @@ describe('writeMemberships', () => {
 
         it('reports progress as one unit per patch group and one per batch, in the order written', async () => {
             const calls: { path: string; method: string }[] = []
-            const fetcher = async (path: string, init?: RequestInit) => {
+            const fetcher = (path: string, init?: RequestInit) => {
                 calls.push({ path, method: init?.method ?? 'GET' })
                 if (init?.method === 'PATCH') {
-                    return json({})
+                    return Promise.resolve(json({}))
                 }
                 const body = JSON.parse(String(init?.body)) as {
                     additions: unknown[]
                 }
-                return okStats(body.additions.length)
+                return Promise.resolve(okStats(body.additions.length))
             }
             const progress: [number, number][] = []
             const result = await writeMemberships(

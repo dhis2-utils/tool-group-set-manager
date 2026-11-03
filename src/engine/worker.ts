@@ -1,9 +1,10 @@
 /// <reference lib="webworker" />
-import { EngineRequest, EngineResponse } from './protocol'
+import type { EngineRequest, EngineResponse } from './protocol'
 import { EngineStore } from './store'
 
 const store = new EngineStore()
 
+// oxlint-disable-next-line unicorn/prefer-add-event-listener -- this module is the worker's only message handler
 self.onmessage = (event: MessageEvent<EngineRequest>) => {
     // The id is read inside the try along with everything else: a malformed
     // message (e.g. one that fails structured clone validation, or is
@@ -35,5 +36,6 @@ self.onmessage = (event: MessageEvent<EngineRequest>) => {
             error: error instanceof Error ? error.message : String(error),
         }
     }
+    // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker's postMessage goes to its owner and takes no target origin
     self.postMessage(response)
 }

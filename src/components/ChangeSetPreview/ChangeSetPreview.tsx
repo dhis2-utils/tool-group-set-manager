@@ -1,8 +1,8 @@
 import i18n from '@dhis2/d2-i18n'
 import React, { useMemo } from 'react'
 import styles from './ChangeSetPreview.module.css'
-import { GroupChange } from '@/engine/changeSet'
-import { GroupMeta } from '@/engine/types'
+import type { GroupChange } from '@/engine/changeSet'
+import type { GroupMeta } from '@/engine/types'
 import { interpolate } from '@/utils/interpolate'
 
 export interface PreviewRow {
@@ -118,7 +118,7 @@ export function afterIdsPrepared(
             ids.add(change.groupId)
         }
     })
-    return Array.from(ids)
+    return [...ids]
 }
 
 /**

@@ -1,22 +1,30 @@
-import { Fetcher } from './DataSource'
+import type { Fetcher } from './DataSource'
 import { checkUsageView, installUsageView, removeUsageView } from './usageAdmin'
 import { USAGE_SQL_CANDIDATES } from './usageSqlView'
 
 const ok = (body: unknown) =>
-    ({ ok: true, status: 200, json: async () => body }) as unknown as Response
+    ({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(body),
+    }) as unknown as Response
 const created = (uid: string) =>
     ({
         ok: true,
         status: 201,
-        json: async () => ({ response: { uid } }),
+        json: () => Promise.resolve({ response: { uid } }),
     }) as unknown as Response
 const failed = (status: number) =>
-    ({ ok: false, status, json: async () => ({}) }) as unknown as Response
+    ({
+        ok: false,
+        status,
+        json: () => Promise.resolve({}),
+    }) as unknown as Response
 
 describe('checkUsageView', () => {
     it('reports id null when no view carries the code', async () => {
-        const fetcher = jest.fn(async () =>
-            ok({ sqlViews: [] })
+        const fetcher = jest.fn(() =>
+            Promise.resolve(ok({ sqlViews: [] }))
         ) as unknown as Fetcher
         await expect(checkUsageView(fetcher)).resolves.toEqual({
             id: null,
@@ -26,17 +34,19 @@ describe('checkUsageView', () => {
     })
 
     it('refuses a materialised view, which would serve arbitrarily old counts', async () => {
-        const fetcher = jest.fn(async () =>
-            ok({
-                sqlViews: [
-                    {
-                        id: 'v1',
-                        code: 'GSI_GROUPSET_USAGE',
-                        type: 'MATERIALIZED_VIEW',
-                        access: { data: { read: true } },
-                    },
-                ],
-            })
+        const fetcher = jest.fn(() =>
+            Promise.resolve(
+                ok({
+                    sqlViews: [
+                        {
+                            id: 'v1',
+                            code: 'GSI_GROUPSET_USAGE',
+                            type: 'MATERIALIZED_VIEW',
+                            access: { data: { read: true } },
+                        },
+                    ],
+                })
+            )
         ) as unknown as Fetcher
         const check = await checkUsageView(fetcher)
         expect(check).toMatchObject({ id: 'v1', usable: false })
@@ -44,21 +54,23 @@ describe('checkUsageView', () => {
 
     it('is usable only once a real read of its data succeeds', async () => {
         const calls: string[] = []
-        const fetcher = jest.fn(async (path: string) => {
+        const fetcher = jest.fn((path: string) => {
             calls.push(path)
             if (path.startsWith('sqlViews?')) {
-                return ok({
-                    sqlViews: [
-                        {
-                            id: 'v1',
-                            code: 'GSI_GROUPSET_USAGE',
-                            type: 'VIEW',
-                            access: { data: { read: true } },
-                        },
-                    ],
-                })
+                return Promise.resolve(
+                    ok({
+                        sqlViews: [
+                            {
+                                id: 'v1',
+                                code: 'GSI_GROUPSET_USAGE',
+                                type: 'VIEW',
+                                access: { data: { read: true } },
+                            },
+                        ],
+                    })
+                )
             }
-            return ok({ listGrid: { headers: [], rows: [] } })
+            return Promise.resolve(ok({ listGrid: { headers: [], rows: [] } }))
         }) as unknown as Fetcher
         await expect(checkUsageView(fetcher)).resolves.toMatchObject({
             usable: true,
@@ -67,19 +79,21 @@ describe('checkUsageView', () => {
     })
 
     it('is not usable when the read probe fails, however healthy the metadata looks', async () => {
-        const fetcher = jest.fn(async (path: string) =>
-            path.startsWith('sqlViews?')
-                ? ok({
-                      sqlViews: [
-                          {
-                              id: 'v1',
-                              code: 'GSI_GROUPSET_USAGE',
-                              type: 'VIEW',
-                              access: { data: { read: true } },
-                          },
-                      ],
-                  })
-                : failed(500)
+        const fetcher = jest.fn((path: string) =>
+            Promise.resolve(
+                path.startsWith('sqlViews?')
+                    ? ok({
+                          sqlViews: [
+                              {
+                                  id: 'v1',
+                                  code: 'GSI_GROUPSET_USAGE',
+                                  type: 'VIEW',
+                                  access: { data: { read: true } },
+                              },
+                          ],
+                      })
+                    : failed(500)
+            )
         ) as unknown as Fetcher
         await expect(checkUsageView(fetcher)).resolves.toEqual({
             id: 'v1',
@@ -89,17 +103,19 @@ describe('checkUsageView', () => {
     })
 
     it('costs one request, not two, when the metadata already rules the view out', async () => {
-        const fetcher = jest.fn(async () =>
-            ok({
-                sqlViews: [
-                    {
-                        id: 'v1',
-                        code: 'GSI_GROUPSET_USAGE',
-                        type: 'MATERIALIZED_VIEW',
-                        access: { data: { read: true } },
-                    },
-                ],
-            })
+        const fetcher = jest.fn(() =>
+            Promise.resolve(
+                ok({
+                    sqlViews: [
+                        {
+                            id: 'v1',
+                            code: 'GSI_GROUPSET_USAGE',
+                            type: 'MATERIALIZED_VIEW',
+                            access: { data: { read: true } },
+                        },
+                    ],
+                })
+            )
         ) as unknown as Fetcher
         await checkUsageView(fetcher)
         // No read probe: a view the metadata already refuses is not worth a
@@ -111,12 +127,12 @@ describe('checkUsageView', () => {
 describe('installUsageView', () => {
     it('creates, executes and reads the first candidate, and reports its variant', async () => {
         const calls: { path: string; method?: string }[] = []
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
+        const fetcher = jest.fn((path: string, init?: RequestInit) => {
             calls.push({ path, method: init?.method })
             if (path === 'sqlViews' && init?.method === 'POST') {
-                return created('new1')
+                return Promise.resolve(created('new1'))
             }
-            return ok({ listGrid: { headers: [], rows: [] } })
+            return Promise.resolve(ok({ listGrid: { headers: [], rows: [] } }))
         }) as unknown as Fetcher
         const result = await installUsageView(fetcher, {
             id: null,
@@ -141,12 +157,12 @@ describe('installUsageView', () => {
     // instance's keyCacheStrategy says, a fortnight on a stock install.
     it('creates the view with NO_CACHE, so the browser cannot serve stale counts', async () => {
         let body: Record<string, unknown> | undefined
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
+        const fetcher = jest.fn((path: string, init?: RequestInit) => {
             if (path === 'sqlViews' && init?.method === 'POST') {
                 body = JSON.parse(String(init.body)) as Record<string, unknown>
-                return created('new1')
+                return Promise.resolve(created('new1'))
             }
-            return ok({ listGrid: { headers: [], rows: [] } })
+            return Promise.resolve(ok({ listGrid: { headers: [], rows: [] } }))
         }) as unknown as Fetcher
         await installUsageView(fetcher, {
             id: null,
@@ -159,16 +175,16 @@ describe('installUsageView', () => {
     it('deletes the view it just created when that view will not execute, then tries the next candidate', async () => {
         const calls: string[] = []
         let createCount = 0
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
+        const fetcher = jest.fn((path: string, init?: RequestInit) => {
             calls.push(`${init?.method ?? 'GET'} ${path}`)
             if (path === 'sqlViews' && init?.method === 'POST') {
                 createCount += 1
-                return created(`new${createCount}`)
+                return Promise.resolve(created(`new${createCount}`))
             }
             if (path === 'sqlViews/new1/execute') {
-                return failed(409)
+                return Promise.resolve(failed(409))
             }
-            return ok({ listGrid: { headers: [], rows: [] } })
+            return Promise.resolve(ok({ listGrid: { headers: [], rows: [] } }))
         }) as unknown as Fetcher
         const candidates = [
             { variant: 'first', sqlQuery: 'with a as (select 1) select 1' },
@@ -186,10 +202,12 @@ describe('installUsageView', () => {
     })
 
     it('reports every candidate failing rather than claiming a partial install', async () => {
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) =>
-            path === 'sqlViews' && init?.method === 'POST'
-                ? failed(409)
-                : ok({})
+        const fetcher = jest.fn((path: string, init?: RequestInit) =>
+            Promise.resolve(
+                path === 'sqlViews' && init?.method === 'POST'
+                    ? failed(409)
+                    : ok({})
+            )
         ) as unknown as Fetcher
         const result = await installUsageView(fetcher, {
             id: null,
@@ -202,9 +220,9 @@ describe('installUsageView', () => {
 
     it('re-executes an existing but unusable view instead of creating a second one', async () => {
         const calls: string[] = []
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
+        const fetcher = jest.fn((path: string, init?: RequestInit) => {
             calls.push(`${init?.method ?? 'GET'} ${path}`)
-            return ok({ listGrid: { headers: [], rows: [] } })
+            return Promise.resolve(ok({ listGrid: { headers: [], rows: [] } }))
         }) as unknown as Fetcher
         const result = await installUsageView(fetcher, {
             id: 'old1',
@@ -224,12 +242,12 @@ describe('installUsageView', () => {
     // one they created a second ago.
     it('creates the view with public data read, so a non-superuser can read what it just installed', async () => {
         let body: Record<string, unknown> | undefined
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
+        const fetcher = jest.fn((path: string, init?: RequestInit) => {
             if (init?.method === 'POST' && path === 'sqlViews') {
                 body = JSON.parse(String(init.body))
-                return created('new1')
+                return Promise.resolve(created('new1'))
             }
-            return ok({ listGrid: { headers: [], rows: [] } })
+            return Promise.resolve(ok({ listGrid: { headers: [], rows: [] } }))
         }) as unknown as Fetcher
         await installUsageView(fetcher, {
             id: null,
@@ -241,9 +259,9 @@ describe('installUsageView', () => {
 
     it('grants public data read before re-executing an existing view the user cannot read', async () => {
         const calls: string[] = []
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
+        const fetcher = jest.fn((path: string, init?: RequestInit) => {
             calls.push(`${init?.method ?? 'GET'} ${path}`)
-            return ok({ listGrid: { headers: [], rows: [] } })
+            return Promise.resolve(ok({ listGrid: { headers: [], rows: [] } }))
         }) as unknown as Fetcher
         const result = await installUsageView(fetcher, {
             id: 'old1',
@@ -259,21 +277,22 @@ describe('installUsageView', () => {
     })
 
     it('names the server reason when the read probe is refused, not just the status', async () => {
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
+        const fetcher = jest.fn((path: string, init?: RequestInit) => {
             if (init?.method === 'POST' && path === 'sqlViews') {
-                return created('new1')
+                return Promise.resolve(created('new1'))
             }
             if (path.startsWith('sqlViews/new1/data.json')) {
-                return {
+                return Promise.resolve({
                     ok: false,
                     status: 409,
-                    json: async () => ({
-                        message:
-                            'Current user is not authorised to read data from SQL view: `new1`',
-                    }),
-                } as unknown as Response
+                    json: () =>
+                        Promise.resolve({
+                            message:
+                                'Current user is not authorised to read data from SQL view: `new1`',
+                        }),
+                } as unknown as Response)
             }
-            return ok({})
+            return Promise.resolve(ok({}))
         }) as unknown as Fetcher
         const result = await installUsageView(fetcher, {
             id: null,
@@ -289,12 +308,16 @@ describe('installUsageView', () => {
 
 describe('removeUsageView', () => {
     it('deletes by id and reports a refusal', async () => {
-        const fetcher = jest.fn(async () => failed(403)) as unknown as Fetcher
+        const fetcher = jest.fn(() =>
+            Promise.resolve(failed(403))
+        ) as unknown as Fetcher
         await expect(removeUsageView(fetcher, 'v1')).rejects.toThrow(/403/)
     })
 
     it('deletes the view by id and resolves when the server accepts', async () => {
-        const fetcher = jest.fn(async () => ok({})) as unknown as Fetcher
+        const fetcher = jest.fn(() =>
+            Promise.resolve(ok({}))
+        ) as unknown as Fetcher
         await expect(removeUsageView(fetcher, 'v1')).resolves.toBeUndefined()
         expect(fetcher).toHaveBeenCalledWith('sqlViews/v1', {
             method: 'DELETE',

@@ -18,11 +18,11 @@ import {
     checkSqlViews,
     createOrRepairSqlViews,
 } from '@/data/sources/sqlViewAdmin'
+import type { InstallUsageResult } from '@/data/sources/usageAdmin'
 import {
     checkUsageView,
     installUsageView,
     removeUsageView,
-    InstallUsageResult,
 } from '@/data/sources/usageAdmin'
 import { useEngine } from '@/hooks/useEngine'
 import { useGsiConfig } from '@/hooks/useGsiConfig'
@@ -52,6 +52,7 @@ const failedDetail = (failed: { code: string; message: string }) =>
         message: failed.message,
     })
 
+// oxlint-disable-next-line complexity -- predates the lint migration; splitting it is a refactor of its own, not part of adopting the linter
 export const Settings = () => {
     const { baseUrl, apiVersion } = useConfig() as {
         baseUrl: string

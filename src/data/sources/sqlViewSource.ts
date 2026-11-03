@@ -1,8 +1,8 @@
 import { parseCsv } from '../csv'
-import { DataSource, Fetcher, Progress } from './DataSource'
+import type { DataSource, Fetcher, Progress } from './DataSource'
 import { createMetadataSource } from './metadataSource'
-import { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
-import { ObjectType } from '@/engine/types'
+import type { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
+import type { ObjectType } from '@/engine/types'
 
 export interface SqlViewIds {
     orgUnits: string

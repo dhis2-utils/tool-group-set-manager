@@ -4,9 +4,10 @@ import { useEngine } from './useEngine'
 import { useIntegrity } from './useIntegrity'
 import { saveChangeSet } from '@/data/datastore'
 import { createFetcher } from '@/data/fetcher'
-import { WriteResult, writeMemberships } from '@/data/writes'
-import { ChangeSet, GroupChange } from '@/engine/changeSet'
-import { GroupSetMeta } from '@/engine/types'
+import type { WriteResult } from '@/data/writes'
+import { writeMemberships } from '@/data/writes'
+import type { ChangeSet, GroupChange } from '@/engine/changeSet'
+import type { GroupSetMeta } from '@/engine/types'
 import { useApiDataQuery } from '@/utils/useApiDataQuery'
 
 interface Identity {
@@ -217,6 +218,7 @@ export function useMembershipWrite(): {
                 setWriteCount((n) => n - 1)
             }
         },
+        // oxlint-disable-next-line react/memo-dependencies -- every listed dependency is read in the callback, as react-hooks/exhaustive-deps confirms
         [baseUrl, apiVersion, client, invalidateType, markStale, identity]
     )
 

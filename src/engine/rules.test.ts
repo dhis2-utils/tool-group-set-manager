@@ -1,6 +1,7 @@
 import { buildSetMembership } from './membership'
 import { evaluateSet } from './rules'
-import { GroupSetMeta, Status } from './types'
+import type { GroupSetMeta } from './types'
+import { Status } from './types'
 
 const set = (partial: Partial<GroupSetMeta>): GroupSetMeta => ({
     id: 's',

@@ -2,10 +2,8 @@ import i18n from '@dhis2/d2-i18n'
 import { Button, Input } from '@dhis2/ui'
 import React, { useMemo, useState } from 'react'
 import styles from './GroupsPanel.module.css'
-import {
-    ColumnPlan,
-    MAX_GROUP_COLUMNS,
-} from '@/components/SummaryMatrix/columnPlan'
+import type { ColumnPlan } from '@/components/SummaryMatrix/columnPlan'
+import { MAX_GROUP_COLUMNS } from '@/components/SummaryMatrix/columnPlan'
 import { interpolate } from '@/utils/interpolate'
 
 // Two complete strings chosen on the count, never a number glued to a

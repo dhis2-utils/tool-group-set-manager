@@ -27,19 +27,19 @@ const base = {
     onNoteChange: jest.fn(),
 }
 
-it('headlines the affected count', () => {
+test('headlines the affected count', () => {
     render(<PreviewStep {...base} />)
     expect(screen.getByText('3 objects')).toBeInTheDocument()
 })
 
-it('shows the checking indicator while the freshness check runs', () => {
+test('shows the checking indicator while the freshness check runs', () => {
     render(<PreviewStep {...base} checkingFreshness />)
     expect(
         screen.getByText('Checking the metadata is up to date…')
     ).toBeInTheDocument()
 })
 
-it('distinguishes a timed-out check from any other check failure', () => {
+test('distinguishes a timed-out check from any other check failure', () => {
     const { rerender } = render(
         <PreviewStep {...base} checkError={CHECK_TIMEOUT} />
     )
@@ -52,7 +52,7 @@ it('distinguishes a timed-out check from any other check failure', () => {
     ).toBeInTheDocument()
 })
 
-it('shows the previewed and recalculated counts when the plan changed underneath', () => {
+test('shows the previewed and recalculated counts when the plan changed underneath', () => {
     render(
         <PreviewStep
             {...base}

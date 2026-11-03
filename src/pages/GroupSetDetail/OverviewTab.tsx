@@ -3,12 +3,10 @@ import React, { useMemo } from 'react'
 import styles from './GroupSetDetail.module.css'
 import { GroupsPanel } from '@/components/GroupsPanel/GroupsPanel'
 import { planColumns } from '@/components/SummaryMatrix/columnPlan'
-import {
-    MatrixColumn,
-    SummaryMatrix,
-} from '@/components/SummaryMatrix/SummaryMatrix'
-import { MatrixResult, ObjectRef, ScopeRef } from '@/engine/store'
-import { GroupSetMeta } from '@/engine/types'
+import type { MatrixColumn } from '@/components/SummaryMatrix/SummaryMatrix'
+import { SummaryMatrix } from '@/components/SummaryMatrix/SummaryMatrix'
+import type { MatrixResult, ObjectRef, ScopeRef } from '@/engine/store'
+import type { GroupSetMeta } from '@/engine/types'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
 
 interface Props {

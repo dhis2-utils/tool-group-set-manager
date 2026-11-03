@@ -1,6 +1,6 @@
 import { openDB } from 'idb'
-import { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
-import { ObjectType } from '@/engine/types'
+import type { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
+import type { ObjectType } from '@/engine/types'
 
 /**
  * How long a cached payload may be reused before it is re-read regardless
@@ -43,8 +43,8 @@ export interface CachedType {
 }
 
 export interface Cache {
-    get(type: ObjectType): Promise<CachedType | undefined>
-    put(type: ObjectType, value: CachedType): Promise<void>
+    get: (type: ObjectType) => Promise<CachedType | undefined>
+    put: (type: ObjectType, value: CachedType) => Promise<void>
     /**
      * Removes only the one type's cached payload. On 2.43 a membership
      * write does not bump a group's `lastUpdated` (see
@@ -57,8 +57,8 @@ export interface Cache {
      * that: on a large instance, discarding all four types' payloads to fix
      * one costs a reload the other three types never needed.
      */
-    remove(type: ObjectType): Promise<void>
-    clear(): Promise<void>
+    remove: (type: ObjectType) => Promise<void>
+    clear: () => Promise<void>
 }
 
 const DB_NAME = 'gsi-cache'
@@ -108,17 +108,20 @@ export function openCache(serverUrl: string): Cache {
 export function createMemoryCache(): Cache {
     const map = new Map<ObjectType, CachedType>()
     return {
-        async get(type) {
-            return map.get(type)
+        get(type) {
+            return Promise.resolve(map.get(type))
         },
-        async put(type, value) {
+        put(type, value) {
             map.set(type, value)
+            return Promise.resolve()
         },
-        async remove(type) {
+        remove(type) {
             map.delete(type)
+            return Promise.resolve()
         },
-        async clear() {
+        clear() {
             map.clear()
+            return Promise.resolve()
         },
     }
 }

@@ -1,8 +1,8 @@
 import i18n from '@dhis2/d2-i18n'
 import { LinearLoader, NoticeBox } from '@dhis2/ui'
 import React from 'react'
-import { LoadStatus } from '@/data/loadAll'
-import { ObjectType } from '@/engine/types'
+import type { LoadStatus } from '@/data/loadAll'
+import type { ObjectType } from '@/engine/types'
 import { interpolate } from '@/utils/interpolate'
 import { typeLabel, typeObjectsLabel } from '@/utils/objectTypeLabels'
 
@@ -45,6 +45,8 @@ const phaseLabel = (
                 : i18n.t('Checking rules')
         case 'done':
             return i18n.t('Done')
+        // Exhaustive: TypeScript rejects this function if a case is missing.
+        // no default
     }
 }
 

@@ -1,13 +1,19 @@
 import { readGroupMembers } from './groupMembers'
-import { Fetcher } from './sources/DataSource'
+import type { Fetcher } from './sources/DataSource'
 
 const ok = (body: unknown) =>
-    ({ ok: true, status: 200, json: async () => body }) as unknown as Response
+    ({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(body),
+    }) as unknown as Response
 
 describe('readGroupMembers', () => {
     it('reads each group by id only, unpaged, bypassing the browser cache', async () => {
-        const fetcher = jest.fn(async () =>
-            ok({ organisationUnits: [{ id: 'm1' }, { id: 'm2' }] })
+        const fetcher = jest.fn(() =>
+            Promise.resolve(
+                ok({ organisationUnits: [{ id: 'm1' }, { id: 'm2' }] })
+            )
         ) as unknown as jest.Mock
         const result = await readGroupMembers(
             fetcher as unknown as Fetcher,
@@ -23,10 +29,12 @@ describe('readGroupMembers', () => {
     })
 
     it('reads every group and keys the result by group id', async () => {
-        const fetcher = jest.fn(async (path: string) =>
-            ok({
-                dataElements: [{ id: path.includes('/a/') ? 'ma' : 'mb' }],
-            })
+        const fetcher = jest.fn((path: string) =>
+            Promise.resolve(
+                ok({
+                    dataElements: [{ id: path.includes('/a/') ? 'ma' : 'mb' }],
+                })
+            )
         ) as unknown as Fetcher
         const result = await readGroupMembers(fetcher, 'dataElement', [
             'a',
@@ -49,8 +57,8 @@ describe('readGroupMembers', () => {
     })
 
     it('rejects with the status when a read fails', async () => {
-        const fetcher = jest.fn(
-            async () => ({ ok: false, status: 502 }) as unknown as Response
+        const fetcher = jest.fn(() =>
+            Promise.resolve({ ok: false, status: 502 } as unknown as Response)
         ) as unknown as Fetcher
         await expect(
             readGroupMembers(fetcher, 'organisationUnit', ['g1'])
@@ -59,8 +67,8 @@ describe('readGroupMembers', () => {
 
     it('passes the abort signal to every request', async () => {
         const controller = new AbortController()
-        const fetcher = jest.fn(async () =>
-            ok({ organisationUnits: [] })
+        const fetcher = jest.fn(() =>
+            Promise.resolve(ok({ organisationUnits: [] }))
         ) as unknown as jest.Mock
         await readGroupMembers(
             fetcher as unknown as Fetcher,

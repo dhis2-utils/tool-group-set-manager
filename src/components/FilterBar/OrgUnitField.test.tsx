@@ -57,8 +57,8 @@ describe('levelFromPath', () => {
     it('counts path segments', () => {
         expect(levelFromPath('/a/b/c')).toBe(3)
         expect(levelFromPath('/a')).toBe(1)
-        expect(levelFromPath(undefined)).toBe(null)
-        expect(levelFromPath('')).toBe(null)
+        expect(levelFromPath(undefined)).toBeNull()
+        expect(levelFromPath('')).toBeNull()
     })
 
     // Carried over from ScopeSelector.test.ts: the case above uses

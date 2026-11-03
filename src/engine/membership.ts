@@ -13,6 +13,9 @@ export function buildSetMembership(
 ): SetMembership {
     const groupOf = new Int32Array(n).fill(-1)
     const memberCount = new Uint8Array(n)
+    // A typed array's own sort() is numeric; spreading it into a plain
+    // array first would sort the indexes as strings.
+    // oxlint-disable-next-line unicorn/prefer-spread -- Int32Array#slice keeps the numeric sort
     const sorted = groupMembers.map((members) => members.slice().sort())
     // Tracks, per object, the last group index that already counted it, so
     // a duplicate id within one group's own member list isn't counted (and
@@ -20,8 +23,7 @@ export function buildSetMembership(
     const lastCountedGroup = new Int32Array(n).fill(-1)
 
     sorted.forEach((members, g) => {
-        for (let k = 0; k < members.length; k++) {
-            const idx = members[k]
+        for (const idx of members) {
             if (lastCountedGroup[idx] === g) {
                 continue
             }

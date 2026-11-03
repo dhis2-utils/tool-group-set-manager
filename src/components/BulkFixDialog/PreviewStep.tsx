@@ -8,13 +8,12 @@ import {
 } from '@dhis2/ui'
 import React from 'react'
 import styles from './BulkFixDialog.module.css'
-import { Action, CHECK_TIMEOUT } from './constants'
-import {
-    ChangeSetPreview,
-    ChangeSetPreviewObjects,
-} from '@/components/ChangeSetPreview/ChangeSetPreview'
-import { AssignmentPlan } from '@/engine/store'
-import { GroupSetMeta } from '@/engine/types'
+import type { Action } from './constants'
+import { CHECK_TIMEOUT } from './constants'
+import type { ChangeSetPreviewObjects } from '@/components/ChangeSetPreview/ChangeSetPreview'
+import { ChangeSetPreview } from '@/components/ChangeSetPreview/ChangeSetPreview'
+import type { AssignmentPlan } from '@/engine/store'
+import type { GroupSetMeta } from '@/engine/types'
 import { interpolate } from '@/utils/interpolate'
 
 const objectsCountLabel = (count: number) =>

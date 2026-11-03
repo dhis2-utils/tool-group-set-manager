@@ -9,12 +9,14 @@ import { GroupSetCard } from '@/components/GroupSetCard/GroupSetCard'
 import { LoadProgress } from '@/components/LoadProgress/LoadProgress'
 import { MetadataFreshness } from '@/components/MetadataFreshness/MetadataFreshness'
 import { usageApplies } from '@/data/sources/usageSqlView'
-import { DashboardEntry } from '@/engine/store'
-import { OBJECT_TYPES, ObjectType } from '@/engine/types'
+import type { DashboardEntry } from '@/engine/store'
+import type { ObjectType } from '@/engine/types'
+import { OBJECT_TYPES } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useScope } from '@/hooks/useScope'
 import { useSessionState } from '@/hooks/useSessionState'
-import { useUsage, UsageStatus } from '@/hooks/useUsage'
+import type { UsageStatus } from '@/hooks/useUsage'
+import { useUsage } from '@/hooks/useUsage'
 import { interpolate } from '@/utils/interpolate'
 import { typeLabel } from '@/utils/objectTypeLabels'
 
@@ -154,7 +156,7 @@ export const Dashboard = () => {
         if (!usageSortable && sortKey === 'usage') {
             setSortKey('issues')
         }
-    }, [usageSortable, sortKey])
+    }, [usageSortable, sortKey, setSortKey])
 
     /**
      * Least used first, because that is the question this sort answers --
@@ -399,12 +401,11 @@ export const Dashboard = () => {
                 const hasLoaded = type in entries
                 const all = entries[type] ?? []
                 const typeError = typeErrors[type]
-                const shown = (
-                    onlyIssues
+                const shown = [
+                    ...(onlyIssues
                         ? all.filter((e) => hasIssues(e) || !e.hasData)
-                        : all
-                )
-                    .slice()
+                        : all),
+                ]
                     // Array.prototype.sort is stable, so sets with the same
                     // error count (or, under the usage sort, the same
                     // usage) keep the order the API returned them in.

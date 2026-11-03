@@ -3,17 +3,19 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import React from 'react'
 import { IntegrityProvider, useIntegrity } from './useIntegrity'
 
+const mockDataEngineQuery = jest.fn(() =>
+    Promise.resolve({
+        apiDataQuery: { id: 'me1', authorities: ['ALL'] },
+    })
+) as unknown as jest.Mock<
+    Promise<{ apiDataQuery: { id: string; authorities: string[] } }>,
+    [unknown]
+>
+
 jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://server', apiVersion: 41 }),
     useDataEngine: () => ({ query: mockDataEngineQuery }),
 }))
-
-const mockDataEngineQuery = jest.fn(async () => ({
-    apiDataQuery: { id: 'me1', authorities: ['ALL'] },
-})) as unknown as jest.Mock<
-    Promise<{ apiDataQuery: { id: string; authorities: string[] } }>,
-    [unknown]
->
 
 const mockFetcher = jest.fn()
 jest.mock('@/data/fetcher', () => ({
@@ -43,7 +45,7 @@ const checkRows = [
 ]
 
 function jsonResponse(body: unknown, ok = true, status = 200) {
-    return { ok, status, json: async () => body }
+    return { ok, status, json: () => Promise.resolve(body) }
 }
 
 function deferred<T>(): {
@@ -59,6 +61,7 @@ function deferred<T>(): {
 
 async function flush(times = 3) {
     for (let i = 0; i < times; i++) {
+        // oxlint-disable-next-line no-await-in-loop -- one microtask per round is the point of flush()
         await Promise.resolve()
     }
 }
@@ -103,17 +106,17 @@ beforeEach(() => {
         defaultOptions: { queries: { retry: false } },
     })
     mockDataEngineQuery.mockReset()
-    mockDataEngineQuery.mockImplementation(async () => ({
+    mockDataEngineQuery.mockResolvedValue({
         apiDataQuery: { id: 'me1', authorities: ['ALL'] },
-    }))
+    })
     mockFetcher.mockReset()
     mockFetcher.mockImplementation(defaultFetcherImpl)
 })
 
-it('never makes an integrity request when the user lacks either authority', async () => {
-    mockDataEngineQuery.mockImplementation(async () => ({
+test('never makes an integrity request when the user lacks either authority', async () => {
+    mockDataEngineQuery.mockResolvedValue({
         apiDataQuery: { id: 'me1', authorities: ['SOME_OTHER'] },
-    }))
+    })
 
     const { result } = renderHook(() => useIntegrity(), { wrapper })
 
@@ -125,10 +128,10 @@ it('never makes an integrity request when the user lacks either authority', asyn
     })
 
     expect(result.current.available).toBe(false)
-    expect(mockFetcher).toHaveBeenCalledTimes(0)
+    expect(mockFetcher).not.toHaveBeenCalled()
 })
 
-it('becomes available and loads checks and summaries for an authorised user', async () => {
+test('becomes available and loads checks and summaries for an authorised user', async () => {
     const { result } = renderHook(() => useIntegrity(), { wrapper })
 
     await waitFor(() => expect(result.current.available).toBe(true))
@@ -145,7 +148,7 @@ it('becomes available and loads checks and summaries for an authorised user', as
     ).toBe(false)
 })
 
-it('flips available to false with a null error on a 403 mid-session', async () => {
+test('flips available to false with a null error on a 403 mid-session', async () => {
     const { result } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.available).toBe(true))
     await waitFor(() => expect(result.current.checks.length).toBe(3))
@@ -165,7 +168,7 @@ it('flips available to false with a null error on a 403 mid-session', async () =
     expect(result.current.error).toBeNull()
 })
 
-it('run() posts then polls the summary until finishedTime advances, and clears the run names from stale', async () => {
+test('run() posts then polls the summary until finishedTime advances, and clears the run names from stale', async () => {
     const { result } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.available).toBe(true))
     await waitFor(() => expect(result.current.checks.length).toBe(3))
@@ -258,7 +261,7 @@ it('run() posts then polls the summary until finishedTime advances, and clears t
 // measured live against a 2.43.1 instance to return `{}` forever, no
 // matter how many times "Run now" refreshed the summary. `run()` must also
 // start a details run for the same checks.
-it('run() also starts a DETAILS run for the same checks, not summary only', async () => {
+test('run() also starts a DETAILS run for the same checks, not summary only', async () => {
     const { result } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.available).toBe(true))
     await waitFor(() => expect(result.current.checks.length).toBe(3))
@@ -327,7 +330,7 @@ it('run() also starts a DETAILS run for the same checks, not summary only', asyn
 // poll iteration inside `run` itself. Harmless while nothing puts `run` in
 // an effect dependency list, but a `summariesRef` removes the hazard rather
 // than relying on no consumer ever doing that.
-it("run's identity does not change when summaries update", async () => {
+test("run's identity does not change when summaries update", async () => {
     const { result, rerender } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.available).toBe(true))
     await waitFor(() => expect(result.current.checks.length).toBe(3))
@@ -350,7 +353,7 @@ it("run's identity does not change when summaries update", async () => {
 // count with a stale (or absent) one that nothing ever re-reads. This test
 // simulates exactly that: summary's finishedTime advances on the very first
 // poll, but details' does not advance until the third.
-it("run() also requires the DETAILS job's own finishedTime to advance, not only the summary's", async () => {
+test("run() also requires the DETAILS job's own finishedTime to advance, not only the summary's", async () => {
     const { result } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.available).toBe(true))
     await waitFor(() => expect(result.current.checks.length).toBe(3))
@@ -410,7 +413,7 @@ it("run() also requires the DETAILS job's own finishedTime to advance, not only 
     expect(result.current.error).toBeNull()
 })
 
-it('markStale marks only checks of the given object type, and makes no request at all', async () => {
+test('markStale marks only checks of the given object type, and makes no request at all', async () => {
     const { result } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.checks.length).toBe(3))
 
@@ -439,7 +442,7 @@ it('markStale marks only checks of the given object type, and makes no request a
 // m1: a server with none of the six checks must not present as an overlay
 // with nothing in it.
 
-it('does not become available when the server resolves no checks at all', async () => {
+test('does not become available when the server resolves no checks at all', async () => {
     mockFetcher.mockImplementation((path: string) => {
         if (path.startsWith('dataIntegrity?')) {
             return Promise.resolve(jsonResponse([]))
@@ -465,7 +468,7 @@ it('does not become available when the server resolves no checks at all', async 
 // m2: a transient failure's message must not stick around after a later
 // success.
 
-it('clears a previous error on a later successful refresh', async () => {
+test('clears a previous error on a later successful refresh', async () => {
     const { result } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.available).toBe(true))
     await waitFor(() => expect(result.current.checks.length).toBe(3))
@@ -491,7 +494,7 @@ it('clears a previous error on a later successful refresh', async () => {
 // m3: the 403 rule must hold on all three call kinds, not only the summary
 // read exercised above.
 
-it('flips available to false with a null error on a 403 from resolveChecks', async () => {
+test('flips available to false with a null error on a 403 from resolveChecks', async () => {
     mockFetcher.mockImplementation((path: string) => {
         if (path.startsWith('dataIntegrity?')) {
             return Promise.resolve(jsonResponse({}, false, 403))
@@ -506,7 +509,7 @@ it('flips available to false with a null error on a 403 from resolveChecks', asy
     expect(result.current.error).toBeNull()
 })
 
-it('flips available to false with a null error on a 403 from startRun', async () => {
+test('flips available to false with a null error on a 403 from startRun', async () => {
     const { result } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.available).toBe(true))
     await waitFor(() => expect(result.current.checks.length).toBe(3))
@@ -530,10 +533,8 @@ it('flips available to false with a null error on a 403 from startRun', async ()
     expect(result.current.isRunning).toBe(false)
 })
 
-it('flips available to false with a null error on a 403 from the authority check itself', async () => {
-    mockDataEngineQuery.mockImplementation(async () => {
-        throw new Error('me failed with HTTP 403')
-    })
+test('flips available to false with a null error on a 403 from the authority check itself', async () => {
+    mockDataEngineQuery.mockRejectedValue(new Error('me failed with HTTP 403'))
 
     const { result } = renderHook(() => useIntegrity(), { wrapper })
 
@@ -541,13 +542,13 @@ it('flips available to false with a null error on a 403 from the authority check
     await flush()
 
     expect(result.current.error).toBeNull()
-    expect(mockFetcher).toHaveBeenCalledTimes(0)
+    expect(mockFetcher).not.toHaveBeenCalled()
 })
 
 // M1: nothing must keep polling, or update state, after the provider has
 // unmounted.
 
-it('stops polling after unmount, issuing no further requests', async () => {
+test('stops polling after unmount, issuing no further requests', async () => {
     const { result, unmount } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.available).toBe(true))
     await waitFor(() => expect(result.current.checks.length).toBe(3))
@@ -597,7 +598,7 @@ it('stops polling after unmount, issuing no further requests', async () => {
 // M2: an overlapping run() call must be a no-op, not a second POST, and
 // must not touch isRunning/stale out from under the call already running.
 
-it('ignores an overlapping run() call while one is already in flight', async () => {
+test('ignores an overlapping run() call while one is already in flight', async () => {
     const { result } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.available).toBe(true))
     await waitFor(() => expect(result.current.checks.length).toBe(3))
@@ -638,7 +639,7 @@ it('ignores an overlapping run() call while one is already in flight', async () 
 // isRunning, and leave a readable error, after a bounded number of polls
 // rather than none.
 
-it('gives up after finishedTime never advances, clearing isRunning and leaving a readable error', async () => {
+test('gives up after finishedTime never advances, clearing isRunning and leaving a readable error', async () => {
     const { result } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.available).toBe(true))
     await waitFor(() => expect(result.current.checks.length).toBe(3))
@@ -686,6 +687,7 @@ it('gives up after finishedTime never advances, clearing isRunning and leaving a
         // fetch (flushed via microtasks) followed by a backoff wait (a
         // real timer, advanced here). A generous number of iterations
         // guarantees the loop's own cap is reached well before this does.
+        /* oxlint-disable no-await-in-loop -- steps the poll loop one timer advance at a time until it stops */
         for (let i = 0; i < 40 && result.current.isRunning; i++) {
             await flush()
             await act(async () => {
@@ -693,6 +695,7 @@ it('gives up after finishedTime never advances, clearing isRunning and leaving a
                 await flush()
             })
         }
+        /* oxlint-enable no-await-in-loop */
 
         await runPromise
 

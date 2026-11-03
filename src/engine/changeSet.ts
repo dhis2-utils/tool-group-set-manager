@@ -1,4 +1,4 @@
-import { ObjectType } from './types'
+import type { ObjectType } from './types'
 
 /** One group's membership delta: ids added and ids removed. */
 export interface GroupChange {

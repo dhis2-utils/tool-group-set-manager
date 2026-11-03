@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { ObjectsTable } from './ObjectsTable'
+import { actAndFlush } from '@/testing/actAndFlush'
 
 /**
  * Unlike ObjectsTable.test.tsx, this file deliberately does NOT mock
@@ -80,6 +81,7 @@ Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
 })
 
 const lastPendingFor = (method: string) => {
+    // oxlint-disable-next-line unicorn/no-array-reverse -- reverses a fresh copy; findLast() is not in this repo's ES2020 lib
     const pending = [...mockPending].reverse().find((p) => p.method === method)
     if (!pending) {
         throw new Error(`no pending ${method} request`)
@@ -107,10 +109,10 @@ const settle = async (label: string, total: number, count = 200) => {
         status: 1,
         groups: [0],
     }))
-    await act(async () => {
+    await actAndFlush(() => {
         pending.resolve({ total, offset, items })
     })
-    await act(async () => {
+    await actAndFlush(() => {
         lastPendingFor('resolveParents').resolve(items.map(() => null))
     })
 }
@@ -127,7 +129,7 @@ beforeEach(() => {
     })
 })
 
-it('replaces the rows when the filter changes without scrolling, and still accepts the new filter pages', async () => {
+test('replaces the rows when the filter changes without scrolling, and still accepts the new filter pages', async () => {
     const { rerender } = render(
         <ObjectsTable set={set} scope={scope} filter={{}} />
     )
@@ -161,7 +163,7 @@ it('replaces the rows when the filter changes without scrolling, and still accep
     await waitFor(() => expect(screen.getByText('New 380')).toBeInTheDocument())
 })
 
-it('keeps the rows and does not duplicate the held page when the engine load phase changes', async () => {
+test('keeps the rows and does not duplicate the held page when the engine load phase changes', async () => {
     // The join the two earlier fixes each covered only one half of. The hook
     // re-issues the identical query on every load phase and type change --
     // pressing Reload fires several -- and must keep its data through them
@@ -194,7 +196,7 @@ it('keeps the rows and does not duplicate the held page when the engine load pha
     expect(screen.getByText(/1,000 objects/)).toBeInTheDocument()
 })
 
-it('sends filter.text to the real engine and renders a match beyond the first page (M1)', async () => {
+test('sends filter.text to the real engine and renders a match beyond the first page (M1)', async () => {
     // Review round 1, Major-1: the flagship "whole population" claim in
     // ObjectsTable.test.tsx runs against a hand-rolled fake that this same
     // branch edited to make that test pass. This drives the identical claim
@@ -227,17 +229,17 @@ it('sends filter.text to the real engine and renders a match beyond the first pa
         },
     ]
     const pending = lastPendingFor('objectsFor')
-    await act(async () => {
+    await actAndFlush(() => {
         pending.resolve({ total: 1, offset: 0, items: matchItems })
     })
-    await act(async () => {
+    await actAndFlush(() => {
         lastPendingFor('resolveParents').resolve(matchItems.map(() => null))
     })
     expect(screen.getByText('Beyond Match')).toBeInTheDocument()
     expect(screen.getByText(/1 object\b/)).toBeInTheDocument()
 })
 
-it('assigns a row loaded through the real paging pipeline, confirming before it calls the write hook', async () => {
+test('assigns a row loaded through the real paging pipeline, confirming before it calls the write hook', async () => {
     render(<ObjectsTable set={set} scope={scope} filter={{}} />)
     await settle('Row', 1000)
     expect(screen.getByText('Row 0')).toBeInTheDocument()

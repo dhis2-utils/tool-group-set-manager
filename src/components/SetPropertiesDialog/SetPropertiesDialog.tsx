@@ -14,7 +14,7 @@ import React, { useMemo, useState } from 'react'
 import styles from './SetPropertiesDialog.module.css'
 import { createFetcher } from '@/data/fetcher'
 import { setGroupSetProperties } from '@/data/metadataWrites'
-import { GroupSetMeta } from '@/engine/types'
+import type { GroupSetMeta } from '@/engine/types'
 import { interpolate } from '@/utils/interpolate'
 
 interface Props {

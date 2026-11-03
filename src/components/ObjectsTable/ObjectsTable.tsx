@@ -15,10 +15,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import styles from './ObjectsTable.module.css'
 import { MembershipControl } from '@/components/MembershipControl/MembershipControl'
 import { StatusPill } from '@/components/StatusPill/StatusPill'
-import { GroupChange } from '@/engine/changeSet'
-import { ObjectFilter } from '@/engine/queries'
-import { ObjectRef, ObjectsResult, ScopeRef } from '@/engine/store'
-import { GroupMeta, GroupSetMeta, Status } from '@/engine/types'
+import type { GroupChange } from '@/engine/changeSet'
+import type { ObjectFilter } from '@/engine/queries'
+import type { ObjectRef, ObjectsResult, ScopeRef } from '@/engine/store'
+import type { GroupMeta, GroupSetMeta } from '@/engine/types'
+import { Status } from '@/engine/types'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
 import { useMembershipWrite } from '@/hooks/useMembershipWrite'
 import { interpolate } from '@/utils/interpolate'
@@ -248,6 +249,7 @@ function disabledReasonFor(row: Row, groups: GroupMeta[]): string | undefined {
 const assignedLabel = (name: string, group: string) =>
     interpolate(i18n.t('{name} is now in {group}'), { name, group })
 
+// oxlint-disable-next-line complexity -- predates the lint migration; splitting it is a refactor of its own, not part of adopting the linter
 export const ObjectsTable = ({ set, scope, filter }: Props) => {
     // D3: only organisation units have a hierarchy at all; the level and
     // parent columns (and the resolveParents call below) are both gated on
@@ -281,6 +283,10 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
     const [failureAlert, setFailureAlert] = useState<string | null>(null)
     const [infoAlert, setInfoAlert] = useState<string | null>(null)
     const [successAlert, setSuccessAlert] = useState<string | null>(null)
+    // Identifies *which* list this is a page of. A set, scope or filter
+    // change starts a new list from offset 0.
+    const filterKey = JSON.stringify([set.id, scope, filter])
+    const [loaded, setLoaded] = useState<Loaded>(() => emptyLoad(filterKey))
 
     const handleGroupChoice = (row: Row, index: number) => {
         // D5/I2: per row, not per table -- a second click on the row
@@ -414,10 +420,6 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
         }
     }
 
-    // Identifies *which* list this is a page of. A set, scope or filter
-    // change starts a new list from offset 0.
-    const filterKey = JSON.stringify([set.id, scope, filter])
-    const [loaded, setLoaded] = useState<Loaded>(() => emptyLoad(filterKey))
     // Reset during render, not from an effect. An effect would run after the
     // append effect below has already had a chance to fold the *previous*
     // filter's last page into the new filter's (empty) list; deriving the
@@ -509,6 +511,7 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
     const rows = current.rows
 
     const parentRef = useRef<HTMLDivElement>(null)
+    // oxlint-disable-next-line react/incompatible-library -- a React Compiler notice; this app does not use the compiler, and @tanstack/react-virtual is its chosen virtualiser
     const virtualizer = useVirtualizer({
         count: rows.length,
         getScrollElement: () => parentRef.current,

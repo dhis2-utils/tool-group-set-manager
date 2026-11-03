@@ -6,8 +6,8 @@ import {
     generateCatchAllNames,
     NAME_OWNED_BY_ANOTHER_SET,
 } from '@/data/metadataWrites'
-import { Fetcher } from '@/data/sources/DataSource'
-import { GroupSetMeta } from '@/engine/types'
+import type { Fetcher } from '@/data/sources/DataSource'
+import type { GroupSetMeta } from '@/engine/types'
 
 export interface CatchAllNames {
     displayName: string
@@ -47,6 +47,7 @@ export function useCatchAllCreation({
         generateCatchAllNames(set)
     )
     useEffect(() => {
+        // oxlint-disable-next-line react/no-deriving-state-in-effects -- the names are user-edited state, seeded from `set` and re-seeded only when `set` changes
         setCatchAllNames(generateCatchAllNames(set))
     }, [set])
     // A group `createCatchAllGroup` just created is not yet part of

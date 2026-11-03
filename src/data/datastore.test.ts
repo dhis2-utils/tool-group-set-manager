@@ -8,7 +8,7 @@ import {
     saveChangeSet,
     saveIncludeTracker,
 } from './datastore'
-import { ChangeSet } from '@/engine/changeSet'
+import type { ChangeSet } from '@/engine/changeSet'
 
 const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status })
@@ -29,7 +29,7 @@ const changeSet = (id: string, createdAt: string): ChangeSet => ({
 
 describe('loadConfig', () => {
     it('returns defaults when the namespace does not exist yet', async () => {
-        const fetcher = async () => notFound()
+        const fetcher = () => Promise.resolve(notFound())
         expect(await loadConfig(fetcher)).toEqual({
             catchAllGroup: {},
             includeTracker: false,
@@ -37,14 +37,14 @@ describe('loadConfig', () => {
     })
 
     it('merges a present config document over the defaults', async () => {
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             if (path.endsWith('config-catch-all')) {
-                return json({ own: 'catch-all-group' })
+                return Promise.resolve(json({ own: 'catch-all-group' }))
             }
             if (path.endsWith('config-general')) {
-                return json({ includeTracker: true })
+                return Promise.resolve(json({ includeTracker: true }))
             }
-            return notFound()
+            return Promise.resolve(notFound())
         }
         expect(await loadConfig(fetcher)).toEqual({
             catchAllGroup: { own: 'catch-all-group' },
@@ -53,8 +53,8 @@ describe('loadConfig', () => {
     })
 
     it('never throws into a caller that is only reading configuration', async () => {
-        const fetcher = async () => {
-            throw new Error('network down')
+        const fetcher = () => {
+            return Promise.reject(new Error('network down'))
         }
         await expect(loadConfig(fetcher)).resolves.toEqual({
             catchAllGroup: {},
@@ -79,13 +79,13 @@ describe('loadConfig', () => {
 describe('saveIncludeTracker', () => {
     it('creates a key that does not exist and updates one that does', async () => {
         const calls: { method: string; path: string }[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
             calls.push({ method, path })
             if (method === 'POST' && path.endsWith('config-general')) {
-                return new Response('{}', { status: 409 })
+                return Promise.resolve(new Response('{}', { status: 409 }))
             }
-            return new Response('{}', { status: 200 })
+            return Promise.resolve(new Response('{}', { status: 200 }))
         }
         await saveIncludeTracker(fetcher, true)
         expect(calls.map((c) => c.method)).toEqual(['POST', 'PUT'])
@@ -93,9 +93,9 @@ describe('saveIncludeTracker', () => {
 
     it('creates directly when the key does not exist yet', async () => {
         const calls: string[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push(init?.method ?? 'GET')
-            return new Response('{}', { status: 200 })
+            return Promise.resolve(new Response('{}', { status: 200 }))
         }
         await saveIncludeTracker(fetcher, false)
         expect(calls).toEqual(['POST'])
@@ -105,13 +105,13 @@ describe('saveIncludeTracker', () => {
 describe('saveCatchAllGroup', () => {
     it('writes the group id under the set id when no document exists yet', async () => {
         const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
             if (method === 'GET') {
-                return notFound()
+                return Promise.resolve(notFound())
             }
             writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
+            return Promise.resolve(json({}, 200))
         }
         await saveCatchAllGroup(fetcher, 'own', 'catch-all-group')
         expect(writes).toEqual([{ own: 'catch-all-group' }])
@@ -119,13 +119,13 @@ describe('saveCatchAllGroup', () => {
 
     it('saveCatchAllGroup merges into the shared document, preserving other sets', async () => {
         const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
             if (method === 'GET') {
-                return json({ other: 'other-group' })
+                return Promise.resolve(json({ other: 'other-group' }))
             }
             writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
+            return Promise.resolve(json({}, 200))
         }
         await saveCatchAllGroup(fetcher, 'own', 'catch-all-group')
         expect(writes).toEqual([
@@ -135,13 +135,15 @@ describe('saveCatchAllGroup', () => {
 
     it("clearCatchAllGroup removes only that set's entry, leaving the others", async () => {
         const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
             if (method === 'GET') {
-                return json({ other: 'other-group', own: 'catch-all-group' })
+                return Promise.resolve(
+                    json({ other: 'other-group', own: 'catch-all-group' })
+                )
             }
             writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
+            return Promise.resolve(json({}, 200))
         }
         await clearCatchAllGroup(fetcher, 'own')
         expect(writes).toEqual([{ other: 'other-group' }])
@@ -149,13 +151,13 @@ describe('saveCatchAllGroup', () => {
 
     it('clearCatchAllGroup writes nothing when the set has no entry to clear', async () => {
         const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
             if (method === 'GET') {
-                return json({ other: 'other-group' })
+                return Promise.resolve(json({ other: 'other-group' }))
             }
             writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
+            return Promise.resolve(json({}, 200))
         }
         await clearCatchAllGroup(fetcher, 'own')
         expect(writes).toEqual([])
@@ -163,13 +165,15 @@ describe('saveCatchAllGroup', () => {
 
     it('clearCatchAllGroup rethrows a non-404 failure reading the current document, so a clear can never erase the others', async () => {
         const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
             if (method === 'GET') {
-                return new Response('server error', { status: 500 })
+                return Promise.resolve(
+                    new Response('server error', { status: 500 })
+                )
             }
             writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
+            return Promise.resolve(json({}, 200))
         }
         await expect(clearCatchAllGroup(fetcher, 'own')).rejects.toThrow()
         expect(writes).toEqual([])
@@ -177,13 +181,15 @@ describe('saveCatchAllGroup', () => {
 
     it('saveCatchAllGroup rethrows a non-404 failure reading the current document, rather than treating it as absent', async () => {
         const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
             if (method === 'GET') {
-                return new Response('server error', { status: 500 })
+                return Promise.resolve(
+                    new Response('server error', { status: 500 })
+                )
             }
             writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
+            return Promise.resolve(json({}, 200))
         }
         await expect(
             saveCatchAllGroup(fetcher, 'own', 'catch-all-group')
@@ -194,7 +200,7 @@ describe('saveCatchAllGroup', () => {
 
 describe('listChangeSets', () => {
     it('returns an empty list when the namespace does not exist yet', async () => {
-        const fetcher = async () => notFound()
+        const fetcher = () => Promise.resolve(notFound())
         expect(await listChangeSets(fetcher)).toEqual({
             changeSets: [],
             hasMore: false,
@@ -204,17 +210,19 @@ describe('listChangeSets', () => {
     it('returns change sets newest first', async () => {
         const older = changeSet('cs1', '2024-01-01T00:00:00.000Z')
         const newer = changeSet('cs2', '2024-06-01T00:00:00.000Z')
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             if (path.endsWith(`/${NAMESPACE}`)) {
-                return json(['history-cs1', 'config-general', 'history-cs2'])
+                return Promise.resolve(
+                    json(['history-cs1', 'config-general', 'history-cs2'])
+                )
             }
             if (path.endsWith('history-cs1')) {
-                return json(older)
+                return Promise.resolve(json(older))
             }
             if (path.endsWith('history-cs2')) {
-                return json(newer)
+                return Promise.resolve(json(newer))
             }
-            return notFound()
+            return Promise.resolve(notFound())
         }
         const result = await listChangeSets(fetcher)
         expect(result.changeSets.map((c) => c.id)).toEqual(['cs2', 'cs1'])
@@ -224,16 +232,18 @@ describe('listChangeSets', () => {
     it('pages: fetches only the requested window of documents, and reports whether more remain', async () => {
         const ids = Array.from({ length: 5 }, (_, i) => `cs${i}`)
         const requested: string[] = []
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             if (path.endsWith(`/${NAMESPACE}`)) {
-                return json(ids.map((id) => `history-${id}`))
+                return Promise.resolve(json(ids.map((id) => `history-${id}`)))
             }
             const match = /history-(cs\d)$/.exec(path)
             if (match) {
                 requested.push(match[1])
-                return json(changeSet(match[1], '2024-01-01T00:00:00.000Z'))
+                return Promise.resolve(
+                    json(changeSet(match[1], '2024-01-01T00:00:00.000Z'))
+                )
             }
-            return notFound()
+            return Promise.resolve(notFound())
         }
         // Keys sort newest-first as cs4, cs3, cs2, cs1, cs0.
         const page = await listChangeSets(fetcher, { offset: 0, limit: 2 })
@@ -256,19 +266,18 @@ describe('listChangeSets', () => {
         const sameInstant = '2024-01-01T00:00:00.000Z'
         const first = changeSet('cs1', sameInstant)
         const second = changeSet('cs2', sameInstant)
-        const fetcherWithKeyOrder =
-            (keys: string[]) => async (path: string) => {
-                if (path.endsWith(`/${NAMESPACE}`)) {
-                    return json(keys)
-                }
-                if (path.endsWith('history-cs1')) {
-                    return json(first)
-                }
-                if (path.endsWith('history-cs2')) {
-                    return json(second)
-                }
-                return notFound()
+        const fetcherWithKeyOrder = (keys: string[]) => (path: string) => {
+            if (path.endsWith(`/${NAMESPACE}`)) {
+                return Promise.resolve(json(keys))
             }
+            if (path.endsWith('history-cs1')) {
+                return Promise.resolve(json(first))
+            }
+            if (path.endsWith('history-cs2')) {
+                return Promise.resolve(json(second))
+            }
+            return Promise.resolve(notFound())
+        }
         const a = await listChangeSets(
             fetcherWithKeyOrder(['history-cs1', 'history-cs2'])
         )
@@ -284,14 +293,14 @@ describe('listChangeSets', () => {
 describe('saveChangeSet', () => {
     it('writes the change set under a history- key named by its id', async () => {
         const calls: { method: string; path: string; body: unknown }[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
             calls.push({
                 method,
                 path,
                 body: init?.body ? JSON.parse(init.body as string) : undefined,
             })
-            return json({}, 200)
+            return Promise.resolve(json({}, 200))
         }
         const cs = changeSet('cs3', '2024-07-01T00:00:00.000Z')
         await saveChangeSet(fetcher, cs)
@@ -308,52 +317,54 @@ describe('saveChangeSet', () => {
 describe('canWriteDataStore', () => {
     it('writes and deletes a probe key to confirm write access, rather than inferring it from a read', async () => {
         const calls: string[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push(init?.method ?? 'GET')
-            return json({}, 200)
+            return Promise.resolve(json({}, 200))
         }
         await expect(canWriteDataStore(fetcher)).resolves.toBe(true)
         expect(calls).toEqual(['POST', 'DELETE'])
     })
 
     it('reports no write access when the probe write is forbidden, rather than throwing', async () => {
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
             if (method === 'POST') {
-                return new Response('forbidden', { status: 403 })
+                return Promise.resolve(
+                    new Response('forbidden', { status: 403 })
+                )
             }
-            return json({}, 200)
+            return Promise.resolve(json({}, 200))
         }
         await expect(canWriteDataStore(fetcher)).resolves.toBe(false)
     })
 
     it('reports write access even when the probe key already existed (POST 409, falls back to PUT)', async () => {
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
             if (method === 'POST') {
-                return new Response('{}', { status: 409 })
+                return Promise.resolve(new Response('{}', { status: 409 }))
             }
-            return json({}, 200)
+            return Promise.resolve(json({}, 200))
         }
         await expect(canWriteDataStore(fetcher)).resolves.toBe(true)
     })
 
     it('reports write access even when the best-effort cleanup delete fails', async () => {
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             if ((init?.method ?? 'GET') === 'DELETE') {
-                throw new Error('network down')
+                return Promise.reject(new Error('network down'))
             }
-            return json({}, 200)
+            return Promise.resolve(json({}, 200))
         }
         await expect(canWriteDataStore(fetcher)).resolves.toBe(true)
     })
 
     it('reports no write access rather than throwing on a network failure during the write', async () => {
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             if ((init?.method ?? 'GET') === 'POST') {
-                throw new Error('network down')
+                return Promise.reject(new Error('network down'))
             }
-            return json({}, 200)
+            return Promise.resolve(json({}, 200))
         }
         await expect(canWriteDataStore(fetcher)).resolves.toBe(false)
     })

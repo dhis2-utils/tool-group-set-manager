@@ -19,19 +19,19 @@ import {
 } from '@dhis2/ui'
 import React, { useEffect, useState } from 'react'
 import styles from './History.module.css'
-import {
-    ChangeSetPreview,
+import type {
     ChangeSetPreviewObjects,
     PreviewRow,
 } from '@/components/ChangeSetPreview/ChangeSetPreview'
+import { ChangeSetPreview } from '@/components/ChangeSetPreview/ChangeSetPreview'
 import { toCsv } from '@/data/csv'
 import {
     aggregateOutcomes,
     mergeOutcomes,
     outcomeText,
 } from '@/data/writeOutcomes'
-import { ChangeSet } from '@/engine/changeSet'
-import {
+import type { ChangeSet } from '@/engine/changeSet'
+import type {
     ObjectRef,
     AssignmentPlan,
     ObjectsResult,
@@ -39,10 +39,8 @@ import {
 } from '@/engine/store'
 import { useChangeSets } from '@/hooks/useChangeSets'
 import { useEngine } from '@/hooks/useEngine'
-import {
-    MembershipWriteResult,
-    useMembershipWrite,
-} from '@/hooks/useMembershipWrite'
+import type { MembershipWriteResult } from '@/hooks/useMembershipWrite'
+import { useMembershipWrite } from '@/hooks/useMembershipWrite'
 import { interpolate } from '@/utils/interpolate'
 
 const actionLabel = (action: ChangeSet['action']): string => {
@@ -102,7 +100,7 @@ function downloadCsv(rows: string[][], fileName: string): void {
     link.download = fileName
     document.body.appendChild(link)
     link.click()
-    document.body.removeChild(link)
+    link.remove()
     URL.revokeObjectURL(url)
 }
 
@@ -126,6 +124,7 @@ interface RevertDialogProps {
  * offers Retry over `unaccounted`, and the dialog only closes when the
  * user clicks Close.
  */
+// oxlint-disable-next-line complexity -- predates the lint migration; splitting it is a refactor of its own, not part of adopting the linter
 const RevertDialog = ({ changeSet, onClose, onApplied }: RevertDialogProps) => {
     const { client, groupSets, groupSetsLoaded } = useEngine()
     const { write, isWriting } = useMembershipWrite()
@@ -170,14 +169,14 @@ const RevertDialog = ({ changeSet, onClose, onApplied }: RevertDialogProps) => {
                     objectType: set.objectType,
                     rootId: null,
                 }
-                const touchedIds = Array.from(
-                    new Set(
+                const touchedIds = [
+                    ...new Set(
                         computed.changes.flatMap((c) => [
                             ...c.additions,
                             ...c.deletions,
                         ])
-                    )
-                ).slice(0, SAMPLE_SIZE)
+                    ),
+                ].slice(0, SAMPLE_SIZE)
                 const [sampleResult, skippedResult] = await Promise.all([
                     touchedIds.length > 0
                         ? client.call<ObjectsResult>(
@@ -513,11 +512,11 @@ export const History = () => {
         setExportError(null)
         setExportingId(cs.id)
         try {
-            const ids = Array.from(
-                new Set(
+            const ids = [
+                ...new Set(
                     cs.changes.flatMap((c) => [...c.additions, ...c.deletions])
-                )
-            )
+                ),
+            ]
             const nameById = new Map<string, string>()
             if (client && ids.length > 0) {
                 const indexes: number[] = []
@@ -641,7 +640,7 @@ export const History = () => {
                             <DataTableColumnHeader>
                                 {i18n.t('Note')}
                             </DataTableColumnHeader>
-                            <DataTableColumnHeader></DataTableColumnHeader>
+                            <DataTableColumnHeader />
                         </DataTableRow>
                     </DataTableHead>
                     <DataTableBody>
@@ -722,9 +721,11 @@ export const History = () => {
                                                     }) => (
                                                         <span
                                                             ref={ref}
+                                                            // oxlint-disable-next-line jsx-a11y/mouse-events-have-key-events -- wraps a disabled button, which cannot take focus, so there is no focus event to mirror
                                                             onMouseOver={
                                                                 onMouseOver
                                                             }
+                                                            // oxlint-disable-next-line jsx-a11y/mouse-events-have-key-events -- wraps a disabled button, which cannot take focus, so there is no focus event to mirror
                                                             onMouseOut={
                                                                 onMouseOut
                                                             }
@@ -752,9 +753,11 @@ export const History = () => {
                                                     }) => (
                                                         <span
                                                             ref={ref}
+                                                            // oxlint-disable-next-line jsx-a11y/mouse-events-have-key-events -- wraps a disabled button, which cannot take focus, so there is no focus event to mirror
                                                             onMouseOver={
                                                                 onMouseOver
                                                             }
+                                                            // oxlint-disable-next-line jsx-a11y/mouse-events-have-key-events -- wraps a disabled button, which cannot take focus, so there is no focus event to mirror
                                                             onMouseOut={
                                                                 onMouseOut
                                                             }

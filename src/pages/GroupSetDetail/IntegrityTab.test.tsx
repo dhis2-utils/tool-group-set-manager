@@ -2,9 +2,9 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { IntegrityTab } from './IntegrityTab'
-import { CheckIssue, CheckSummary, ResolvedCheck } from '@/data/integrity'
-import { ScopeRef } from '@/engine/store'
-import { GroupSetMeta } from '@/engine/types'
+import type { CheckIssue, CheckSummary, ResolvedCheck } from '@/data/integrity'
+import type { ScopeRef } from '@/engine/store'
+import type { GroupSetMeta } from '@/engine/types'
 
 // babel-plugin-jest-hoist only allows jest.mock() factories to reference
 // out-of-scope variables whose names start with "mock" -- same convention
@@ -71,7 +71,7 @@ const IN_SCOPE_IDS = new Set(['idA', 'idD', 'idE'])
 // -- a name deliberately deleted from it for one test, then restored.
 const DETAILS_FINISHED_TIME = '2026-09-01T09:00:00.000Z'
 const mockReadDetails = jest.fn(
-    async (
+    (
         _fetcher: unknown,
         names: string[]
     ): Promise<
@@ -93,7 +93,7 @@ const mockReadDetails = jest.fn(
                       }
                     : { finishedTime: null, issues: null }
         })
-        return result
+        return Promise.resolve(result)
     }
 )
 jest.mock('@/data/integrity', () => {
@@ -104,19 +104,19 @@ jest.mock('@/data/integrity', () => {
     }
 })
 
-const mockClientCall = jest.fn(async (method: string, ...args: unknown[]) => {
+// m1 (final review): lets one test push the engine (missingError) count up
+// to a thousands-scale value without disturbing every other test's fixture.
+let mockMissingErrorOverride: number | null = null
+
+const mockClientCall = jest.fn((method: string, ...args: unknown[]) => {
     if (method === 'indexesOf') {
         const [, ids] = args as [string, string[]]
-        return ids.map((id) => KNOWN_INDEX[id] ?? -1)
+        return Promise.resolve(ids.map((id) => KNOWN_INDEX[id] ?? -1))
     }
     if (method === 'objectsFor') {
-        const [, , filter] = args as [
-            string,
-            unknown,
-            { ids: string[] },
-            number,
-            number,
-        ]
+        const filter = (
+            args as [string, unknown, { ids: string[] }, number, number]
+        )[2]
         const items = filter.ids
             .filter((id) => IN_SCOPE_IDS.has(id))
             .map((id) => ({
@@ -128,10 +128,10 @@ const mockClientCall = jest.fn(async (method: string, ...args: unknown[]) => {
                 status: 1,
                 groups: [],
             }))
-        return { total: items.length, offset: 0, items }
+        return Promise.resolve({ total: items.length, offset: 0, items })
     }
     if (method === 'dashboard') {
-        return [
+        return Promise.resolve([
             {
                 set: { id: 'own', displayName: 'Ownership' },
                 summary: {
@@ -144,14 +144,10 @@ const mockClientCall = jest.fn(async (method: string, ...args: unknown[]) => {
                 },
                 hasData: true,
             },
-        ]
+        ])
     }
-    return null
+    return Promise.resolve(null)
 })
-
-// m1 (final review): lets one test push the engine (missingError) count up
-// to a thousands-scale value without disturbing every other test's fixture.
-let mockMissingErrorOverride: number | null = null
 
 jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => ({
@@ -170,7 +166,7 @@ jest.mock('@/hooks/useScope', () => ({
     }),
 }))
 
-const mockRun = jest.fn(async () => undefined)
+const mockRun = jest.fn(() => Promise.resolve(undefined))
 const mockIntegrityState: {
     available: boolean
     checks: ResolvedCheck[]
@@ -202,7 +198,7 @@ jest.mock('@/hooks/useIntegrity', () => ({
         ...mockIntegrityState,
         run: mockRun,
         markStale: () => undefined,
-        refresh: async () => undefined,
+        refresh: () => Promise.resolve(undefined),
     }),
 }))
 
@@ -240,7 +236,7 @@ afterEach(() => {
     mockMissingErrorOverride = null
 })
 
-it('renders the national, in-scope and engine counts for each relevant check', async () => {
+test('renders the national, in-scope and engine counts for each relevant check', async () => {
     render(<IntegrityTab set={set} scope={scope} />)
 
     // National (from the server's cached summary, via IntegrityLine).
@@ -252,7 +248,7 @@ it('renders the national, in-scope and engine counts for each relevant check', a
     expect(await screen.findByText(/\b5\b/)).toBeInTheDocument()
 })
 
-it('counts only issue ids inside the scope subtree as in-scope', async () => {
+test('counts only issue ids inside the scope subtree as in-scope', async () => {
     render(<IntegrityTab set={set} scope={scope} />)
 
     // Of idA, idB, idC, idD: idB is known but outside Bo, idC is unknown.
@@ -275,7 +271,7 @@ it('counts only issue ids inside the scope subtree as in-scope', async () => {
     expect(compulsoryLine.textContent).not.toEqual(expect.stringContaining('4'))
 })
 
-it('counts an id the engine does not know separately, in its own line, never folded into either bucket', async () => {
+test('counts an id the engine does not know separately, in its own line, never folded into either bucket', async () => {
     render(<IntegrityTab set={set} scope={scope} />)
 
     // idC is unknown -- named as its own count of 1, distinct from the
@@ -290,7 +286,7 @@ it('counts an id the engine does not know separately, in its own line, never fol
 // m1 (review round 1): a check with zero unknown ids must not render the
 // unknown line at all -- the conflict check's only issue (idE) is known and
 // in scope, so its panel has nothing to report there.
-it('does not render the unknown-objects line for a check with no unknown ids', async () => {
+test('does not render the unknown-objects line for a check with no unknown ids', async () => {
     render(<IntegrityTab set={set} scope={scope} />)
 
     await screen.findByText('refs: E') // conflict check's panel has rendered
@@ -304,7 +300,7 @@ it('does not render the unknown-objects line for a check with no unknown ids', a
 // tab, batched across every relevant check sharing an object type -- not one
 // per check. This replaces the round-1 test that pinned the deviation
 // (`toHaveBeenCalledTimes(2) // one per relevant check`).
-it('reads details once for the whole tab, in one call naming every relevant check, not once per check', async () => {
+test('reads details once for the whole tab, in one call naming every relevant check, not once per check', async () => {
     render(<IntegrityTab set={set} scope={scope} />)
 
     await waitFor(() => expect(mockReadDetails).toHaveBeenCalledTimes(1))
@@ -334,7 +330,7 @@ it('reads details once for the whole tab, in one call naming every relevant chec
 // m1 (final review): every other count-rendering site on the branch
 // thousands-formats -- Task 8 item 4's sweep missed this file (and
 // IntegrityLine.tsx, fixed alongside it).
-it('thousands-formats the unknown and engine counts', async () => {
+test('thousands-formats the unknown and engine counts', async () => {
     const originalIssues = detailsByCheck[compulsoryCheck.name]
     // None of these ids are in KNOWN_INDEX, so all 1234 count as unknown.
     detailsByCheck[compulsoryCheck.name] = Array.from(
@@ -356,7 +352,7 @@ it('thousands-formats the unknown and engine counts', async () => {
     }
 })
 
-it('shows the server prose verbatim when present, and excludes an out-of-scope issue from the list', async () => {
+test('shows the server prose verbatim when present, and excludes an out-of-scope issue from the list', async () => {
     render(<IntegrityTab set={set} scope={scope} />)
     expect(await screen.findByText('refs: A')).toBeInTheDocument()
     // idB (Facility B) is known but outside Bo -- present in the server's
@@ -365,7 +361,7 @@ it('shows the server prose verbatim when present, and excludes an out-of-scope i
     expect(screen.queryByText('Facility B')).not.toBeInTheDocument()
 })
 
-it("calls run with exactly this tab's relevant check names, and only on click", async () => {
+test("calls run with exactly this tab's relevant check names, and only on click", async () => {
     render(<IntegrityTab set={set} scope={scope} />)
     await screen.findByText(/272/)
 
@@ -389,7 +385,7 @@ it("calls run with exactly this tab's relevant check names, and only on click", 
 // `checkNamesKey`/`scope`/`set` only, none of which change just because a
 // run finished, so without this the freshly-populated cache is never
 // picked up without a remount.
-it('re-reads details after "Run now" resolves, not only on mount', async () => {
+test('re-reads details after "Run now" resolves, not only on mount', async () => {
     render(<IntegrityTab set={set} scope={scope} />)
     await screen.findByText(/272/)
     await waitFor(() => expect(mockReadDetails).toHaveBeenCalledTimes(1))
@@ -400,7 +396,7 @@ it('re-reads details after "Run now" resolves, not only on mount', async () => {
     await waitFor(() => expect(mockReadDetails).toHaveBeenCalledTimes(2))
 })
 
-it('never calls run on mount, and never re-runs from a retry path', async () => {
+test('never calls run on mount, and never re-runs from a retry path', async () => {
     render(<IntegrityTab set={set} scope={scope} />)
     await screen.findByText(/272/)
     await waitFor(() => expect(mockReadDetails).toHaveBeenCalled())
@@ -408,7 +404,7 @@ it('never calls run on mount, and never re-runs from a retry path', async () => 
     expect(mockRun).not.toHaveBeenCalled()
 })
 
-it('shows a stale marker and a re-run suggestion, without running automatically', async () => {
+test('shows a stale marker and a re-run suggestion, without running automatically', async () => {
     mockIntegrityState.stale = new Set([compulsoryCheck.name])
     render(<IntegrityTab set={set} scope={scope} />)
 
@@ -416,7 +412,7 @@ it('shows a stale marker and a re-run suggestion, without running automatically'
     expect(mockRun).not.toHaveBeenCalled()
 })
 
-it('renders a static message for useIntegrity().error, never the raw diagnostic text', async () => {
+test('renders a static message for useIntegrity().error, never the raw diagnostic text', async () => {
     mockIntegrityState.error = 'HTTP 500 at /api/dataIntegrity/summary: boom'
     render(<IntegrityTab set={set} scope={scope} />)
 
@@ -429,7 +425,7 @@ it('renders a static message for useIntegrity().error, never the raw diagnostic 
 // M1 (review round 1): the engine line must name its own population (this
 // set) and must not claim to be "the source of truth" for a number that
 // counts something narrower than the DHIS2 figure above it.
-it('names this set in the engine count line, and does not call it the source of truth', async () => {
+test('names this set in the engine count line, and does not call it the source of truth', async () => {
     render(<IntegrityTab set={set} scope={scope} />)
 
     const engineLines = await screen.findAllByText(
@@ -451,7 +447,7 @@ it('names this set in the engine count line, and does not call it the source of 
 // of some "more recent" phrase: round 1's test asserted only
 // `/more recent/i` matched something, which both a correct and an inverted
 // comparison satisfied equally (re-review mutation 6).
-it("states when DHIS2 ran the check and that the app's figure reflects this session, without ranking the two", async () => {
+test("states when DHIS2 ran the check and that the app's figure reflects this session, without ranking the two", async () => {
     render(<IntegrityTab set={set} scope={scope} />)
 
     const expectedTime = new Date('2026-09-01T10:00:00.000Z').toLocaleString()
@@ -479,7 +475,7 @@ it("states when DHIS2 ran the check and that the app's figure reflects this sess
 // its numbers -- or its issue list -- should render; a bare list of names
 // with no national count, no in-scope count and no run time is worse than
 // nothing.
-it("does not render a check's issue list before its summary has been read", async () => {
+test("does not render a check's issue list before its summary has been read", async () => {
     // Drop the compulsory check's summary only -- the conflict check's stays,
     // so this isolates the gating rather than testing "nothing renders".
     mockIntegrityState.summaries = {
@@ -498,7 +494,7 @@ it("does not render a check's issue list before its summary has been read", asyn
 // count -- that was the original bug, reached again through a server this
 // app has never told to compute details for (which was this very
 // instance's own state before the fix, per the live-verified finding).
-it('says DHIS2 has not computed the issue list yet, rather than rendering an in-scope count of 0, for a check the details endpoint omits entirely', async () => {
+test('says DHIS2 has not computed the issue list yet, rather than rendering an in-scope count of 0, for a check the details endpoint omits entirely', async () => {
     const originalIssues = detailsByCheck[compulsoryCheck.name]
     delete detailsByCheck[compulsoryCheck.name]
 

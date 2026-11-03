@@ -9,7 +9,8 @@ import {
 import React from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { GroupSetDetail } from './GroupSetDetail'
-import { ObjectType } from '@/engine/types'
+import type { LoadStatus } from '@/data/loadAll'
+import type { ObjectType } from '@/engine/types'
 
 // A lightweight stand-in for the real dialog (which has its own heavy set
 // of dependencies, exercised in BulkFixDialog.test.tsx) -- this file only
@@ -24,8 +25,12 @@ jest.mock('@/components/BulkFixDialog/BulkFixDialog', () => ({
         onApplied: (result: unknown) => void
     }) => (
         <div>
-            <button onClick={onClose}>mock-dialog-close</button>
-            <button onClick={() => onApplied({})}>mock-dialog-applied</button>
+            <button type="button" onClick={onClose}>
+                mock-dialog-close
+            </button>
+            <button type="button" onClick={() => onApplied({})}>
+                mock-dialog-applied
+            </button>
         </div>
     ),
 }))
@@ -41,8 +46,12 @@ jest.mock('@/components/SetPropertiesDialog/SetPropertiesDialog', () => ({
         onApplied: () => void
     }) => (
         <div>
-            <button onClick={onClose}>mock-properties-close</button>
-            <button onClick={onApplied}>mock-properties-applied</button>
+            <button type="button" onClick={onClose}>
+                mock-properties-close
+            </button>
+            <button type="button" onClick={onApplied}>
+                mock-properties-applied
+            </button>
         </div>
     ),
 }))
@@ -78,7 +87,7 @@ const mockEngine: {
     client: {
         call: (method: string, ...args: unknown[]) => Promise<unknown>
     } | null
-    status: import('@/data/loadAll').LoadStatus | null
+    status: LoadStatus | null
     reload: (force: boolean) => Promise<void>
 } = {
     groupSets: mockGroupSets,
@@ -103,9 +112,9 @@ jest.mock('@/hooks/useIntegrity', () => ({
         stale: new Set(),
         isRunning: false,
         error: null,
-        run: async () => undefined,
+        run: () => Promise.resolve(undefined),
         markStale: () => undefined,
-        refresh: async () => undefined,
+        refresh: () => Promise.resolve(undefined),
     }),
 }))
 
@@ -283,14 +292,14 @@ const renderDetail = (
 
 // Spec 2026-09-15 §4.1: the organisation unit is reachable without leaving
 // the group set you are working in -- that was the review's complaint.
-it('shows the organisation unit field on the group set page', async () => {
+test('shows the organisation unit field on the group set page', async () => {
     renderDetail({ objectType: 'organisationUnit' })
     expect(await screen.findByText('Organisation unit')).toBeInTheDocument()
 })
 
 // A data element group set has no organisation unit scope, and a control
 // that changes nothing on screen is worse than no control.
-it('hides the organisation unit field for a non-hierarchical type', async () => {
+test('hides the organisation unit field for a non-hierarchical type', async () => {
     renderDetail({ objectType: 'dataElement' })
     await screen.findByText('Overview')
     expect(screen.queryByText('Organisation unit')).not.toBeInTheDocument()
@@ -298,7 +307,7 @@ it('hides the organisation unit field for a non-hierarchical type', async () => 
 
 // The bar shows the organisation unit, so the header tag that repeated it
 // is gone.
-it('does not repeat the organisation unit as a header tag', async () => {
+test('does not repeat the organisation unit as a header tag', async () => {
     renderDetail({ objectType: 'organisationUnit' })
     await screen.findByText('Overview')
     expect(screen.queryByText(/^Scope \(/)).not.toBeInTheDocument()
@@ -308,7 +317,7 @@ it('does not repeat the organisation unit as a header tag', async () => {
 // overflows on an EMIS-scale set and reads as a list of things one object
 // is in when an object is in exactly one of them. It is now a count chip;
 // the distribution itself lives in the Overview tab's GroupsPanel instead.
-it('shows a group count chip in the header instead of the group names', async () => {
+test('shows a group count chip in the header instead of the group names', async () => {
     renderDetail({
         objectType: 'organisationUnit',
         groups: [
@@ -326,7 +335,7 @@ it('shows a group count chip in the header instead of the group names', async ()
     expect(screen.queryByText('Alpha')).not.toBeInTheDocument()
 })
 
-it('keeps the row level in sync when late-arriving roots change the available levels, instead of crashing', async () => {
+test('keeps the row level in sync when late-arriving roots change the available levels, instead of crashing', async () => {
     render(
         <MemoryRouter initialEntries={['/sets/own']}>
             <Routes>
@@ -356,7 +365,7 @@ it('keeps the row level in sync when late-arriving roots change the available le
     expect(screen.queryByText(/District/)).not.toBeInTheDocument()
 })
 
-it('offers only levels below the scope when the scope carries its own level', async () => {
+test('offers only levels below the scope when the scope carries its own level', async () => {
     // A scope chosen through the org unit tree is not among the user's roots,
     // so its level can only come from the selection itself. Without it the
     // scope read as level 1: the row level list offered levels above the
@@ -372,14 +381,14 @@ it('offers only levels below the scope when the scope carries its own level', as
     expect(screen.queryByText(/Chiefdom/)).not.toBeInTheDocument()
 })
 
-it('falls back to the engine for the level of a scope stored without one', async () => {
+test('falls back to the engine for the level of a scope stored without one', async () => {
     mockScope.rootId = 'chiefdom-deep-in-the-tree'
     mockScope.rootLevel = null
     const calls: unknown[][] = []
     mockEngine.client = {
-        call: async (method: string, ...args: unknown[]) => {
+        call: (method: string, ...args: unknown[]) => {
             calls.push([method, ...args])
-            return method === 'levelOf' ? 3 : null
+            return Promise.resolve(method === 'levelOf' ? 3 : null)
         },
     }
     renderDetail()
@@ -394,7 +403,7 @@ it('falls back to the engine for the level of a scope stored without one', async
     ])
 })
 
-it('queries organisation unit levels without the deprecated paging=false', async () => {
+test('queries organisation unit levels without the deprecated paging=false', async () => {
     // @dhis2/app-service-data's RestAPILink warns "Data queries with
     // paging=false are deprecated" for exactly this resource whenever
     // `params.paging` is `false`. The fix keeps the query paginated but
@@ -647,9 +656,9 @@ describe('drilling into a matrix row (Task 6)', () => {
         // matrix can render immediately, with no `levelOf` round trip.
         mockScope.rootLevel = 1
         mockEngine.client = {
-            call: async (method: string) => {
+            call: (method: string) => {
                 if (method === 'matrixFor') {
-                    return {
+                    return Promise.resolve({
                         groups: [
                             { id: 'g1', displayName: 'G1', canWrite: true },
                         ],
@@ -670,9 +679,9 @@ describe('drilling into a matrix row (Task 6)', () => {
                                 total: 5,
                             },
                         ],
-                    }
+                    })
                 }
-                return null
+                return Promise.resolve(null)
             },
         }
         renderDetail({ objectType: 'organisationUnit' })
@@ -711,9 +720,9 @@ describe('drilling into a matrix row (Task 6)', () => {
     it('puts the scope you drilled out of in the bar, and goes back to it with its own row level', async () => {
         mockScope.rootLevel = 1
         mockEngine.client = {
-            call: async (method: string) => {
+            call: (method: string) => {
                 if (method === 'matrixFor') {
-                    return {
+                    return Promise.resolve({
                         groups: [
                             { id: 'g1', displayName: 'G1', canWrite: true },
                         ],
@@ -734,9 +743,9 @@ describe('drilling into a matrix row (Task 6)', () => {
                                 total: 5,
                             },
                         ],
-                    }
+                    })
                 }
-                return null
+                return Promise.resolve(null)
             },
         }
         renderDetail({ objectType: 'organisationUnit' })
@@ -766,9 +775,9 @@ describe('drilling into a matrix row (Task 6)', () => {
     it('forgets the trail when the scope moves somewhere the trail did not send it', async () => {
         mockScope.rootLevel = 1
         mockEngine.client = {
-            call: async (method: string) => {
+            call: (method: string) => {
                 if (method === 'matrixFor') {
-                    return {
+                    return Promise.resolve({
                         groups: [
                             { id: 'g1', displayName: 'G1', canWrite: true },
                         ],
@@ -789,9 +798,9 @@ describe('drilling into a matrix row (Task 6)', () => {
                                 total: 5,
                             },
                         ],
-                    }
+                    })
                 }
-                return null
+                return Promise.resolve(null)
             },
         }
         const { rerender } = renderDetail({ objectType: 'organisationUnit' })
@@ -829,9 +838,9 @@ describe('drilling into a matrix row (Task 6)', () => {
         ]
         mockScope.rootLevel = 1
         mockEngine.client = {
-            call: async (method: string) => {
+            call: (method: string) => {
                 if (method === 'matrixFor') {
-                    return {
+                    return Promise.resolve({
                         groups: [
                             { id: 'g1', displayName: 'G1', canWrite: true },
                         ],
@@ -852,9 +861,9 @@ describe('drilling into a matrix row (Task 6)', () => {
                                 total: 5,
                             },
                         ],
-                    }
+                    })
                 }
-                return null
+                return Promise.resolve(null)
             },
         }
         renderDetail({ objectType: 'organisationUnit' })
@@ -875,9 +884,9 @@ describe('drilling into a matrix row (Task 6)', () => {
         mockScope.rootId = 'chiefdom-deep-in-the-tree'
         mockScope.rootLevel = 3
         mockEngine.client = {
-            call: async (method: string) => {
+            call: (method: string) => {
                 if (method === 'matrixFor') {
-                    return {
+                    return Promise.resolve({
                         groups: [
                             { id: 'g1', displayName: 'G1', canWrite: true },
                         ],
@@ -898,9 +907,9 @@ describe('drilling into a matrix row (Task 6)', () => {
                                 total: 5,
                             },
                         ],
-                    }
+                    })
                 }
-                return null
+                return Promise.resolve(null)
             },
         }
         renderDetail({ objectType: 'organisationUnit' })
@@ -917,9 +926,9 @@ describe('drilling into a matrix row (Task 6)', () => {
     it('does not offer drilling for a non-hierarchical object type', async () => {
         mockScope.rootLevel = 1
         mockEngine.client = {
-            call: async (method: string) => {
+            call: (method: string) => {
                 if (method === 'matrixFor') {
-                    return {
+                    return Promise.resolve({
                         groups: [
                             { id: 'g1', displayName: 'G1', canWrite: true },
                         ],
@@ -934,9 +943,9 @@ describe('drilling into a matrix row (Task 6)', () => {
                                 total: 5,
                             },
                         ],
-                    }
+                    })
                 }
-                return null
+                return Promise.resolve(null)
             },
         }
         renderDetail({ objectType: 'dataElement' })

@@ -3,7 +3,9 @@ import React from 'react'
 import { BulkFixDialog } from './BulkFixDialog'
 import { NAME_OWNED_BY_ANOTHER_SET } from '@/data/metadataWrites'
 import { EngineStore } from '@/engine/store'
-import { GroupSetMeta, Status } from '@/engine/types'
+import type { GroupSetMeta } from '@/engine/types'
+import { Status } from '@/engine/types'
+import { actAndFlush } from '@/testing/actAndFlush'
 
 jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://server', apiVersion: 42 }),
@@ -39,8 +41,8 @@ jest.mock('@/hooks/useGsiConfig', () => {
             return {
                 config,
                 isLoaded,
-                setCatchAllGroup: async () => undefined,
-                setIncludeTracker: async () => undefined,
+                setCatchAllGroup: () => Promise.resolve(undefined),
+                setIncludeTracker: () => Promise.resolve(undefined),
             }
         },
     }
@@ -66,7 +68,7 @@ jest.mock('@/hooks/useEngineQuery', () => ({
 }))
 
 const mockClientCall = jest.fn()
-const mockReload = jest.fn(async () => undefined)
+const mockReload = jest.fn(() => Promise.resolve(undefined))
 // Fix round 1, finding 3: mutable so a test can simulate "no engine client"
 // (e.g. the worker was torn down between the preview render and the Apply
 // click) -- reset to a real client in the top-level beforeEach below, since
@@ -154,7 +156,7 @@ beforeEach(() => {
     // that accidentally does cannot fail on an unmocked fetcher instead.
     mockFetcher.mockResolvedValue({
         ok: true,
-        json: async () => ({}),
+        json: () => Promise.resolve({}),
     })
     mockUseEngineQuery.mockImplementation((method: string) => {
         if (method === 'planAssignment') {
@@ -265,7 +267,7 @@ describe('BulkFixDialog action step', () => {
         fireEvent.change(screen.getByLabelText('Short name'), {
             target: { value: 'Unclassified' },
         })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(
                 screen.getByRole('button', { name: 'Create group' })
             )
@@ -341,7 +343,7 @@ describe('BulkFixDialog action step', () => {
         const createButton = await screen.findByRole('button', {
             name: 'Create group',
         })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(createButton)
         })
         expect(
@@ -371,7 +373,7 @@ describe('BulkFixDialog action step', () => {
         const createButton = await screen.findByRole('button', {
             name: 'Create group',
         })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(createButton)
         })
         await waitFor(() =>
@@ -398,7 +400,7 @@ describe('BulkFixDialog action step', () => {
         const createButton = await screen.findByRole('button', {
             name: 'Create group',
         })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(createButton)
         })
         await waitFor(() => expect(mockReload).toHaveBeenCalledWith(false))
@@ -679,7 +681,7 @@ describe('BulkFixDialog preview step', () => {
             HTMLAnchorElement.prototype,
             'download',
             'set'
-        ).mockImplementation(function (this: HTMLAnchorElement, value: string) {
+        ).mockImplementation((value: string) => {
             downloadName = value
         })
 
@@ -687,7 +689,7 @@ describe('BulkFixDialog preview step', () => {
         const downloadButton = await screen.findByRole('button', {
             name: /download.*csv/i,
         })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(downloadButton)
         })
 
@@ -883,18 +885,18 @@ describe('BulkFixDialog Critical fix: move-to-catch-all never touches a correctl
         fireEvent.click(screen.getByRole('button', { name: /next/i }))
 
         await waitFor(() => expect(lastPlan).toBeDefined())
-        expect(lastPlan!.changes.some((c) => c.additions.includes('ok1'))).toBe(
+        expect(lastPlan?.changes.some((c) => c.additions.includes('ok1'))).toBe(
             false
         )
-        expect(lastPlan!.changes.some((c) => c.deletions.includes('ok1'))).toBe(
+        expect(lastPlan?.changes.some((c) => c.deletions.includes('ok1'))).toBe(
             false
         )
         // The violations are still acted on: missing1 is added to the
         // catch-all, and conflict1 (alpha + other already) loses its
         // now-redundant alpha membership.
-        const otherChange = lastPlan!.changes.find((c) => c.groupId === 'other')
+        const otherChange = lastPlan?.changes.find((c) => c.groupId === 'other')
         expect(otherChange?.additions).toEqual(['missing1'])
-        const alphaChange = lastPlan!.changes.find((c) => c.groupId === 'alpha')
+        const alphaChange = lastPlan?.changes.find((c) => c.groupId === 'alpha')
         expect(alphaChange?.deletions).toEqual(['conflict1'])
         // I5: the plan and the sample read the very same population
         // definition -- not just equivalent filters computed twice.
@@ -959,13 +961,13 @@ describe('BulkFixDialog Critical fix: move-to-catch-all never touches a correctl
         fireEvent.click(screen.getByRole('button', { name: /next/i }))
 
         await waitFor(() => expect(lastPlan).toBeDefined())
-        expect(lastPlan!.changes.some((c) => c.additions.includes('ok1'))).toBe(
+        expect(lastPlan?.changes.some((c) => c.additions.includes('ok1'))).toBe(
             false
         )
-        expect(lastPlan!.changes.some((c) => c.deletions.includes('ok1'))).toBe(
+        expect(lastPlan?.changes.some((c) => c.deletions.includes('ok1'))).toBe(
             false
         )
-        const otherChange = lastPlan!.changes.find((c) => c.groupId === 'other')
+        const otherChange = lastPlan?.changes.find((c) => c.groupId === 'other')
         expect(otherChange?.additions).toEqual(['missing1'])
     })
 
@@ -1025,8 +1027,8 @@ describe('BulkFixDialog Critical fix: move-to-catch-all never touches a correctl
         fireEvent.click(screen.getByRole('button', { name: /next/i }))
 
         await waitFor(() => expect(lastPlan).toBeDefined())
-        expect(lastPlan!.affected).toBe(0)
-        expect(lastPlan!.changes).toEqual([])
+        expect(lastPlan?.affected).toBe(0)
+        expect(lastPlan?.changes).toEqual([])
         expect(lastSampleTotal).toBe(0)
     })
 
@@ -1087,12 +1089,12 @@ describe('BulkFixDialog Critical fix: move-to-catch-all never touches a correctl
         fireEvent.click(screen.getByRole('button', { name: /next/i }))
 
         await waitFor(() => expect(lastPlan).toBeDefined())
-        const otherChange = lastPlan!.changes.find((c) => c.groupId === 'other')
+        const otherChange = lastPlan?.changes.find((c) => c.groupId === 'other')
         expect(otherChange?.additions).toEqual(['missing1'])
         // conflict1 is a real violation too, but it was not in the
         // selection -- a dialog that ignored `selection` would still move
         // it out of alpha here.
-        const alphaChange = lastPlan!.changes.find((c) => c.groupId === 'alpha')
+        const alphaChange = lastPlan?.changes.find((c) => c.groupId === 'alpha')
         expect(alphaChange).toBeUndefined()
     })
 })
@@ -1168,7 +1170,7 @@ describe('BulkFixDialog apply step', () => {
             changeSet: {} as never,
         })
         const applyButton = await goToApply()
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(applyButton)
         })
         expect(mockWrite).toHaveBeenCalledWith(
@@ -1240,7 +1242,7 @@ describe('BulkFixDialog apply step', () => {
 
         currentChanges = changesB
         const applyButton = screen.getByRole('button', { name: /^apply/i })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(applyButton)
         })
 
@@ -1273,7 +1275,7 @@ describe('BulkFixDialog apply step', () => {
             expect(screen.getByText(/1,200 of 2,400/)).toBeInTheDocument()
         )
         mockIsWriting = false
-        await act(async () => {
+        await actAndFlush(() => {
             resolveWrite({
                 outcomes: [{ groupId: 'g2', requested: 2, accepted: 2 }],
                 applied: changes,
@@ -1294,7 +1296,7 @@ describe('BulkFixDialog apply step', () => {
             changeSet: {} as never,
         })
         const applyButton = await goToApply()
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(applyButton)
         })
         await waitFor(() =>
@@ -1330,7 +1332,7 @@ describe('BulkFixDialog apply step', () => {
             changeSet: {} as never,
         })
         const applyButton = await goToApply()
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(applyButton)
         })
         await waitFor(() =>
@@ -1364,7 +1366,7 @@ describe('BulkFixDialog apply step', () => {
             changeSet: {} as never,
         })
         const applyButton = await goToApply()
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(applyButton)
         })
         const betaText = await screen.findByText(/Beta/)
@@ -1386,7 +1388,7 @@ describe('BulkFixDialog apply step', () => {
         const applyButton = await goToApply(undefined, [
             { groupId: 'g2', additions: ['a1', 'a2', 'a3'], deletions: [] },
         ])
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(applyButton)
         })
         const retryButton = await screen.findByRole('button', {
@@ -1398,7 +1400,7 @@ describe('BulkFixDialog apply step', () => {
             unaccounted: [],
             changeSet: {} as never,
         })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(retryButton)
         })
         expect(mockWrite).toHaveBeenLastCalledWith(
@@ -1431,7 +1433,7 @@ describe('BulkFixDialog apply step', () => {
             changeSet: {} as never,
         })
         const applyButton = await goToApply()
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(applyButton)
         })
         await screen.findByText(/All changes applied to Alpha/)
@@ -1443,7 +1445,7 @@ describe('BulkFixDialog apply step', () => {
             unaccounted: [],
             changeSet: {} as never,
         })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(retryButton)
         })
 
@@ -1512,7 +1514,7 @@ describe('BulkFixDialog apply step', () => {
         const createButton = await screen.findByRole('button', {
             name: 'Create group',
         })
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(createButton)
         })
         await waitFor(() =>
@@ -1522,7 +1524,7 @@ describe('BulkFixDialog apply step', () => {
         )
         fireEvent.click(screen.getByRole('button', { name: /next/i }))
         await screen.findByText('+1 / -0')
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: /^apply/i }))
         })
         await waitFor(() =>
@@ -1540,7 +1542,7 @@ describe('BulkFixDialog apply step', () => {
     it('shows an error rather than a blank panel when write() rejects (I4)', async () => {
         mockWrite.mockRejectedValueOnce(new Error('indexedDB blew up'))
         const applyButton = await goToApply()
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(applyButton)
         })
         expect(
@@ -1593,7 +1595,7 @@ describe('BulkFixDialog apply step', () => {
             expect(screen.getByText('Beta')).toBeInTheDocument()
         )
         fireEvent.click(screen.getByRole('button', { name: /next/i }))
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: /^apply/i }))
         })
         expect(await screen.findByText(/nothing to apply/i)).toBeInTheDocument()
@@ -1634,8 +1636,8 @@ describe('BulkFixDialog apply step', () => {
         )
         fireEvent.click(screen.getByRole('button', { name: /next/i }))
         await screen.findByText('+2 / -0')
-        mockWrite.mockImplementation(() => new Promise(() => undefined))
-        await act(async () => {
+        mockWrite.mockImplementation(() => new Promise(() => {}))
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: /^apply/i }))
         })
 
@@ -1752,7 +1754,8 @@ describe('BulkFixDialog apply step', () => {
             })
             mockFetcher.mockResolvedValue({
                 ok: true,
-                json: async () => ({ organisationUnits: [{ id: 'm0' }] }),
+                json: () =>
+                    Promise.resolve({ organisationUnits: [{ id: 'm0' }] }),
             })
             mockWrite.mockResolvedValue({
                 outcomes: [],
@@ -1766,6 +1769,7 @@ describe('BulkFixDialog apply step', () => {
             const reordered = [
                 {
                     ...PATCH_CHANGE[0],
+                    // oxlint-disable-next-line unicorn/no-array-reverse -- reverses a fresh copy; toReversed() is not in this repo's ES2020 lib
                     additions: [...PATCH_CHANGE[0].additions].reverse(),
                 },
             ]
@@ -1810,7 +1814,7 @@ describe('BulkFixDialog apply step', () => {
             )
             mockClientCall.mockResolvedValue(plan({ affected: 3 }))
             await renderAndReachApply()
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             expect(mockWrite).toHaveBeenCalled()
@@ -1830,10 +1834,10 @@ describe('BulkFixDialog apply step', () => {
         // it would delete every other member of the group.
         it('re-reads members uncached, unpaged, and by id only', async () => {
             await renderAndReachApply()
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
-            expect(mockFetcher.mock.calls).toHaveLength(1)
+            expect(mockFetcher).toHaveBeenCalledTimes(1)
             const [path, init] = mockFetcher.mock.calls[0]
             expect(path).toBe(
                 'organisationUnitGroups/g2/organisationUnits?fields=id&paging=false'
@@ -1872,7 +1876,7 @@ describe('BulkFixDialog apply step', () => {
             await renderAndReachApply()
             // Both inside one `act`, with no render flush between them --
             // neither click's closure has seen the other's state update.
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
@@ -1907,7 +1911,7 @@ describe('BulkFixDialog apply step', () => {
                     : Promise.resolve(undefined)
             )
             await renderAndReachApply()
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             expect(
@@ -1947,13 +1951,13 @@ describe('BulkFixDialog apply step', () => {
                     : Promise.resolve(undefined)
             )
             await renderAndReachApply()
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             await screen.findByText(
                 'The metadata changed while you were reviewing'
             )
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(
                     screen.getByRole('button', { name: 'Apply 44 changes' })
                 )
@@ -2014,20 +2018,22 @@ describe('BulkFixDialog apply step', () => {
                       )
                     : Promise.resolve(undefined)
             )
-            mockFetcher.mockImplementationOnce(async () => ({
+            mockFetcher.mockResolvedValueOnce({
                 ok: true,
-                json: async () => ({
-                    organisationUnits: [{ id: 'stale-member' }],
-                }),
-            }))
-            mockFetcher.mockImplementationOnce(async () => ({
+                json: () =>
+                    Promise.resolve({
+                        organisationUnits: [{ id: 'stale-member' }],
+                    }),
+            })
+            mockFetcher.mockResolvedValueOnce({
                 ok: true,
-                json: async () => ({
-                    organisationUnits: [{ id: 'fresh-member' }],
-                }),
-            }))
+                json: () =>
+                    Promise.resolve({
+                        organisationUnits: [{ id: 'fresh-member' }],
+                    }),
+            })
             await renderAndReachApply()
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             await screen.findByText(
@@ -2038,7 +2044,7 @@ describe('BulkFixDialog apply step', () => {
             // Simulates the "unbounded user pause" the finding describes --
             // nothing happens here except time; the read above must not be
             // reused when Apply is finally clicked below.
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /^Apply/ }))
             })
             expect(mockFetcher).toHaveBeenCalledTimes(2)
@@ -2092,10 +2098,11 @@ describe('BulkFixDialog apply step', () => {
                       )
                     : Promise.resolve(undefined)
             )
-            mockFetcher.mockImplementationOnce(async () => ({
+            mockFetcher.mockResolvedValueOnce({
                 ok: true,
-                json: async () => ({ organisationUnits: [{ id: 'm0' }] }),
-            }))
+                json: () =>
+                    Promise.resolve({ organisationUnits: [{ id: 'm0' }] }),
+            })
             let resolveSecondFetch!: (value: unknown) => void
             mockFetcher.mockImplementation(
                 () =>
@@ -2104,7 +2111,7 @@ describe('BulkFixDialog apply step', () => {
                     })
             )
             await renderAndReachApply()
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             await screen.findByText(
@@ -2115,17 +2122,18 @@ describe('BulkFixDialog apply step', () => {
             // them -- same race as the existing "second click" test above,
             // now against the re-confirmation button instead of the first
             // Apply.
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /^Apply/ }))
                 fireEvent.click(screen.getByRole('button', { name: /^Apply/ }))
             })
             expect(mockFetcher).toHaveBeenCalledTimes(2)
-            await act(async () => {
+            await actAndFlush(() => {
                 resolveSecondFetch({
                     ok: true,
-                    json: async () => ({
-                        organisationUnits: [{ id: 'm1' }],
-                    }),
+                    json: () =>
+                        Promise.resolve({
+                            organisationUnits: [{ id: 'm1' }],
+                        }),
                 })
             })
             expect(mockWrite).toHaveBeenCalledTimes(1)
@@ -2158,13 +2166,13 @@ describe('BulkFixDialog apply step', () => {
                     : Promise.resolve(undefined)
             )
             await renderAndReachApply()
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             await screen.findByText(
                 'The metadata changed while you were reviewing'
             )
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(
                     screen.getByRole('button', { name: /Review changes/i })
                 )
@@ -2190,7 +2198,7 @@ describe('BulkFixDialog apply step', () => {
         it('passes the freshly read membership to the writer', async () => {
             // Task 8's patch route is unreachable without this, by design.
             await renderAndReachApply()
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             expect(mockWrite).toHaveBeenCalledWith(
@@ -2215,17 +2223,18 @@ describe('BulkFixDialog apply step', () => {
             // them -- exactly the race a plain `checkingFreshness` state
             // check (rather than a ref) would lose, since neither click's
             // closure has seen the other's update yet.
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             expect(mockFetcher).toHaveBeenCalledTimes(1)
-            await act(async () => {
+            await actAndFlush(() => {
                 resolveFetch({
                     ok: true,
-                    json: async () => ({
-                        organisationUnits: [{ id: 'm0' }],
-                    }),
+                    json: () =>
+                        Promise.resolve({
+                            organisationUnits: [{ id: 'm0' }],
+                        }),
                 })
             })
             expect(mockWrite).toHaveBeenCalledTimes(1)
@@ -2258,7 +2267,7 @@ describe('BulkFixDialog apply step', () => {
             )
             fireEvent.click(screen.getByRole('button', { name: /next/i }))
             await screen.findByRole('button', { name: /^apply/i })
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             expect(
@@ -2280,12 +2289,13 @@ describe('BulkFixDialog apply step', () => {
             expect(onClose).not.toHaveBeenCalled()
             expect(mockWrite).not.toHaveBeenCalled()
             // Let the pending read settle so it cannot leak into another test.
-            await act(async () => {
+            await actAndFlush(() => {
                 resolveFetch({
                     ok: true,
-                    json: async () => ({
-                        organisationUnits: [{ id: 'm0' }],
-                    }),
+                    json: () =>
+                        Promise.resolve({
+                            organisationUnits: [{ id: 'm0' }],
+                        }),
                 })
             })
         })
@@ -2299,10 +2309,10 @@ describe('BulkFixDialog apply step', () => {
             mockFetcher.mockResolvedValue({
                 ok: false,
                 status: 500,
-                json: async () => ({}),
+                json: () => Promise.resolve({}),
             })
             await renderAndReachApply()
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             expect(
@@ -2321,11 +2331,11 @@ describe('BulkFixDialog apply step', () => {
         // escape hatch, and it has to cover the whole check rather than
         // only the fetch (both `client.call`s hang the same way).
         it('gives up on a freshness check that never settles, re-enabling the dialog without writing', async () => {
-            mockFetcher.mockImplementation(() => new Promise(() => undefined))
+            mockFetcher.mockImplementation(() => new Promise(() => {}))
             await renderAndReachApply()
             jest.useFakeTimers()
             try {
-                await act(async () => {
+                await actAndFlush(() => {
                     fireEvent.click(
                         screen.getByRole('button', { name: /Apply/ })
                     )
@@ -2335,7 +2345,7 @@ describe('BulkFixDialog apply step', () => {
                     screen.getByRole('button', { name: /Cancel/ })
                 ).toBeDisabled()
 
-                await act(async () => {
+                await actAndFlush(() => {
                     jest.advanceTimersByTime(60_000)
                 })
 
@@ -2367,7 +2377,7 @@ describe('BulkFixDialog apply step', () => {
                     })
             )
             const { unmount } = await renderAndReachApply()
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             expect(mockFetcher).toHaveBeenCalledTimes(1)
@@ -2376,17 +2386,21 @@ describe('BulkFixDialog apply step', () => {
 
             // The read the dialog is no longer waiting for answers anyway,
             // and the chain behind it is given every chance to run on.
-            await act(async () => {
+            await actAndFlush(() => {
                 resolveFetch({
                     ok: true,
-                    json: async () => ({
-                        organisationUnits: [{ id: 'm0' }],
-                    }),
+                    json: () =>
+                        Promise.resolve({
+                            organisationUnits: [{ id: 'm0' }],
+                        }),
                 })
             })
             for (let i = 0; i < 10; i++) {
+                // oxlint-disable-next-line no-await-in-loop -- each round lets one more timer tick run, in order
                 await act(async () => {
-                    await new Promise((r) => setTimeout(r, 0))
+                    await new Promise((r) => {
+                        setTimeout(r, 0)
+                    })
                 })
             }
             expect(mockWrite).not.toHaveBeenCalled()
@@ -2400,7 +2414,7 @@ describe('BulkFixDialog apply step', () => {
         it('bails without writing when there is no engine client to check the plan against', async () => {
             mockEngineClient = null
             await renderAndReachApply()
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByRole('button', { name: /Apply/ }))
             })
             expect(

@@ -1,16 +1,18 @@
-import { CACHE_TTL_MS, Cache, CachedType } from './cache'
+import type { Cache, CachedType } from './cache'
+import { CACHE_TTL_MS } from './cache'
 import { ENDPOINTS } from './endpoints'
 import { groupIdsFor, loadGroupSets } from './groupSets'
-import {
+import type {
     DataSource,
-    fetchJson,
     Fetcher,
     NamedId,
     Progress,
 } from './sources/DataSource'
+import { fetchJson } from './sources/DataSource'
 import { createMetadataSource } from './sources/metadataSource'
-import { EngineClient } from '@/engine/client'
-import { GroupSetMeta, OBJECT_TYPES, ObjectType } from '@/engine/types'
+import type { EngineClient } from '@/engine/client'
+import type { GroupSetMeta, ObjectType } from '@/engine/types'
+import { OBJECT_TYPES } from '@/engine/types'
 
 export type LoadPhase =
     | 'groupSets'
@@ -252,6 +254,7 @@ export async function loadAll(deps: Deps): Promise<{
 
     // Org units are the heavy type; load them first so the dashboard can show
     // their numbers while the small types finish.
+    /* oxlint-disable no-await-in-loop -- one type at a time, org units first: the dashboard fills in while the small types load, the server serves one heavy read at a time, and each type's engine calls land in order */
     for (const type of OBJECT_TYPES) {
         const groupIds = groupIdsFor(groupSets, type)
         if (groupIds.length === 0) {
@@ -383,6 +386,7 @@ export async function loadAll(deps: Deps): Promise<{
             emit({ type })
         }
     }
+    /* oxlint-enable no-await-in-loop */
 
     emit({ phase: 'evaluate', type: null, progress: null })
     await deps.engine.call('evaluate')

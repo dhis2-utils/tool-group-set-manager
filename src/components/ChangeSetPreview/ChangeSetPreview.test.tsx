@@ -1,8 +1,9 @@
 import { render, screen } from '@testing-library/react'
 import React from 'react'
-import { ChangeSetPreview, PreviewRow } from './ChangeSetPreview'
-import { GroupChange } from '@/engine/changeSet'
-import { GroupMeta } from '@/engine/types'
+import type { PreviewRow } from './ChangeSetPreview'
+import { ChangeSetPreview } from './ChangeSetPreview'
+import type { GroupChange } from '@/engine/changeSet'
+import type { GroupMeta } from '@/engine/types'
 
 const groups = [
     { id: 'pub', displayName: 'Public', canWrite: true },

@@ -1,5 +1,5 @@
 import { EngineClient } from './client'
-import { EngineRequest, EngineResponse } from './protocol'
+import type { EngineRequest, EngineResponse } from './protocol'
 
 class FakeWorker {
     onmessage: ((e: MessageEvent<EngineResponse>) => void) | null = null

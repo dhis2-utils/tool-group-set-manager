@@ -17,7 +17,7 @@ import {
 import React, { useEffect, useMemo, useState } from 'react'
 import { MAX_GROUP_COLUMNS, planColumns } from './columnPlan'
 import styles from './SummaryMatrix.module.css'
-import { MatrixResult, ObjectRef } from '@/engine/store'
+import type { MatrixResult, ObjectRef } from '@/engine/store'
 import { groupsLabel } from '@/utils/groupsLabel'
 import { interpolate } from '@/utils/interpolate'
 

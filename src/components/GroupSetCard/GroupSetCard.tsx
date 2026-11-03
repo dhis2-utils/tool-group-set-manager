@@ -3,7 +3,7 @@ import { Card, Tag } from '@dhis2/ui'
 import React from 'react'
 import styles from './GroupSetCard.module.css'
 import { usageApplies } from '@/data/sources/usageSqlView'
-import { DashboardEntry } from '@/engine/store'
+import type { DashboardEntry } from '@/engine/store'
 import { useUsage } from '@/hooks/useUsage'
 import { usedInFavouritesLabel } from '@/utils/favouritesLabel'
 import { groupsLabel } from '@/utils/groupsLabel'
@@ -63,6 +63,7 @@ export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
         <Card>
             <div
                 className={styles.card}
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the card holds block content, which a <button> may not contain; role, tabIndex and the key handler make it a button
                 role="button"
                 tabIndex={0}
                 onClick={onOpen}

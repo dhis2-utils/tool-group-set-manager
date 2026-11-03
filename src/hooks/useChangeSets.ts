@@ -2,7 +2,7 @@ import { useConfig } from '@dhis2/app-runtime'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { listChangeSets } from '@/data/datastore'
 import { createFetcher } from '@/data/fetcher'
-import { ChangeSet } from '@/engine/changeSet'
+import type { ChangeSet } from '@/engine/changeSet'
 
 const PAGE_SIZE = 20
 

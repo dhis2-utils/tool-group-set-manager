@@ -1,5 +1,6 @@
-import { fetchJson, Fetcher } from './sources/DataSource'
-import { ObjectType } from '@/engine/types'
+import type { Fetcher } from './sources/DataSource'
+import { fetchJson } from './sources/DataSource'
+import type { ObjectType } from '@/engine/types'
 
 /** The app's six logical checks, named for what they mean rather than for
  *  what any one server calls them. */

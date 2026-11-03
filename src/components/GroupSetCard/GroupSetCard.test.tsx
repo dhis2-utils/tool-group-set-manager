@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { GroupSetCard } from './GroupSetCard'
-import { ObjectType } from '@/engine/types'
+import type { ObjectType } from '@/engine/types'
 
 // Mutable, test-controlled override -- see Dashboard.test.tsx's comment on
 // why this must be prefixed "mock" (babel-plugin-jest-hoist).
@@ -16,8 +16,6 @@ const readyUsage = (usage: unknown) => ({
     forSet: () => usage,
     refresh: jest.fn(),
 })
-
-afterEach(() => {})
 
 beforeEach(() => {
     // Baseline: no usage view on this instance, so none of the tests below
@@ -85,7 +83,7 @@ const renderCard = (
         />
     )
 
-it('shows name, properties, counts and a lock when some groups are read-only', async () => {
+test('shows name, properties, counts and a lock when some groups are read-only', async () => {
     const onOpen = jest.fn()
     renderCard({ onOpen })
     expect(screen.getByText('Ownership')).toBeInTheDocument()
@@ -103,7 +101,7 @@ it('shows name, properties, counts and a lock when some groups are read-only', a
 // so a large population reads with a thousands separator; this card's
 // stat tiles rendered the raw number instead, so the same instance showed
 // "12000" here and "12,000" everywhere else.
-it('formats large stat counts with the same thousands separator as the rest of the dashboard', () => {
+test('formats large stat counts with the same thousands separator as the rest of the dashboard', () => {
     const bigEntry = {
         ...entry,
         summary: {
@@ -122,12 +120,12 @@ it('formats large stat counts with the same thousands separator as the rest of t
     expect(screen.queryByText('12000')).not.toBeInTheDocument()
 })
 
-it('shows a loading state when the type has no data yet', () => {
+test('shows a loading state when the type has no data yet', () => {
     renderCard({ entry: { ...entry, hasData: false } })
     expect(screen.getByText(/Loading/)).toBeInTheDocument()
 })
 
-it('pluralises the read-only-groups count for more than one group', () => {
+test('pluralises the read-only-groups count for more than one group', () => {
     const entryWithManyReadOnly = {
         ...entry,
         set: {
@@ -143,7 +141,7 @@ it('pluralises the read-only-groups count for more than one group', () => {
     expect(screen.getByText('3 groups read-only for you')).toBeInTheDocument()
 })
 
-it('uses the singular group count for exactly one group', () => {
+test('uses the singular group count for exactly one group', () => {
     const entryWithOneGroup = {
         ...entry,
         set: {
@@ -155,7 +153,7 @@ it('uses the singular group count for exactly one group', () => {
     expect(screen.getByText('1 group')).toBeInTheDocument()
 })
 
-it('pluralises the group count tag for more than one group', () => {
+test('pluralises the group count tag for more than one group', () => {
     renderCard()
     expect(screen.getByText('2 groups')).toBeInTheDocument()
 })
@@ -163,7 +161,7 @@ it('pluralises the group count tag for more than one group', () => {
 // Minor 8 (fix round 1): item 4 was about count formatting being
 // consistent everywhere, not just the stat tiles -- these two labels are
 // small in practice, but the fix should not leave stragglers.
-it('formats the group count and read-only count with the same thousands separator as the stat tiles', () => {
+test('formats the group count and read-only count with the same thousands separator as the stat tiles', () => {
     const manyGroups = Array.from({ length: 1200 }, (_, i) => ({
         id: `g${i}`,
         displayName: `G${i}`,
@@ -182,7 +180,7 @@ it('formats the group count and read-only count with the same thousands separato
     ).toBeInTheDocument()
 })
 
-it('shows a configuration-gap message instead of all-clean stats when a set has no groups', () => {
+test('shows a configuration-gap message instead of all-clean stats when a set has no groups', () => {
     const entryWithNoGroups = {
         ...entry,
         set: { ...entry.set, groups: [] },
@@ -195,14 +193,14 @@ it('shows a configuration-gap message instead of all-clean stats when a set has 
     expect(screen.queryByText('OK')).not.toBeInTheDocument()
 })
 
-it('can be activated with the Space key', () => {
+test('can be activated with the Space key', () => {
     const onOpen = jest.fn()
     renderCard({ onOpen })
     fireEvent.keyDown(screen.getByRole('button'), { key: ' ' })
     expect(onOpen).toHaveBeenCalled()
 })
 
-it('shows the "no group, not required" count only for a set where being in no group is allowed', () => {
+test('shows the "no group, not required" count only for a set where being in no group is allowed', () => {
     // The card, the matrix column and the drill-down all key on the same
     // condition. A compulsory or data dimension set can never have one of
     // these, so the stat would be a permanent zero there.

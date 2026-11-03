@@ -19,7 +19,7 @@ export function useSessionState<T>(
     initial: T,
     isValid: (value: unknown) => value is T
 ): [T, (value: T) => void] {
-    const [value, setState] = useState<T>(() => {
+    const [state, setState] = useState<T>(() => {
         try {
             const raw = sessionStorage.getItem(key)
             if (raw === null) {
@@ -42,5 +42,5 @@ export function useSessionState<T>(
         },
         [key]
     )
-    return [value, setValue]
+    return [state, setValue]
 }

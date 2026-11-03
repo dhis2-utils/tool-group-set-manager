@@ -11,42 +11,43 @@ import {
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { ActionStep } from './ActionStep'
 import { ApplyStep } from './ApplyStep'
+import type { Action, Step } from './constants'
 import {
-    Action,
     CATCH_ALL_NAME_PATTERN,
     CHECK_TIMEOUT,
     CHECK_TIMEOUT_MS,
     CSV_PAGE_SIZE,
     SAMPLE_FETCH_SIZE,
     SAMPLE_SIZE,
-    Step,
     VIOLATION_STATUSES,
 } from './constants'
 import { PreviewStep } from './PreviewStep'
 import { useCatchAllCreation } from './useCatchAllCreation'
-import {
-    afterIdsPrepared,
+import type {
     PreparedChange,
-    prepareChanges,
     ChangeSetPreviewObjects,
     PreviewRow,
+} from '@/components/ChangeSetPreview/ChangeSetPreview'
+import {
+    afterIdsPrepared,
+    prepareChanges,
 } from '@/components/ChangeSetPreview/ChangeSetPreview'
 import { toCsv } from '@/data/csv'
 import { createFetcher } from '@/data/fetcher'
 import { readGroupMembers } from '@/data/groupMembers'
 import { mergeOutcomes } from '@/data/writeOutcomes'
-import { BatchOutcome, takesPatchRoute } from '@/data/writes'
-import { ChangeSet, GroupChange, sameChanges } from '@/engine/changeSet'
-import { ObjectFilter } from '@/engine/queries'
-import { AssignmentPlan, ObjectsResult, ScopeRef } from '@/engine/store'
-import { GroupSetMeta } from '@/engine/types'
+import type { BatchOutcome } from '@/data/writes'
+import { takesPatchRoute } from '@/data/writes'
+import type { ChangeSet, GroupChange } from '@/engine/changeSet'
+import { sameChanges } from '@/engine/changeSet'
+import type { ObjectFilter } from '@/engine/queries'
+import type { AssignmentPlan, ObjectsResult, ScopeRef } from '@/engine/store'
+import type { GroupSetMeta } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
 import { useGsiConfig } from '@/hooks/useGsiConfig'
-import {
-    MembershipWriteResult,
-    useMembershipWrite,
-} from '@/hooks/useMembershipWrite'
+import type { MembershipWriteResult } from '@/hooks/useMembershipWrite'
+import { useMembershipWrite } from '@/hooks/useMembershipWrite'
 import { interpolate } from '@/utils/interpolate'
 
 interface Props {
@@ -100,9 +101,8 @@ function rowIsChanged(
     const now = row.groups
         .map((p) => groups[p]?.id)
         .filter((id): id is string => Boolean(id))
-        .slice()
         .sort()
-    const after = afterIdsPrepared(row, groups, prepared).slice().sort()
+    const after = [...afterIdsPrepared(row, groups, prepared)].sort()
     return now.length !== after.length || now.some((id, i) => id !== after[i])
 }
 
@@ -111,6 +111,7 @@ function safeFileName(name: string): string {
     return name.replace(/[\\/:*?"<>|]/g, '_')
 }
 
+// oxlint-disable-next-line complexity -- predates the lint migration; splitting it is a refactor of its own, not part of adopting the linter
 export const BulkFixDialog = ({
     set,
     scope,
@@ -409,6 +410,7 @@ export const BulkFixDialog = ({
             const prepared = prepareChanges(plan.changes)
             let offset = 0
             let total = Infinity
+            /* oxlint-disable no-await-in-loop -- each page's total decides whether there is a next page */
             while (offset < total) {
                 const page = await client.call<ObjectsResult>(
                     'objectsFor',
@@ -439,6 +441,7 @@ export const BulkFixDialog = ({
                 }
                 offset += page.items.length
             }
+            /* oxlint-enable no-await-in-loop */
             const csv = toCsv(rows)
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
             const url = URL.createObjectURL(blob)
@@ -447,7 +450,7 @@ export const BulkFixDialog = ({
             link.download = `${safeFileName(set.displayName)}.csv`
             document.body.appendChild(link)
             link.click()
-            document.body.removeChild(link)
+            link.remove()
             URL.revokeObjectURL(url)
         } catch (e) {
             setCsvError(e instanceof Error ? e.message : String(e))

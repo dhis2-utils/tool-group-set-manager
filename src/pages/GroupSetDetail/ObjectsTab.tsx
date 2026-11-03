@@ -8,9 +8,10 @@ import {
 import React, { useEffect, useRef, useState } from 'react'
 import styles from './GroupSetDetail.module.css'
 import { ObjectsTable } from '@/components/ObjectsTable/ObjectsTable'
-import { ObjectFilter } from '@/engine/queries'
-import { ScopeRef } from '@/engine/store'
-import { GroupSetMeta, Status } from '@/engine/types'
+import type { ObjectFilter } from '@/engine/queries'
+import type { ScopeRef } from '@/engine/store'
+import type { GroupSetMeta } from '@/engine/types'
+import { Status } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 
 interface Props {
@@ -126,6 +127,7 @@ export const ObjectsTab = ({
         // would restart this debounce's timer on every render if a future
         // caller ever passed a fresh function identity instead, which is
         // not what "300ms after the last keystroke" is supposed to mean.
+        // oxlint-disable-next-line react-hooks/exhaustive-deps -- onFilter is deliberately not a dependency (m3 below); the ref carries the current filter
     }, [searchInput])
     const isOrgUnit = set.objectType === 'organisationUnit'
     // `levels` resolves asynchronously and can later narrow (the same

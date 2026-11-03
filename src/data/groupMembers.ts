@@ -1,6 +1,6 @@
 import { ENDPOINTS } from './endpoints'
-import { Fetcher } from './sources/DataSource'
-import { ObjectType } from '@/engine/types'
+import type { Fetcher } from './sources/DataSource'
+import type { ObjectType } from '@/engine/types'
 
 /**
  * The complete current membership of the named groups, read from the

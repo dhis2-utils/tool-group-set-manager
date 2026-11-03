@@ -1,4 +1,5 @@
-import { fetchJson, Fetcher } from './DataSource'
+import type { Fetcher } from './DataSource'
+import { fetchJson } from './DataSource'
 import {
     SQL_VIEW_DEFINITIONS,
     sqlViewLookupPath,
@@ -90,7 +91,7 @@ export async function checkSqlViews(fetcher: Fetcher): Promise<SqlViewCheck[]> {
     )
 }
 
-const CREATE_AUTHORITIES = ['ALL', 'F_SQLVIEW_PUBLIC_ADD']
+const CREATE_AUTHORITIES = new Set(['ALL', 'F_SQLVIEW_PUBLIC_ADD'])
 
 /**
  * D5: whether this user can create SQL views, found out by checking their
@@ -109,7 +110,7 @@ export async function canCreateSqlViews(
             fetcher,
             'me?fields=authorities'
         )
-        return me.authorities.some((a) => CREATE_AUTHORITIES.includes(a))
+        return me.authorities.some((a) => CREATE_AUTHORITIES.has(a))
     } catch {
         return null
     }
@@ -254,6 +255,7 @@ export async function createOrRepairSqlViews(
     const repaired: string[] = []
     const failed: { code: string; message: string }[] = []
 
+    /* oxlint-disable no-await-in-loop -- one view at a time: a view that fails to execute is deleted before the next is created */
     for (const check of checks) {
         if (check.usable) {
             continue
@@ -292,6 +294,7 @@ export async function createOrRepairSqlViews(
             })
         }
     }
+    /* oxlint-enable no-await-in-loop */
 
     return { created, repaired, failed }
 }

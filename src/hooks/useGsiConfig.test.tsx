@@ -6,7 +6,9 @@ jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://localhost:8080', apiVersion: 41 }),
 }))
 
-const mockClientCall = jest.fn<Promise<void>, unknown[]>(async () => undefined)
+const mockClientCall = jest.fn<Promise<void>, unknown[]>(() =>
+    Promise.resolve(undefined)
+)
 // A stable object: the real EngineProvider only replaces `client` when the
 // worker itself is recreated, never on every render, and this hook must not
 // re-push setConfig just because a mock or a parent re-rendered.
@@ -16,14 +18,14 @@ jest.mock('@/hooks/useEngine', () => {
 })
 
 const mockLoadConfig = jest.fn<Promise<unknown>, unknown[]>()
-const mockSaveCatchAllGroup = jest.fn<Promise<void>, unknown[]>(
-    async () => undefined
+const mockSaveCatchAllGroup = jest.fn<Promise<void>, unknown[]>(() =>
+    Promise.resolve(undefined)
 )
-const mockSaveIncludeTracker = jest.fn<Promise<void>, unknown[]>(
-    async () => undefined
+const mockSaveIncludeTracker = jest.fn<Promise<void>, unknown[]>(() =>
+    Promise.resolve(undefined)
 )
-const mockClearCatchAllGroup = jest.fn<Promise<void>, unknown[]>(
-    async () => undefined
+const mockClearCatchAllGroup = jest.fn<Promise<void>, unknown[]>(() =>
+    Promise.resolve(undefined)
 )
 jest.mock('@/data/datastore', () => ({
     loadConfig: (...args: unknown[]) => mockLoadConfig(...args),
@@ -49,7 +51,7 @@ beforeEach(() => {
     mockSaveIncludeTracker.mockClear()
 })
 
-it('loads the config on mount and pushes it into the engine as setConfig', async () => {
+test('loads the config on mount and pushes it into the engine as setConfig', async () => {
     const { result } = renderHook(() => useGsiConfig(), { wrapper: Wrapper })
     await waitFor(() => expect(result.current.isLoaded).toBe(true))
     expect(result.current.config).toEqual(defaultConfig)
@@ -58,7 +60,7 @@ it('loads the config on mount and pushes it into the engine as setConfig', async
     })
 })
 
-it('setIncludeTracker saves and pushes the new value into the engine', async () => {
+test('setIncludeTracker saves and pushes the new value into the engine', async () => {
     const { result } = renderHook(() => useGsiConfig(), { wrapper: Wrapper })
     await waitFor(() => expect(result.current.isLoaded).toBe(true))
     mockClientCall.mockClear()
@@ -73,7 +75,7 @@ it('setIncludeTracker saves and pushes the new value into the engine', async () 
     })
 })
 
-it('setCatchAllGroup saves and updates local config, but never calls the engine (catch-all has no effect on evaluation)', async () => {
+test('setCatchAllGroup saves and updates local config, but never calls the engine (catch-all has no effect on evaluation)', async () => {
     const { result } = renderHook(() => useGsiConfig(), { wrapper: Wrapper })
     await waitFor(() => expect(result.current.isLoaded).toBe(true))
     mockClientCall.mockClear()
@@ -91,7 +93,7 @@ it('setCatchAllGroup saves and updates local config, but never calls the engine 
     expect(mockClientCall).not.toHaveBeenCalled()
 })
 
-it('clearCatchAllGroup drops the entry entirely, so a cleared set reads the same as one that was never configured', async () => {
+test('clearCatchAllGroup drops the entry entirely, so a cleared set reads the same as one that was never configured', async () => {
     const { result } = renderHook(() => useGsiConfig(), { wrapper: Wrapper })
     await waitFor(() => expect(result.current.isLoaded).toBe(true))
     expect(result.current.config.catchAllGroup.setA).toBe('g1')
@@ -109,7 +111,7 @@ it('clearCatchAllGroup drops the entry entirely, so a cleared set reads the same
     expect('setA' in result.current.config.catchAllGroup).toBe(false)
 })
 
-it('throws when used outside the provider', () => {
+test('throws when used outside the provider', () => {
     // Suppress React's expected console.error for this render failure.
     const spy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
     expect(() => renderHook(() => useGsiConfig())).toThrow(

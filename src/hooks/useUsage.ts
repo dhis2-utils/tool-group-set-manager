@@ -1,11 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useMemo } from 'react'
 import { USABLE_SQL_VIEW_TYPES } from '@/data/sources/sqlViewSource'
+import type { SetUsage, UsageListGrid } from '@/data/sources/usageSqlView'
 import {
     parseUsageListGrid,
-    SetUsage,
     usageByGroupSet,
-    UsageListGrid,
     USAGE_SQL_VIEW_CODE,
 } from '@/data/sources/usageSqlView'
 import { useApiDataQuery } from '@/utils/useApiDataQuery'
@@ -80,6 +79,7 @@ export function useUsageRefresh(): () => void {
  * user to install a view that already exists is worse than telling them it
  * is broken.
  */
+// oxlint-disable-next-line complexity -- predates the lint migration; splitting it is a refactor of its own, not part of adopting the linter
 export function useUsage(): UsageState {
     const lookup = useApiDataQuery<LookupResponse>({
         queryKey: LOOKUP_KEY,

@@ -12,8 +12,8 @@ jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://localhost:8080', apiVersion: 41 }),
 }))
 
-const mockCacheRemove = jest.fn(async () => undefined)
-const mockCacheClear = jest.fn(async () => undefined)
+const mockCacheRemove = jest.fn(() => Promise.resolve(undefined))
+const mockCacheClear = jest.fn(() => Promise.resolve(undefined))
 
 interface MockStatus {
     phase: string
@@ -36,16 +36,16 @@ const doneStatus: MockStatus = {
     errors: {},
 }
 
-async function defaultLoadAllImpl({ onStatus }: MockLoadAllDeps) {
+function defaultLoadAllImpl({ onStatus }: MockLoadAllDeps) {
     onStatus(doneStatus)
-    return { groupSets: [{ id: 's1' }] }
+    return Promise.resolve({ groupSets: [{ id: 's1' }] })
 }
 const mockLoadAll = jest.fn(defaultLoadAllImpl)
 
 jest.mock('@/data/loadAll', () => ({
     loadAll: (deps: MockLoadAllDeps) => mockLoadAll(deps),
 }))
-type MockSelectSourceResult = {
+interface MockSelectSourceResult {
     source: { kind: 'sqlView' | 'metadata' }
     sqlViews: {
         orgUnits: string
@@ -54,18 +54,19 @@ type MockSelectSourceResult = {
     } | null
 }
 const mockSelectSource = jest.fn<Promise<MockSelectSourceResult>, unknown[]>(
-    async () => ({
-        source: { kind: 'metadata' },
-        sqlViews: null,
-    })
+    () =>
+        Promise.resolve({
+            source: { kind: 'metadata' },
+            sqlViews: null,
+        })
 )
 jest.mock('@/data/sources/selectSource', () => ({
     selectSource: (...args: unknown[]) => mockSelectSource(...args),
 }))
 jest.mock('@/data/cache', () => ({
     openCache: () => ({
-        get: async () => undefined,
-        put: async () => undefined,
+        get: () => Promise.resolve(undefined),
+        put: () => Promise.resolve(undefined),
         remove: mockCacheRemove,
         clear: mockCacheClear,
     }),
@@ -81,7 +82,7 @@ jest.mock('@/engine/client', () => {
         terminated = false
         call = jest.fn(() => {
             if (this.terminated) {
-                return new Promise(() => undefined)
+                return new Promise(() => {})
             }
             return Promise.resolve(undefined)
         })
@@ -135,13 +136,13 @@ beforeEach(() => {
     mockCacheRemove.mockClear()
     mockCacheClear.mockClear()
     mockSelectSource.mockReset()
-    mockSelectSource.mockImplementation(async () => ({
+    mockSelectSource.mockResolvedValue({
         source: { kind: 'metadata' as const },
         sqlViews: null,
-    }))
+    })
 })
 
-it('invalidateType calls the cache with only the given type', async () => {
+test('invalidateType calls the cache with only the given type', async () => {
     const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
     await act(async () => {
         await result.current.invalidateType('organisationUnit')
@@ -157,7 +158,7 @@ it('invalidateType calls the cache with only the given type', async () => {
 
 // M5: Settings clears the cache through this rather than opening its own
 // second `openCache(baseUrl)` connection.
-it("clearCache clears the engine's own cache", async () => {
+test("clearCache clears the engine's own cache", async () => {
     const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
     await act(async () => {
         await result.current.clearCache()
@@ -165,7 +166,7 @@ it("clearCache clears the engine's own cache", async () => {
     expect(mockCacheClear).toHaveBeenCalledTimes(1)
 })
 
-it('exposes a null client before the creation effect has run, then a live one after', async () => {
+test('exposes a null client before the creation effect has run, then a live one after', async () => {
     const seen: unknown[] = []
     const Capture = () => {
         const { client } = useEngine()
@@ -187,7 +188,7 @@ it('exposes a null client before the creation effect has run, then a live one af
     expect(seen[seen.length - 1]).not.toBeNull()
 })
 
-it('loads on mount and exposes status, group sets and source kind', async () => {
+test('loads on mount and exposes status, group sets and source kind', async () => {
     render(
         <EngineProvider>
             <Probe />
@@ -204,7 +205,7 @@ it('loads on mount and exposes status, group sets and source kind', async () => 
 // itself, not derived from status.phase -- loadAll emits 'done' one render
 // before setGroupSets runs, and it must stay true even when the array it
 // was set alongside is empty.
-it('groupSetsLoaded stays false until the first load actually sets groupSets, then true even for an empty array', async () => {
+test('groupSetsLoaded stays false until the first load actually sets groupSets, then true even for an empty array', async () => {
     let resolveLoad: (() => void) | undefined
     mockLoadAll.mockImplementationOnce(async ({ onStatus }) => {
         await new Promise<void>((resolve) => {
@@ -221,6 +222,7 @@ it('groupSetsLoaded stays false until the first load actually sets groupSets, th
     await act(async () => {
         resolveLoad?.()
         for (let i = 0; i < 5; i++) {
+            // oxlint-disable-next-line no-await-in-loop -- lets the chained continuations run one microtask at a time
             await Promise.resolve()
         }
     })
@@ -229,21 +231,24 @@ it('groupSetsLoaded stays false until the first load actually sets groupSets, th
     expect(result.current.groupSets).toEqual([])
 })
 
-it('D4: reflects a sourceKind loadAll fell back to, not just the one selectSource initially picked', async () => {
-    mockSelectSource.mockImplementation(async () => ({
+test('D4: reflects a sourceKind loadAll fell back to, not just the one selectSource initially picked', async () => {
+    mockSelectSource.mockResolvedValue({
         source: { kind: 'sqlView' as const },
         sqlViews: {
             orgUnits: 'v1',
             orgUnitNames: 'v2',
             orgUnitMemberships: 'v3',
         },
-    }))
-    mockLoadAll.mockImplementationOnce(async ({ onStatus }) => {
+    })
+    mockLoadAll.mockImplementationOnce(({ onStatus }) => {
         onStatus(doneStatus)
         // Simulates loadAll's own D4 fallback: it started against the
         // sqlView source selectSource picked, but a read failed and it
         // finished the load against the metadata source instead.
-        return { groupSets: [{ id: 's1' }], sourceKind: 'metadata' as const }
+        return Promise.resolve({
+            groupSets: [{ id: 's1' }],
+            sourceKind: 'metadata' as const,
+        })
     })
     render(
         <EngineProvider>
@@ -254,7 +259,7 @@ it('D4: reflects a sourceKind loadAll fell back to, not just the one selectSourc
     expect(screen.getByText('metadata')).toBeInTheDocument()
 })
 
-it('unmount terminates the client exactly once', async () => {
+test('unmount terminates the client exactly once', async () => {
     const { result, unmount } = renderHook(() => useEngine(), {
         wrapper: Wrapper,
     })
@@ -264,7 +269,7 @@ it('unmount terminates the client exactly once', async () => {
     expect(client.terminate).toHaveBeenCalledTimes(1)
 })
 
-it('reload(true) resets the engine before loadAll runs', async () => {
+test('reload(true) resets the engine before loadAll runs', async () => {
     const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
     await waitFor(() => expect(result.current.status?.phase).toBe('done'))
 
@@ -276,10 +281,10 @@ it('reload(true) resets the engine before loadAll runs', async () => {
         }
         return Promise.resolve(undefined)
     })
-    mockLoadAll.mockImplementationOnce(async ({ onStatus }) => {
+    mockLoadAll.mockImplementationOnce(({ onStatus }) => {
         order.push('loadAll')
         onStatus(doneStatus)
-        return { groupSets: [] }
+        return Promise.resolve({ groupSets: [] })
     })
 
     await act(async () => {
@@ -289,7 +294,7 @@ it('reload(true) resets the engine before loadAll runs', async () => {
     expect(order).toEqual(['reset', 'loadAll'])
 })
 
-it('a whole-load failure sets error', async () => {
+test('a whole-load failure sets error', async () => {
     mockLoadAll.mockRejectedValueOnce(new Error('group sets request failed'))
     const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
     await waitFor(() =>
@@ -297,8 +302,8 @@ it('a whole-load failure sets error', async () => {
     )
 })
 
-it('a per-type failure arrives in status.errors and does not set error', async () => {
-    mockLoadAll.mockImplementationOnce(async ({ onStatus }) => {
+test('a per-type failure arrives in status.errors and does not set error', async () => {
+    mockLoadAll.mockImplementationOnce(({ onStatus }) => {
         onStatus({
             phase: 'done',
             type: null,
@@ -306,7 +311,7 @@ it('a per-type failure arrives in status.errors and does not set error', async (
             fromCache: {},
             errors: { organisationUnit: 'organisationUnits request failed' },
         })
-        return { groupSets: [] }
+        return Promise.resolve({ groupSets: [] })
     })
     const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
     await waitFor(() =>
@@ -317,7 +322,7 @@ it('a per-type failure arrives in status.errors and does not set error', async (
     expect(result.current.error).toBeNull()
 })
 
-it('a remount after an unmount produces a working client rather than a dead one', async () => {
+test('a remount after an unmount produces a working client rather than a dead one', async () => {
     const StrictWrapper = ({ children }: { children: React.ReactNode }) => (
         <React.StrictMode>
             <EngineProvider>{children}</EngineProvider>
@@ -350,7 +355,7 @@ it('a remount after an unmount produces a working client rather than a dead one'
     expect(result.current.error).toBeNull()
 }, 3000)
 
-it('a forced reload supersedes an in-flight non-forced one, and a late-arriving stale result cannot overwrite it', async () => {
+test('a forced reload supersedes an in-flight non-forced one, and a late-arriving stale result cannot overwrite it', async () => {
     let resolveFirst: (() => void) | undefined
     mockLoadAll.mockImplementationOnce(async ({ onStatus }) => {
         await new Promise<void>((resolve) => {
@@ -370,9 +375,9 @@ it('a forced reload supersedes an in-flight non-forced one, and a late-arriving 
     // Let the mount-triggered reload(false) start and block inside loadAll.
     await waitFor(() => expect(mockLoadAll).toHaveBeenCalledTimes(1))
 
-    mockLoadAll.mockImplementationOnce(async ({ onStatus }) => {
+    mockLoadAll.mockImplementationOnce(({ onStatus }) => {
         onStatus(doneStatus)
-        return { groupSets: [{ id: 'fresh' }] }
+        return Promise.resolve({ groupSets: [{ id: 'fresh' }] })
     })
     // The forced reload runs and completes fully while the first (stale)
     // call is still blocked -- this is the user explicitly asking for fresh
@@ -387,6 +392,7 @@ it('a forced reload supersedes an in-flight non-forced one, and a late-arriving 
     await act(async () => {
         resolveFirst?.()
         for (let i = 0; i < 5; i++) {
+            // oxlint-disable-next-line no-await-in-loop -- lets the chained continuations run one microtask at a time
             await Promise.resolve()
         }
     })
@@ -395,7 +401,7 @@ it('a forced reload supersedes an in-flight non-forced one, and a late-arriving 
     expect(result.current.status?.errors.organisationUnit).toBeUndefined()
 })
 
-it('an unmount during an in-flight load abandons it rather than driving a terminated worker', async () => {
+test('an unmount during an in-flight load abandons it rather than driving a terminated worker', async () => {
     let resolveSource: ((r: MockSelectSourceResult) => void) | undefined
     mockSelectSource.mockImplementationOnce(
         () =>
@@ -413,6 +419,7 @@ it('an unmount during an in-flight load abandons it rather than driving a termin
     await act(async () => {
         resolveSource?.({ source: { kind: 'metadata' }, sqlViews: null })
         for (let i = 0; i < 5; i++) {
+            // oxlint-disable-next-line no-await-in-loop -- lets the chained continuations run one microtask at a time
             await Promise.resolve()
         }
     })

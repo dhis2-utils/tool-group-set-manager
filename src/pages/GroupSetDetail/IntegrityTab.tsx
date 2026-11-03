@@ -5,9 +5,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styles from './IntegrityTab.module.css'
 import { IntegrityLine } from '@/components/IntegrityLine/IntegrityLine'
 import { createFetcher } from '@/data/fetcher'
-import { CheckIssue, LogicalCheck, readDetails } from '@/data/integrity'
-import { DashboardEntry, ObjectsResult, ScopeRef } from '@/engine/store'
-import { GroupSetMeta, Status } from '@/engine/types'
+import type { CheckIssue, LogicalCheck } from '@/data/integrity'
+import { readDetails } from '@/data/integrity'
+import type { DashboardEntry, ObjectsResult, ScopeRef } from '@/engine/store'
+import type { GroupSetMeta } from '@/engine/types'
+import { Status } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
 import { useIntegrity } from '@/hooks/useIntegrity'
@@ -287,11 +289,11 @@ export const IntegrityTab = ({ set, scope }: Props) => {
                 name: c.name,
                 issues: detailsByCheck[c.name]?.issues ?? null,
             }))
-            const allIds = Array.from(
-                new Set(
+            const allIds = [
+                ...new Set(
                     perCheck.flatMap((p) => p.issues ?? []).map((i) => i.id)
-                )
-            )
+                ),
+            ]
             if (allIds.length === 0) {
                 const empty: Record<string, ScopedResult> = {}
                 perCheck.forEach((p) => {
@@ -354,6 +356,7 @@ export const IntegrityTab = ({ set, scope }: Props) => {
         // Deliberately keyed on the check *names* (a stable string), not the
         // `relevantChecks`/`checkNames` array identities, which are fresh on
         // every render.
+        // oxlint-disable-next-line react-hooks/exhaustive-deps -- keyed on the check names string, not the fresh-per-render arrays, and on hasClient, not the client object; see the comments above
     }, [
         checkNamesKey,
         scope.objectType,

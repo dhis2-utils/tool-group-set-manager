@@ -51,7 +51,7 @@ const renderTab = () =>
         />
     )
 
-it('keeps the matrix on screen while the same query is re-run during a load', () => {
+test('keeps the matrix on screen while the same query is re-run during a load', () => {
     // `useEngineQuery` re-runs on every engine load phase and type change,
     // flagging isLoading while keeping the data for those same arguments.
     // Checking isLoading first would swap the whole matrix for a spinner on
@@ -66,7 +66,7 @@ it('keeps the matrix on screen while the same query is re-run during a load', ()
     expect(screen.getByText('12')).toBeInTheDocument()
 })
 
-it('shows the loader, not stale numbers, when the arguments change', () => {
+test('shows the loader, not stale numbers, when the arguments change', () => {
     // The hook masks a result belonging to different arguments, so a scope
     // or row level change arrives here as "no data yet".
     mockUseEngineQuery.mockReturnValue({

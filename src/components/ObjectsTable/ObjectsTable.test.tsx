@@ -5,6 +5,7 @@ import {
     isAwaitedPage,
     ObjectsTable,
 } from './ObjectsTable'
+import { actAndFlush } from '@/testing/actAndFlush'
 
 // babel-plugin-jest-hoist only allows a jest.mock() factory to reference
 // out-of-scope variables whose names start with "mock" (see the matching
@@ -143,7 +144,7 @@ function createControllableEngineQuery() {
             return () => {
                 cancelled = true
             }
-        }, [key, epoch, enabled])
+        }, [method, key, epoch, enabled])
         // Mirrors the real hook's own masking (see the comment on its
         // `useMemo` return in src/hooks/useEngineQuery.ts): a result for
         // arguments no longer being asked about must never reach the
@@ -201,7 +202,7 @@ function createControllableEngineQuery() {
         entry.resolve(parents)
     }
     const rerun = () => {
-        epochSetters.forEach((set) => set((e) => e + 1))
+        epochSetters.forEach((setEpoch) => setEpoch((e) => e + 1))
     }
     return { useFakeQuery, resolve, reject, resolveParentsFor, rerun, requests }
 }
@@ -297,7 +298,7 @@ beforeEach(() => {
     })
 })
 
-it('renders rows with status and membership', async () => {
+test('renders rows with status and membership', async () => {
     const items = Array.from({ length: 3 }, (_, i) => ({
         index: i,
         id: `ou${i}`,
@@ -316,7 +317,7 @@ it('renders rows with status and membership', async () => {
     expect(screen.getByText(/3 objects/)).toBeInTheDocument()
 })
 
-it('pages by offset and appends, never re-requesting the rows it already has', async () => {
+test('pages by offset and appends, never re-requesting the rows it already has', async () => {
     const { useFakeQuery, resolve, resolveParentsFor } =
         createControllableEngineQuery()
     mockUseEngineQuery.mockImplementation(useFakeQuery)
@@ -328,10 +329,10 @@ it('pages by offset and appends, never re-requesting the rows it already has', a
     expect(firstPageArgs[4]).toBe(200)
 
     const firstPageItems = makeItems(200)
-    await act(async () => {
+    await actAndFlush(() => {
         resolve(firstPageArgs, { total: 1000, items: firstPageItems })
     })
-    await act(async () => {
+    await actAndFlush(() => {
         resolveParentsFor(firstPageItems)
     })
 
@@ -356,15 +357,15 @@ it('pages by offset and appends, never re-requesting the rows it already has', a
 
     const secondPageArgs = callsFor('objectsFor').find(
         (c) => (c[1] as unknown[])[3] === 200
-    )![1] as unknown[]
+    )?.[1] as unknown[]
     const secondPageItems = makeItems(200, { offset: 200 })
-    await act(async () => {
+    await actAndFlush(() => {
         resolve(secondPageArgs, {
             total: 1000,
             items: secondPageItems,
         })
     })
-    await act(async () => {
+    await actAndFlush(() => {
         resolveParentsFor(secondPageItems)
     })
 
@@ -386,7 +387,7 @@ it('pages by offset and appends, never re-requesting the rows it already has', a
     expect(pageRequests()).toEqual(['0/200', '200/200', '400/200'])
 })
 
-it('keeps the rows already loaded when a later page fails, and Try again re-requests that page', async () => {
+test('keeps the rows already loaded when a later page fails, and Try again re-requests that page', async () => {
     const { useFakeQuery, resolve, reject, resolveParentsFor, requests } =
         createControllableEngineQuery()
     mockUseEngineQuery.mockImplementation(useFakeQuery)
@@ -394,10 +395,10 @@ it('keeps the rows already loaded when a later page fails, and Try again re-requ
     render(<ObjectsTable set={set} scope={scope} filter={{}} />)
     const firstPageArgs = lastCallArgs()
     const firstPageItems = makeItems(200)
-    await act(async () => {
+    await actAndFlush(() => {
         resolve(firstPageArgs, { total: 1000, items: firstPageItems })
     })
-    await act(async () => {
+    await actAndFlush(() => {
         resolveParentsFor(firstPageItems)
     })
 
@@ -408,7 +409,7 @@ it('keeps the rows already loaded when a later page fails, and Try again re-requ
     })
     await waitFor(() => expect(lastCallArgs()[3]).toBe(200))
     const secondPageArgs = lastCallArgs()
-    await act(async () => {
+    await actAndFlush(() => {
         reject(secondPageArgs, 'worker went away')
     })
 
@@ -428,10 +429,10 @@ it('keeps the rows already loaded when a later page fails, and Try again re-requ
     await waitFor(() => expect(objectsRequests()).toBe(before + 1))
 
     const secondPageItems = makeItems(200, { offset: 200 })
-    await act(async () => {
+    await actAndFlush(() => {
         resolve(secondPageArgs, { total: 1000, items: secondPageItems })
     })
-    await act(async () => {
+    await actAndFlush(() => {
         resolveParentsFor(secondPageItems)
     })
     expect(screen.queryByText('worker went away')).not.toBeInTheDocument()
@@ -444,11 +445,11 @@ it('keeps the rows already loaded when a later page fails, and Try again re-requ
     )
 })
 
-it('offers Try again in place of the loader when the very first page fails', async () => {
+test('offers Try again in place of the loader when the very first page fails', async () => {
     const { useFakeQuery, reject, requests } = createControllableEngineQuery()
     mockUseEngineQuery.mockImplementation(useFakeQuery)
     render(<ObjectsTable set={set} scope={scope} filter={{}} />)
-    await act(async () => {
+    await actAndFlush(() => {
         reject(lastCallArgs(), 'worker went away')
     })
     expect(screen.getByText('worker went away')).toBeInTheDocument()
@@ -461,7 +462,7 @@ it('offers Try again in place of the loader when the very first page fails', asy
     )
 })
 
-it('sends a text filter to the engine and renders a match that was never loaded before', async () => {
+test('sends a text filter to the engine and renders a match that was never loaded before', async () => {
     // The whole point of this task: search is a predicate the engine
     // applies to the entire population, not a client-side filter over
     // whatever pages happened to be in memory. Proof of that has to be a
@@ -476,10 +477,10 @@ it('sends a text filter to the engine and renders a match that was never loaded 
     )
     const firstPageArgs = lastCallArgs()
     const firstPageItems = makeItems(200)
-    await act(async () => {
+    await actAndFlush(() => {
         resolve(firstPageArgs, { total: 100000, items: firstPageItems })
     })
-    await act(async () => {
+    await actAndFlush(() => {
         resolveParentsFor(firstPageItems)
     })
     expect(screen.getByText('Item 5')).toBeInTheDocument()
@@ -506,10 +507,10 @@ it('sends a text filter to the engine and renders a match that was never loaded 
             groups: [0],
         },
     ]
-    await act(async () => {
+    await actAndFlush(() => {
         resolve(lastCallArgs(), { total: 1, items: matchItems })
     })
-    await act(async () => {
+    await actAndFlush(() => {
         resolveParentsFor(matchItems)
     })
     expect(screen.getByText('Beyond Match')).toBeInTheDocument()
@@ -519,7 +520,7 @@ it('sends a text filter to the engine and renders a match that was never loaded 
     expect(screen.queryByText('Item 5')).not.toBeInTheDocument()
 })
 
-it('resets paging to the first page when the filter changes', async () => {
+test('resets paging to the first page when the filter changes', async () => {
     const { useFakeQuery, resolve, resolveParentsFor } =
         createControllableEngineQuery()
     mockUseEngineQuery.mockImplementation(useFakeQuery)
@@ -529,10 +530,10 @@ it('resets paging to the first page when the filter changes', async () => {
     )
     const firstPageArgs = lastCallArgs()
     const firstPageItems = makeItems(200)
-    await act(async () => {
+    await actAndFlush(() => {
         resolve(firstPageArgs, { total: 1000, items: firstPageItems })
     })
-    await act(async () => {
+    await actAndFlush(() => {
         resolveParentsFor(firstPageItems)
     })
 
@@ -550,7 +551,7 @@ it('resets paging to the first page when the filter changes', async () => {
     expect(screen.queryByText('Item 0')).not.toBeInTheDocument()
 })
 
-it('does not let a slow response for the previous filter land once a new filter has been requested', async () => {
+test('does not let a slow response for the previous filter land once a new filter has been requested', async () => {
     const { useFakeQuery, resolve, resolveParentsFor } =
         createControllableEngineQuery()
     mockUseEngineQuery.mockImplementation(useFakeQuery)
@@ -571,7 +572,7 @@ it('does not let a slow response for the previous filter land once a new filter 
     // reads any more -- `data` never becomes this result, and no matching
     // `resolveParents` request is ever made for it.
     const staleItems = makeItems(1, { label: 'STALE-SHOULD-NOT-APPEAR' })
-    await act(async () => {
+    await actAndFlush(() => {
         resolve(staleArgs, { total: 1, items: staleItems })
     })
     expect(
@@ -580,16 +581,16 @@ it('does not let a slow response for the previous filter land once a new filter 
 
     // The new request resolves, and its rows are what actually show.
     const freshItems = makeItems(1, { label: 'Fresh' })
-    await act(async () => {
+    await actAndFlush(() => {
         resolve(freshArgs, { total: 1, items: freshItems })
     })
-    await act(async () => {
+    await actAndFlush(() => {
         resolveParentsFor(freshItems)
     })
     expect(screen.getByText('Fresh 0')).toBeInTheDocument()
 })
 
-it('ignores a repeat of the page it already holds, however often the request is re-issued', async () => {
+test('ignores a repeat of the page it already holds, however often the request is re-issued', async () => {
     // `useEngineQuery` re-issues the identical request whenever the engine's
     // load phase or type changes -- pressing Reload with this tab open fires
     // several in a row -- and each re-issue resolves to a fresh result
@@ -603,25 +604,27 @@ it('ignores a repeat of the page it already holds, however often the request is 
     render(<ObjectsTable set={set} scope={scope} filter={{}} />)
     const firstPageArgs = lastCallArgs()
     const items = makeItems(200)
-    await act(async () => {
+    await actAndFlush(() => {
         resolve(firstPageArgs, { total: 1000, items })
     })
-    await act(async () => {
+    await actAndFlush(() => {
         resolveParentsFor(items)
     })
 
     // Two more phase changes, each re-requesting and re-resolving offset 0.
+    /* oxlint-disable no-await-in-loop -- each round re-requests and resolves the page before the next */
     for (let i = 0; i < 2; i++) {
         act(() => {
             rerun()
         })
-        await act(async () => {
+        await actAndFlush(() => {
             resolve(firstPageArgs, { total: 1000, items })
         })
-        await act(async () => {
+        await actAndFlush(() => {
             resolveParentsFor(items)
         })
     }
+    /* oxlint-enable no-await-in-loop */
 
     expect(screen.getAllByText('Item 5')).toHaveLength(1)
     expect(pageRequests()).toEqual(['0/200'])
@@ -667,10 +670,10 @@ describe('parent column', () => {
         render(<ObjectsTable set={set} scope={scope} filter={{}} />)
         const firstPageArgs = lastCallArgs()
         const items = makeItems(200)
-        await act(async () => {
+        await actAndFlush(() => {
             resolve(firstPageArgs, { total: 1000, items })
         })
-        await act(async () => {
+        await actAndFlush(() => {
             resolveParentsFor(items)
         })
         await waitFor(() =>
@@ -883,7 +886,7 @@ describe('interactive membership control', () => {
         ).not.toBeInTheDocument()
 
         // The write fails outright (nothing confirmed).
-        await act(async () => {
+        await actAndFlush(() => {
             resolveWrite({
                 outcomes: [
                     {
@@ -950,7 +953,7 @@ describe('interactive membership control', () => {
         fireEvent.click(buttons[3])
         expect(screen.getByText('Confirm group change')).toBeInTheDocument()
 
-        await act(async () => {
+        await actAndFlush(() => {
             resolveWrite({
                 outcomes: [{ groupId: 'a', requested: 1, accepted: 1 }],
                 applied: [{ groupId: 'a', additions: [], deletions: ['o1'] }],
@@ -1032,7 +1035,7 @@ describe('interactive membership control', () => {
             mockWrite.mockRejectedValue(new Error('cache blew up'))
             renderWithRows([conflictRow])
             fireEvent.click(screen.getAllByRole('button')[1])
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByText('Assign'))
             })
 
@@ -1066,7 +1069,7 @@ describe('interactive membership control', () => {
             })
             renderWithRows([conflictRow])
             fireEvent.click(screen.getAllByRole('button')[1])
-            await act(async () => {
+            await actAndFlush(() => {
                 fireEvent.click(screen.getByText('Assign'))
             })
 
@@ -1134,7 +1137,11 @@ describe('isAwaitedPage: the append effect only folds in the page its list is wa
     it('rejects a page whose offset is not the one this list is waiting for', () => {
         expect(
             isAwaitedPage(
-                { key: 'k', offset: 200, rows: Array(200).fill({}) },
+                {
+                    key: 'k',
+                    offset: 200,
+                    rows: Array.from({ length: 200 }, () => ({})) as never,
+                },
                 'k',
                 0
             )

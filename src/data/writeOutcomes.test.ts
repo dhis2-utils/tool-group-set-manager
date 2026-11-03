@@ -1,5 +1,6 @@
 import { aggregateOutcomes, mergeOutcomes, outcomeText } from './writeOutcomes'
-import { BatchOutcome, UNPARSEABLE_RESPONSE } from './writes'
+import type { BatchOutcome } from './writes'
+import { UNPARSEABLE_RESPONSE } from './writes'
 
 const batch = (
     o: Partial<BatchOutcome> & { groupId: string }

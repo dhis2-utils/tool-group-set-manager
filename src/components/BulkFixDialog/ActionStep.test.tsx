@@ -53,14 +53,14 @@ beforeEach(() => {
     }
 })
 
-it('labels the target as the catch-all group or the target group by action', () => {
+test('labels the target as the catch-all group or the target group by action', () => {
     const { rerender } = render(<ActionStep {...base} />)
     expect(screen.getByText('Catch-all group')).toBeInTheDocument()
     rerender(<ActionStep {...base} action="assignAll" />)
     expect(screen.getByText('Target group')).toBeInTheDocument()
 })
 
-it('offers to create a group only when asked to', () => {
+test('offers to create a group only when asked to', () => {
     const { rerender } = render(<ActionStep {...base} />)
     expect(
         screen.queryByRole('button', { name: 'Create group' })
@@ -70,7 +70,7 @@ it('offers to create a group only when asked to', () => {
     expect(catchAll.create).toHaveBeenCalledTimes(1)
 })
 
-it('shows the create error as its own notice', () => {
+test('shows the create error as its own notice', () => {
     render(
         <ActionStep
             {...base}

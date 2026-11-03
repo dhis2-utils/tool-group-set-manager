@@ -1,4 +1,4 @@
-import { Fetcher } from './sources/DataSource'
+import type { Fetcher } from './sources/DataSource'
 
 export function createFetcher(baseUrl: string, apiVersion: number): Fetcher {
     const root = baseUrl.replace(/\/$/, '')

@@ -1,11 +1,12 @@
-import { fetchJson, Fetcher } from './DataSource'
+import type { Fetcher } from './DataSource'
+import { fetchJson } from './DataSource'
 import { shareViewPublicly, SQL_VIEW_PUBLIC_SHARING } from './sqlViewAdmin'
 import { sqlViewLookupPath, USABLE_SQL_VIEW_TYPES } from './sqlViewSource'
+import type { UsageSqlCandidate } from './usageSqlView'
 import {
     USAGE_SQL_CANDIDATES,
     USAGE_SQL_VIEW_CODE,
     USAGE_SQL_VIEW_NAME,
-    UsageSqlCandidate,
 } from './usageSqlView'
 
 interface SqlViewRow {
@@ -186,6 +187,7 @@ export async function installUsageView(
         }
     }
 
+    /* oxlint-disable no-await-in-loop -- candidates are tried in order and the first that works ends the loop */
     for (const candidate of candidates) {
         let id: string | null = null
         try {
@@ -205,6 +207,7 @@ export async function installUsageView(
             })
         }
     }
+    /* oxlint-enable no-await-in-loop */
 
     return { installed: false, variant: null, failures }
 }

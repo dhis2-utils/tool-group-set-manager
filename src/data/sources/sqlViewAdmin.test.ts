@@ -1,8 +1,8 @@
+import type { SqlViewCheck } from './sqlViewAdmin'
 import {
     canCreateSqlViews,
     checkSqlViews,
     createOrRepairSqlViews,
-    SqlViewCheck,
 } from './sqlViewAdmin'
 import { SQL_VIEW_CODES } from './sqlViewSource'
 
@@ -11,24 +11,26 @@ const jsonResponse = (body: unknown, status = 200) =>
 
 describe('checkSqlViews', () => {
     it('reports each of the three views as missing when the server has none', async () => {
-        const fetcher = async () => jsonResponse({ sqlViews: [] })
+        const fetcher = () => Promise.resolve(jsonResponse({ sqlViews: [] }))
         const checks = await checkSqlViews(fetcher)
         expect(checks).toHaveLength(3)
         expect(checks.every((c) => c.id === null && !c.usable)).toBe(true)
     })
 
     it('reports a view as usable only when its code, type and read access all check out', async () => {
-        const fetcher = async () =>
-            jsonResponse({
-                sqlViews: [
-                    {
-                        id: 'v1',
-                        code: SQL_VIEW_CODES.orgUnits,
-                        type: 'VIEW',
-                        access: { data: { read: true } },
-                    },
-                ],
-            })
+        const fetcher = () =>
+            Promise.resolve(
+                jsonResponse({
+                    sqlViews: [
+                        {
+                            id: 'v1',
+                            code: SQL_VIEW_CODES.orgUnits,
+                            type: 'VIEW',
+                            access: { data: { read: true } },
+                        },
+                    ],
+                })
+            )
         const checks = await checkSqlViews(fetcher)
         const orgUnits = checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)
         expect(orgUnits?.usable).toBe(true)
@@ -36,17 +38,19 @@ describe('checkSqlViews', () => {
     })
 
     it('reports an existing view with no read access as not usable', async () => {
-        const fetcher = async () =>
-            jsonResponse({
-                sqlViews: [
-                    {
-                        id: 'v1',
-                        code: SQL_VIEW_CODES.orgUnits,
-                        type: 'VIEW',
-                        access: { data: { read: false } },
-                    },
-                ],
-            })
+        const fetcher = () =>
+            Promise.resolve(
+                jsonResponse({
+                    sqlViews: [
+                        {
+                            id: 'v1',
+                            code: SQL_VIEW_CODES.orgUnits,
+                            type: 'VIEW',
+                            access: { data: { read: false } },
+                        },
+                    ],
+                })
+            )
         const checks = await checkSqlViews(fetcher)
         const orgUnits = checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)
         expect(orgUnits?.id).toBe('v1')
@@ -54,80 +58,9 @@ describe('checkSqlViews', () => {
     })
 
     it('reports a materialized view as not usable', async () => {
-        const fetcher = async () =>
-            jsonResponse({
-                sqlViews: [
-                    {
-                        id: 'v1',
-                        code: SQL_VIEW_CODES.orgUnits,
-                        type: 'MATERIALIZED_VIEW',
-                        access: { data: { read: true } },
-                    },
-                ],
-            })
-        const checks = await checkSqlViews(fetcher)
-        const orgUnits = checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)
-        expect(orgUnits?.usable).toBe(false)
-    })
-
-    // C1: metadata alone cannot tell an executed view from an orphaned one
-    // (a failed create-then-execute, or a view someone else created and
-    // never ran) -- both pass every metadata field checked above.
-    it('treats a metadata-eligible view as not usable when its data cannot actually be read (an orphaned, never-executed view)', async () => {
-        const fetcher = async (path: string) => {
-            if (path.startsWith('sqlViews?')) {
-                return jsonResponse({
-                    sqlViews: [
-                        {
-                            id: 'v1',
-                            code: SQL_VIEW_CODES.orgUnits,
-                            type: 'VIEW',
-                            access: { data: { read: true } },
-                        },
-                    ],
-                })
-            }
-            if (path.includes('/data.csv')) {
-                return new Response('<html>500</html>', { status: 500 })
-            }
-            throw new Error(`unexpected call ${path}`)
-        }
-        const checks = await checkSqlViews(fetcher)
-        const orgUnits = checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)
-        expect(orgUnits?.id).toBe('v1')
-        expect(orgUnits?.usable).toBe(false)
-    })
-
-    it('treats a metadata-eligible view as usable when its data can actually be read', async () => {
-        const fetcher = async (path: string) => {
-            if (path.startsWith('sqlViews?')) {
-                return jsonResponse({
-                    sqlViews: [
-                        {
-                            id: 'v1',
-                            code: SQL_VIEW_CODES.orgUnits,
-                            type: 'VIEW',
-                            access: { data: { read: true } },
-                        },
-                    ],
-                })
-            }
-            if (path.includes('/data.csv')) {
-                return new Response('uid\nabc', { status: 200 })
-            }
-            throw new Error(`unexpected call ${path}`)
-        }
-        const checks = await checkSqlViews(fetcher)
-        const orgUnits = checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)
-        expect(orgUnits?.usable).toBe(true)
-    })
-
-    it('does not probe a view that already fails the metadata bar', async () => {
-        const calls: string[] = []
-        const fetcher = async (path: string) => {
-            calls.push(path)
-            if (path.startsWith('sqlViews?')) {
-                return jsonResponse({
+        const fetcher = () =>
+            Promise.resolve(
+                jsonResponse({
                     sqlViews: [
                         {
                             id: 'v1',
@@ -137,8 +70,91 @@ describe('checkSqlViews', () => {
                         },
                     ],
                 })
+            )
+        const checks = await checkSqlViews(fetcher)
+        const orgUnits = checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)
+        expect(orgUnits?.usable).toBe(false)
+    })
+
+    // C1: metadata alone cannot tell an executed view from an orphaned one
+    // (a failed create-then-execute, or a view someone else created and
+    // never ran) -- both pass every metadata field checked above.
+    it('treats a metadata-eligible view as not usable when its data cannot actually be read (an orphaned, never-executed view)', async () => {
+        const fetcher = (path: string) => {
+            if (path.startsWith('sqlViews?')) {
+                return Promise.resolve(
+                    jsonResponse({
+                        sqlViews: [
+                            {
+                                id: 'v1',
+                                code: SQL_VIEW_CODES.orgUnits,
+                                type: 'VIEW',
+                                access: { data: { read: true } },
+                            },
+                        ],
+                    })
+                )
             }
-            throw new Error(`unexpected call ${path}`)
+            if (path.includes('/data.csv')) {
+                return Promise.resolve(
+                    new Response('<html>500</html>', { status: 500 })
+                )
+            }
+            return Promise.reject(new Error(`unexpected call ${path}`))
+        }
+        const checks = await checkSqlViews(fetcher)
+        const orgUnits = checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)
+        expect(orgUnits?.id).toBe('v1')
+        expect(orgUnits?.usable).toBe(false)
+    })
+
+    it('treats a metadata-eligible view as usable when its data can actually be read', async () => {
+        const fetcher = (path: string) => {
+            if (path.startsWith('sqlViews?')) {
+                return Promise.resolve(
+                    jsonResponse({
+                        sqlViews: [
+                            {
+                                id: 'v1',
+                                code: SQL_VIEW_CODES.orgUnits,
+                                type: 'VIEW',
+                                access: { data: { read: true } },
+                            },
+                        ],
+                    })
+                )
+            }
+            if (path.includes('/data.csv')) {
+                return Promise.resolve(
+                    new Response('uid\nabc', { status: 200 })
+                )
+            }
+            return Promise.reject(new Error(`unexpected call ${path}`))
+        }
+        const checks = await checkSqlViews(fetcher)
+        const orgUnits = checks.find((c) => c.code === SQL_VIEW_CODES.orgUnits)
+        expect(orgUnits?.usable).toBe(true)
+    })
+
+    it('does not probe a view that already fails the metadata bar', async () => {
+        const calls: string[] = []
+        const fetcher = (path: string) => {
+            calls.push(path)
+            if (path.startsWith('sqlViews?')) {
+                return Promise.resolve(
+                    jsonResponse({
+                        sqlViews: [
+                            {
+                                id: 'v1',
+                                code: SQL_VIEW_CODES.orgUnits,
+                                type: 'MATERIALIZED_VIEW',
+                                access: { data: { read: true } },
+                            },
+                        ],
+                    })
+                )
+            }
+            return Promise.reject(new Error(`unexpected call ${path}`))
         }
         const checks = await checkSqlViews(fetcher)
         expect(
@@ -150,25 +166,28 @@ describe('checkSqlViews', () => {
 
 describe('canCreateSqlViews', () => {
     it('returns true for a superuser (ALL authority)', async () => {
-        const fetcher = async () => jsonResponse({ authorities: ['ALL'] })
+        const fetcher = () =>
+            Promise.resolve(jsonResponse({ authorities: ['ALL'] }))
         expect(await canCreateSqlViews(fetcher)).toBe(true)
     })
 
     it('returns true for a user with the specific SQL view create authority', async () => {
-        const fetcher = async () =>
-            jsonResponse({ authorities: ['F_SQLVIEW_PUBLIC_ADD'] })
+        const fetcher = () =>
+            Promise.resolve(
+                jsonResponse({ authorities: ['F_SQLVIEW_PUBLIC_ADD'] })
+            )
         expect(await canCreateSqlViews(fetcher)).toBe(true)
     })
 
     it('returns false for a user with neither authority', async () => {
-        const fetcher = async () =>
-            jsonResponse({ authorities: ['F_SOMETHING_ELSE'] })
+        const fetcher = () =>
+            Promise.resolve(jsonResponse({ authorities: ['F_SOMETHING_ELSE'] }))
         expect(await canCreateSqlViews(fetcher)).toBe(false)
     })
 
     it('returns null (unknown) when the authority check itself fails', async () => {
-        const fetcher = async () => {
-            throw new Error('network down')
+        const fetcher = () => {
+            return Promise.reject(new Error('network down'))
         }
         expect(await canCreateSqlViews(fetcher)).toBeNull()
     })
@@ -204,9 +223,9 @@ describe('createOrRepairSqlViews', () => {
 
     it('skips a view that is already usable', async () => {
         const calls: string[] = []
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             calls.push(path)
-            return jsonResponse({})
+            return Promise.resolve(jsonResponse({}))
         }
         const checks: SqlViewCheck[] = [
             {
@@ -225,15 +244,17 @@ describe('createOrRepairSqlViews', () => {
 
     it('creates then executes a missing view, in that order, and reports it as created', async () => {
         const calls: { path: string; method?: string }[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push({ path, method: init?.method })
             if (init?.method === 'POST' && path === 'sqlViews') {
-                return jsonResponse({ response: { uid: 'newId1' } }, 201)
+                return Promise.resolve(
+                    jsonResponse({ response: { uid: 'newId1' } }, 201)
+                )
             }
             if (init?.method === 'POST' && path === 'sqlViews/newId1/execute') {
-                return jsonResponse({ status: 'OK' }, 201)
+                return Promise.resolve(jsonResponse({ status: 'OK' }, 201))
             }
-            throw new Error(`unexpected call ${path}`)
+            return Promise.reject(new Error(`unexpected call ${path}`))
         }
         const result = await createOrRepairSqlViews(fetcher, [
             missingChecks()[0],
@@ -255,12 +276,14 @@ describe('createOrRepairSqlViews', () => {
     // data for a fortnight without asking again.
     it('sends NO_CACHE as the created view cacheStrategy', async () => {
         let body: Record<string, unknown> | undefined
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             if (init?.method === 'POST' && path === 'sqlViews') {
                 body = JSON.parse(String(init.body))
-                return jsonResponse({ response: { uid: 'newId1' } }, 201)
+                return Promise.resolve(
+                    jsonResponse({ response: { uid: 'newId1' } }, 201)
+                )
             }
-            return jsonResponse({ status: 'OK' }, 201)
+            return Promise.resolve(jsonResponse({ status: 'OK' }, 201))
         }
         await createOrRepairSqlViews(fetcher, [missingChecks()[0]])
         expect(body).toMatchObject({ cacheStrategy: 'NO_CACHE' })
@@ -275,12 +298,14 @@ describe('createOrRepairSqlViews', () => {
     // ALL -- the common case on a real instance.
     it('creates the view with public data read, not just metadata read', async () => {
         let body: Record<string, unknown> | undefined
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             if (init?.method === 'POST' && path === 'sqlViews') {
                 body = JSON.parse(String(init.body))
-                return jsonResponse({ response: { uid: 'newId1' } }, 201)
+                return Promise.resolve(
+                    jsonResponse({ response: { uid: 'newId1' } }, 201)
+                )
             }
-            return jsonResponse({ status: 'OK' }, 201)
+            return Promise.resolve(jsonResponse({ status: 'OK' }, 201))
         }
         await createOrRepairSqlViews(fetcher, [missingChecks()[0]])
         expect(body).toMatchObject({ sharing: { public: 'r-r-----' } })
@@ -293,13 +318,13 @@ describe('createOrRepairSqlViews', () => {
     // has its public sharing patched before the execute.
     it('grants public data read before re-executing an existing view the user cannot read', async () => {
         const calls: { path: string; method?: string; body?: string }[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push({
                 path,
                 method: init?.method,
                 body: init?.body === undefined ? undefined : String(init.body),
             })
-            return jsonResponse({ status: 'OK' })
+            return Promise.resolve(jsonResponse({ status: 'OK' }))
         }
         const check: SqlViewCheck = {
             code: SQL_VIEW_CODES.orgUnits,
@@ -326,9 +351,9 @@ describe('createOrRepairSqlViews', () => {
 
     it('leaves sharing alone when the existing view is readable and only needs executing', async () => {
         const calls: string[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push(`${init?.method} ${path}`)
-            return jsonResponse({ status: 'OK' })
+            return Promise.resolve(jsonResponse({ status: 'OK' }))
         }
         const check: SqlViewCheck = {
             code: SQL_VIEW_CODES.orgUnits,
@@ -344,9 +369,9 @@ describe('createOrRepairSqlViews', () => {
 
     it('reports a refused sharing patch as that view failing, and does not execute it', async () => {
         const calls: string[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push(`${init?.method} ${path}`)
-            return new Response('{}', { status: 403 })
+            return Promise.resolve(new Response('{}', { status: 403 }))
         }
         const check: SqlViewCheck = {
             code: SQL_VIEW_CODES.orgUnits,
@@ -364,14 +389,18 @@ describe('createOrRepairSqlViews', () => {
     })
 
     it('treats a failed execute as a failed creation, not a partial success', async () => {
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             if (init?.method === 'POST' && path === 'sqlViews') {
-                return jsonResponse({ response: { uid: 'newId1' } }, 201)
+                return Promise.resolve(
+                    jsonResponse({ response: { uid: 'newId1' } }, 201)
+                )
             }
             if (init?.method === 'POST' && path === 'sqlViews/newId1/execute') {
-                return new Response('<html>500</html>', { status: 500 })
+                return Promise.resolve(
+                    new Response('<html>500</html>', { status: 500 })
+                )
             }
-            throw new Error(`unexpected call ${path}`)
+            return Promise.reject(new Error(`unexpected call ${path}`))
         }
         const result = await createOrRepairSqlViews(fetcher, [
             missingChecks()[0],
@@ -385,18 +414,22 @@ describe('createOrRepairSqlViews', () => {
     // findSqlViews/checkSqlViews to later accept as usable.
     it('deletes a view it just created when its execute then fails, restoring the pre-click state', async () => {
         const calls: { path: string; method?: string }[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push({ path, method: init?.method })
             if (init?.method === 'POST' && path === 'sqlViews') {
-                return jsonResponse({ response: { uid: 'newId1' } }, 201)
+                return Promise.resolve(
+                    jsonResponse({ response: { uid: 'newId1' } }, 201)
+                )
             }
             if (init?.method === 'POST' && path === 'sqlViews/newId1/execute') {
-                return new Response('<html>500</html>', { status: 500 })
+                return Promise.resolve(
+                    new Response('<html>500</html>', { status: 500 })
+                )
             }
             if (init?.method === 'DELETE' && path === 'sqlViews/newId1') {
-                return new Response('', { status: 200 })
+                return Promise.resolve(new Response('', { status: 200 }))
             }
-            throw new Error(`unexpected call ${path}`)
+            return Promise.reject(new Error(`unexpected call ${path}`))
         }
         const result = await createOrRepairSqlViews(fetcher, [
             missingChecks()[0],
@@ -414,15 +447,17 @@ describe('createOrRepairSqlViews', () => {
     // did not create must leave that view exactly as it was, not remove it.
     it('does not delete an existing view when its repair re-execute fails', async () => {
         const calls: { path: string; method?: string }[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push({ path, method: init?.method })
             if (
                 init?.method === 'POST' &&
                 path === 'sqlViews/existingId/execute'
             ) {
-                return new Response('<html>500</html>', { status: 500 })
+                return Promise.resolve(
+                    new Response('<html>500</html>', { status: 500 })
+                )
             }
-            throw new Error(`unexpected call ${path}`)
+            return Promise.reject(new Error(`unexpected call ${path}`))
         }
         const check: SqlViewCheck = {
             code: SQL_VIEW_CODES.orgUnits,
@@ -442,15 +477,15 @@ describe('createOrRepairSqlViews', () => {
 
     it('repairs an existing-but-unusable view by re-executing it, never re-creating', async () => {
         const calls: { path: string; method?: string }[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push({ path, method: init?.method })
             if (
                 init?.method === 'POST' &&
                 path === 'sqlViews/existingId/execute'
             ) {
-                return jsonResponse({ status: 'OK' }, 201)
+                return Promise.resolve(jsonResponse({ status: 'OK' }, 201))
             }
-            throw new Error(`unexpected call ${path}`)
+            return Promise.reject(new Error(`unexpected call ${path}`))
         }
         const check: SqlViewCheck = {
             code: SQL_VIEW_CODES.orgUnits,

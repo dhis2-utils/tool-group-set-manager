@@ -11,9 +11,11 @@ describe('sqlViewSource', () => {
 
     it('loads org units from the hierarchy view', async () => {
         const calls: string[] = []
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             calls.push(path)
-            return csvResponse('uid,level,parent\nr,1,\na,2,r\n')
+            return Promise.resolve(
+                csvResponse('uid,level,parent\nr,1,\na,2,r\n')
+            )
         }
         const payload = await createSqlViewSource(fetcher, views).loadObjects(
             'organisationUnit',
@@ -21,7 +23,7 @@ describe('sqlViewSource', () => {
         )
         expect(calls[0]).toBe('sqlViews/V1/data.csv?paging=false')
         expect(payload.ids).toEqual(['r', 'a'])
-        expect(Array.from(payload.level ?? [])).toEqual([1, 2])
+        expect([...(payload.level ?? [])]).toEqual([1, 2])
         expect(payload.parentIds).toEqual([null, 'r'])
     })
 
@@ -34,9 +36,9 @@ describe('sqlViewSource', () => {
     // browser HTTP cache regardless of what the view says.
     it('reads view data with the browser HTTP cache bypassed', async () => {
         const inits: (RequestInit | undefined)[] = []
-        const fetcher = async (_path: string, init?: RequestInit) => {
+        const fetcher = (_path: string, init?: RequestInit) => {
             inits.push(init)
-            return csvResponse('uid,level,parent\nr,1,\n')
+            return Promise.resolve(csvResponse('uid,level,parent\nr,1,\n'))
         }
         await createSqlViewSource(fetcher, views).loadObjects(
             'organisationUnit',
@@ -56,8 +58,8 @@ describe('sqlViewSource', () => {
     // line 1 is the header, so the first data row ("r,1,") is line 2 and
     // the malformed one ("a,bad,r") is line 3.
     it('throws naming the row when a level column cannot be parsed', async () => {
-        const fetcher = async () =>
-            csvResponse('uid,level,parent\nr,1,\na,bad,r\n')
+        const fetcher = () =>
+            Promise.resolve(csvResponse('uid,level,parent\nr,1,\na,bad,r\n'))
         await expect(
             createSqlViewSource(fetcher, views).loadObjects(
                 'organisationUnit',
@@ -71,19 +73,19 @@ describe('sqlViewSource', () => {
     // one empty field, which the level parser then hard-failed on -- worse
     // than the old silent-0 behaviour, which at least tolerated it.
     it('tolerates a trailing blank line rather than treating it as a malformed row', async () => {
-        const fetcher = async () =>
-            csvResponse('uid,level,parent\nr,1,\na,2,r\n\n')
+        const fetcher = () =>
+            Promise.resolve(csvResponse('uid,level,parent\nr,1,\na,2,r\n\n'))
         const payload = await createSqlViewSource(fetcher, views).loadObjects(
             'organisationUnit',
             () => undefined
         )
         expect(payload.ids).toEqual(['r', 'a'])
-        expect(Array.from(payload.level ?? [])).toEqual([1, 2])
+        expect([...(payload.level ?? [])]).toEqual([1, 2])
     })
 
     it('loads memberships from the membership view and keeps only requested groups', async () => {
-        const fetcher = async () =>
-            csvResponse('groupid,ouid\ng1,a\ng1,b\ng9,a\n')
+        const fetcher = () =>
+            Promise.resolve(csvResponse('groupid,ouid\ng1,a\ng1,b\ng9,a\n'))
         const payload = await createSqlViewSource(
             fetcher,
             views
@@ -96,9 +98,9 @@ describe('sqlViewSource', () => {
 
     it('reads names from the names view when it is present', async () => {
         const calls: string[] = []
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             calls.push(path)
-            return csvResponse('uid,name\na,Alpha\n')
+            return Promise.resolve(csvResponse('uid,name\na,Alpha\n'))
         }
         const names = await createSqlViewSource(fetcher, views).loadNames(
             'organisationUnit'
@@ -114,17 +116,21 @@ describe('sqlViewSource', () => {
     // reads are the expensive ones and carry nothing to translate.
     it('takes names from the metadata API when the names view is absent, keeping the other two views', async () => {
         const calls: string[] = []
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             calls.push(path)
             if (path.startsWith('organisationUnits')) {
-                return new Response(
-                    JSON.stringify({
-                        organisationUnits: [{ id: 'a', displayName: 'Alpha' }],
-                    }),
-                    { status: 200 }
+                return Promise.resolve(
+                    new Response(
+                        JSON.stringify({
+                            organisationUnits: [
+                                { id: 'a', displayName: 'Alpha' },
+                            ],
+                        }),
+                        { status: 200 }
+                    )
                 )
             }
-            return csvResponse('groupid,ouid\ng1,a\n')
+            return Promise.resolve(csvResponse('groupid,ouid\ng1,a\n'))
         }
         const source = createSqlViewSource(fetcher, {
             ...views,
@@ -149,11 +155,15 @@ describe('sqlViewSource', () => {
 
     it('falls back to the metadata source for other object types', async () => {
         const calls: string[] = []
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             calls.push(path)
-            return new Response(
-                JSON.stringify({ indicators: [{ id: 'i', displayName: 'I' }] }),
-                { status: 200 }
+            return Promise.resolve(
+                new Response(
+                    JSON.stringify({
+                        indicators: [{ id: 'i', displayName: 'I' }],
+                    }),
+                    { status: 200 }
+                )
             )
         }
         const payload = await createSqlViewSource(fetcher, views).loadObjects(

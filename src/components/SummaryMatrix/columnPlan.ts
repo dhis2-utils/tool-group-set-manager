@@ -1,5 +1,5 @@
-import { MatrixResult } from '@/engine/store'
-import { GroupMeta } from '@/engine/types'
+import type { MatrixResult } from '@/engine/store'
+import type { GroupMeta } from '@/engine/types'
 
 export interface GroupTotal {
     index: number

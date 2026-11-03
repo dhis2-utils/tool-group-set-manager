@@ -11,12 +11,12 @@ const base = {
     groups: [{ id: 'g1', displayName: 'Group one' }],
 }
 
-it('shows batch progress while writing', () => {
+test('shows batch progress while writing', () => {
     render(<ApplyStep {...base} isWriting progress={{ done: 2, total: 5 }} />)
     expect(screen.getByText('Applied 2 of 5 batches')).toBeInTheDocument()
 })
 
-it('says so when there was nothing to apply', () => {
+test('says so when there was nothing to apply', () => {
     render(
         <ApplyStep
             {...base}
@@ -31,7 +31,7 @@ it('says so when there was nothing to apply', () => {
     expect(screen.getByText('There was nothing to apply')).toBeInTheDocument()
 })
 
-it('names a group by display name in its outcome, not by id', () => {
+test('names a group by display name in its outcome, not by id', () => {
     render(
         <ApplyStep
             {...base}
@@ -48,7 +48,7 @@ it('names a group by display name in its outcome, not by id', () => {
     expect(screen.queryByText(/g1/)).not.toBeInTheDocument()
 })
 
-it('reports an unconfirmed write as its own error', () => {
+test('reports an unconfirmed write as its own error', () => {
     render(<ApplyStep {...base} applyError="boom" />)
     expect(
         screen.getByText('The result could not be confirmed')

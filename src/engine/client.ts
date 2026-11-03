@@ -1,12 +1,16 @@
-import { EngineMethod, EngineRequest, EngineResponse } from './protocol'
+import type { EngineMethod, EngineRequest, EngineResponse } from './protocol'
 
-type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void }
+interface Pending {
+    resolve: (v: unknown) => void
+    reject: (e: Error) => void
+}
 
 export class EngineClient {
     private nextId = 1
     private pending = new Map<number, Pending>()
 
     constructor(private worker: Worker) {
+        // oxlint-disable-next-line unicorn/prefer-add-event-listener -- the client is the worker's only listener, and client.test.ts's fake worker exposes the on* handlers
         worker.onmessage = (event: MessageEvent<EngineResponse>) => {
             const response = event.data
             const p = this.pending.get(response.id)
@@ -24,9 +28,11 @@ export class EngineClient {
         // instance) or sends something the structured-clone algorithm can't
         // deliver otherwise leaves every pending call unresolved forever.
         // Fail them all instead, the same way terminate() does.
+        // oxlint-disable-next-line unicorn/prefer-add-event-listener -- the client is the worker's only listener, and client.test.ts's fake worker exposes the on* handlers
         worker.onerror = (event: ErrorEvent) => {
             this.failAll(new Error(`Engine worker failed: ${event.message}`))
         }
+        // oxlint-disable-next-line unicorn/prefer-add-event-listener -- the client is the worker's only listener, and client.test.ts's fake worker exposes the on* handlers
         worker.onmessageerror = () => {
             this.failAll(new Error('Engine worker sent an unreadable message'))
         }
@@ -45,6 +51,7 @@ export class EngineClient {
                 resolve: resolve as (v: unknown) => void,
                 reject,
             })
+            // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Worker#postMessage takes no target origin; that argument is window.postMessage's
             this.worker.postMessage(request)
         })
     }

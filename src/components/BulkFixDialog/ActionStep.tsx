@@ -10,8 +10,8 @@ import {
 } from '@dhis2/ui'
 import React from 'react'
 import styles from './BulkFixDialog.module.css'
-import { Action } from './constants'
-import { CatchAllCreation } from './useCatchAllCreation'
+import type { Action } from './constants'
+import type { CatchAllCreation } from './useCatchAllCreation'
 
 export interface ActionStepProps {
     action: Action

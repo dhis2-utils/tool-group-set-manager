@@ -55,6 +55,7 @@ describe('buildHierarchy', () => {
 
 describe('isInSubtree', () => {
     const h = buildHierarchy(parent, level)
+
     it('includes the root itself and all descendants', () => {
         expect(isInSubtree(h, 2, 2)).toBe(true)
         expect(isInSubtree(h, 2, 5)).toBe(true)
@@ -79,12 +80,14 @@ describe('isInSubtree', () => {
 
 describe('ancestorAtLevel', () => {
     const h = buildHierarchy(parent, level)
+
     it('walks up to the requested level', () => {
         expect(ancestorAtLevel(h, 6, 2)).toBe(2)
         expect(ancestorAtLevel(h, 6, 3)).toBe(5)
         expect(ancestorAtLevel(h, 6, 4)).toBe(6)
         expect(ancestorAtLevel(h, 3, 1)).toBe(0)
     })
+
     it('returns -1 when the object is above the requested level', () => {
         expect(ancestorAtLevel(h, 1, 3)).toBe(-1)
     })

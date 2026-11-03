@@ -1,25 +1,22 @@
-import { GroupChange } from './changeSet'
-import { buildHierarchy, Hierarchy } from './hierarchy'
-import { buildSetMembership, groupsOf, SetMembership } from './membership'
-import { ObjectAttributes, populationFor } from './population'
-import { MembershipsPayload, ObjectsPayload } from './protocol'
-import {
-    listObjects,
-    matrix,
-    MatrixRow,
-    ObjectFilter,
-    SetSummary,
-    summarize,
-} from './queries'
+import type { GroupChange } from './changeSet'
+import type { Hierarchy } from './hierarchy'
+import { buildHierarchy } from './hierarchy'
+import type { SetMembership } from './membership'
+import { buildSetMembership, groupsOf } from './membership'
+import type { ObjectAttributes } from './population'
+import { populationFor } from './population'
+import type { MembershipsPayload, ObjectsPayload } from './protocol'
+import type { MatrixRow, ObjectFilter, SetSummary } from './queries'
+import { listObjects, matrix, summarize } from './queries'
 import { evaluateSet } from './rules'
-import {
-    DEFAULT_CONFIG,
+import type {
     EngineConfig,
     GroupMeta,
     GroupSetMeta,
     ObjectType,
     Status,
 } from './types'
+import { DEFAULT_CONFIG } from './types'
 
 export interface ScopeRef {
     objectType: ObjectType
@@ -269,7 +266,7 @@ export class EngineStore {
                     set.add(id)
                 }
             })
-            t.membersByGroup.set(change.groupId, Array.from(set))
+            t.membersByGroup.set(change.groupId, [...set])
         })
         // M5: only the group sets that actually contain one of the groups
         // this change named can have changed -- a set's membership and
@@ -572,7 +569,7 @@ export class EngineStore {
         const targetIndex = state.set.groups.findIndex(
             (g) => g.id === targetGroupId
         )
-        if (targetIndex < 0) {
+        if (targetIndex === -1) {
             throw new Error(
                 `Unknown target group ${targetGroupId} in set ${setId}`
             )
@@ -603,8 +600,7 @@ export class EngineStore {
         let skippedCount = 0
         let affected = 0
 
-        for (let k = 0; k < indexes.length; k++) {
-            const idx = indexes[k]
+        for (const idx of indexes) {
             const id = t.ids[idx]
             const positions = groupsOf(state.membership, idx)
             if (positions.length === 1 && positions[0] === targetIndex) {
@@ -640,7 +636,7 @@ export class EngineStore {
         if (additions.size > 0) {
             changes.push({
                 groupId: targetGroupId,
-                additions: Array.from(additions),
+                additions: [...additions],
                 deletions: [],
             })
         }
@@ -648,7 +644,7 @@ export class EngineStore {
             changes.push({
                 groupId: state.set.groups[position].id,
                 additions: [],
-                deletions: Array.from(ids),
+                deletions: [...ids],
             })
         })
 

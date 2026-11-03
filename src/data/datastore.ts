@@ -1,5 +1,6 @@
-import { fetchJson, Fetcher } from './sources/DataSource'
-import { ChangeSet } from '@/engine/changeSet'
+import type { Fetcher } from './sources/DataSource'
+import { fetchJson } from './sources/DataSource'
+import type { ChangeSet } from '@/engine/changeSet'
 
 export const NAMESPACE = 'group-set-integrity'
 

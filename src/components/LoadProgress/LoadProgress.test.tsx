@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import React from 'react'
 import { LoadProgress } from './LoadProgress'
-import { LoadStatus } from '@/data/loadAll'
+import type { LoadStatus } from '@/data/loadAll'
 
 const status = (patch: Partial<LoadStatus>): LoadStatus => ({
     phase: 'objects',
@@ -14,7 +14,7 @@ const status = (patch: Partial<LoadStatus>): LoadStatus => ({
     ...patch,
 })
 
-it('says what it is doing as one whole sentence, not fragments joined by punctuation', () => {
+test('says what it is doing as one whole sentence, not fragments joined by punctuation', () => {
     // The line used to be assembled here as "<phase>: <type> (<resource>
     // <done>/<total>)", which no translator could reorder and which showed
     // the raw API resource name. Each phase is now one complete string with
@@ -39,7 +39,7 @@ it('says what it is doing as one whole sentence, not fragments joined by punctua
     expect(screen.queryByText(/organisationUnitGroups/)).not.toBeInTheDocument()
 })
 
-it('names the type in a complete sentence when a type fails to load', () => {
+test('names the type in a complete sentence when a type fails to load', () => {
     render(
         <LoadProgress
             status={status({
@@ -57,7 +57,7 @@ it('names the type in a complete sentence when a type fails to load', () => {
 // Minor 1 (fix round 1): `namesErrors` was recorded on `LoadStatus` but
 // nothing ever read it -- a names failure left the user looking at raw
 // uids with no explanation anywhere on screen.
-it('says which type could not load its names, distinct from a type-level error', () => {
+test('says which type could not load its names, distinct from a type-level error', () => {
     render(
         <LoadProgress
             status={status({
@@ -76,7 +76,7 @@ it('says which type could not load its names, distinct from a type-level error',
     ).not.toBeInTheDocument()
 })
 
-it('renders nothing once loading is done without errors', () => {
+test('renders nothing once loading is done without errors', () => {
     const { container } = render(
         <LoadProgress status={status({ phase: 'done' })} />
     )

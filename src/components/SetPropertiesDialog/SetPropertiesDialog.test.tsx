@@ -1,7 +1,8 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { SetPropertiesDialog } from './SetPropertiesDialog'
-import { GroupSetMeta } from '@/engine/types'
+import type { GroupSetMeta } from '@/engine/types'
+import { actAndFlush } from '@/testing/actAndFlush'
 
 jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://server', apiVersion: 42 }),
@@ -69,7 +70,7 @@ describe('SetPropertiesDialog', () => {
         renderDialog()
         toggle(/data dimension/i)
         fireEvent.click(screen.getByRole('button', { name: /save/i }))
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
         })
 
@@ -85,7 +86,7 @@ describe('SetPropertiesDialog', () => {
         renderDialog()
         toggle(/compulsory/i)
         fireEvent.click(screen.getByRole('button', { name: /save/i }))
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
         })
 
@@ -98,7 +99,7 @@ describe('SetPropertiesDialog', () => {
         renderDialog()
         toggle(/compulsory/i)
         fireEvent.click(screen.getByRole('button', { name: /save/i }))
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
         })
 

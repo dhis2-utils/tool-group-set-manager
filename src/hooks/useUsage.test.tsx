@@ -301,7 +301,7 @@ describe('useUsage', () => {
         expect(readRefetch).not.toHaveBeenCalled()
     })
 
-    it('keeps both of its query keys under the usage prefix, so refresh cannot reach another feature', async () => {
+    it('keeps both of its query keys under the usage prefix, so refresh cannot reach another feature', () => {
         mockQueries(
             lookup([
                 {
@@ -320,6 +320,7 @@ describe('useUsage', () => {
         expect(keys.some((k) => k[1] === 'sqlViews')).toBe(true)
         expect(keys.some((k) => k[1] === 'sqlViewData')).toBe(true)
         keys.forEach((key) => expect(key[0]).toBe(USAGE_QUERY_PREFIX))
+        return Promise.resolve()
     })
 })
 

@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import React from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { UsageTab } from './UsageTab'
-import { GroupSetMeta } from '@/engine/types'
+import type { GroupSetMeta } from '@/engine/types'
 
 const mockUsage = jest.fn()
 jest.mock('@/hooks/useUsage', () => ({ useUsage: () => mockUsage() }))

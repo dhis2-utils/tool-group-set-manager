@@ -1,11 +1,11 @@
 import { useDataEngine } from '@dhis2/app-runtime'
-import {
-    useQuery,
+import type {
     QueryFunction,
     UseQueryOptions,
     QueryKey,
 } from '@tanstack/react-query'
-import { ResourceQuery } from '@/interfaces/apiQueryTypes'
+import { useQuery } from '@tanstack/react-query'
+import type { ResourceQuery } from '@/interfaces/apiQueryTypes'
 
 type UseApiDataQueryProps<
     TResultData,

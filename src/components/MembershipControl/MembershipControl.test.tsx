@@ -9,7 +9,7 @@ const groups = (n: number, unwritable: number[] = []) =>
         canWrite: !unwritable.includes(i),
     }))
 
-it('renders a segmented control for up to five groups and marks conflicts', () => {
+test('renders a segmented control for up to five groups and marks conflicts', () => {
     render(
         <MembershipControl
             groups={groups(3)}
@@ -25,7 +25,7 @@ it('renders a segmented control for up to five groups and marks conflicts', () =
     expect(buttons[2]).toHaveAttribute('data-state', 'conflict')
 })
 
-it('marks the single current group as selected', () => {
+test('marks the single current group as selected', () => {
     render(
         <MembershipControl
             groups={groups(2)}
@@ -40,7 +40,7 @@ it('marks the single current group as selected', () => {
     )
 })
 
-it('renders a dropdown for more than five groups', () => {
+test('renders a dropdown for more than five groups', () => {
     render(
         <MembershipControl
             groups={groups(6)}
@@ -55,7 +55,7 @@ it('renders a dropdown for more than five groups', () => {
     expect(screen.getByText(/choose group/i)).toBeInTheDocument()
 })
 
-it('names the conflicting groups next to a disabled dropdown for more than five groups', () => {
+test('names the conflicting groups next to a disabled dropdown for more than five groups', () => {
     render(
         <MembershipControl
             groups={groups(6)}
@@ -70,7 +70,7 @@ it('names the conflicting groups next to a disabled dropdown for more than five 
     expect(screen.getByText(/Group 4/)).toBeInTheDocument()
 })
 
-it('calls onChange with the clicked group position when enabled', () => {
+test('calls onChange with the clicked group position when enabled', () => {
     const onChange = jest.fn()
     render(
         <MembershipControl
@@ -84,7 +84,7 @@ it('calls onChange with the clicked group position when enabled', () => {
     expect(onChange).toHaveBeenCalledWith(1)
 })
 
-it('names the reason a disabled segmented control cannot be used', () => {
+test('names the reason a disabled segmented control cannot be used', () => {
     render(
         <MembershipControl
             groups={groups(3)}
@@ -100,7 +100,7 @@ it('names the reason a disabled segmented control cannot be used', () => {
     )
 })
 
-it('names the reason a disabled dropdown control cannot be used', () => {
+test('names the reason a disabled dropdown control cannot be used', () => {
     render(
         <MembershipControl
             groups={groups(6)}
@@ -115,7 +115,7 @@ it('names the reason a disabled dropdown control cannot be used', () => {
     ).toBeInTheDocument()
 })
 
-it('disables only the read-only option in the segmented control, leaving the rest clickable (I1)', () => {
+test('disables only the read-only option in the segmented control, leaving the rest clickable (I1)', () => {
     const onChange = jest.fn()
     render(
         <MembershipControl
@@ -135,7 +135,7 @@ it('disables only the read-only option in the segmented control, leaving the res
     expect(onChange).toHaveBeenCalledWith(2)
 })
 
-it('disables the corresponding option in the dropdown for a read-only target group (I1)', () => {
+test('disables the corresponding option in the dropdown for a read-only target group (I1)', () => {
     render(
         <MembershipControl
             groups={groups(6, [2])}

@@ -8,15 +8,15 @@ import React, {
     useState,
 } from 'react'
 import { useEngine } from './useEngine'
+import type { GsiConfig } from '@/data/datastore'
 import {
     clearCatchAllGroup as clearCatchAllGroupDocument,
-    GsiConfig,
     loadConfig,
     saveCatchAllGroup,
     saveIncludeTracker,
 } from '@/data/datastore'
 import { createFetcher } from '@/data/fetcher'
-import { EngineConfig } from '@/engine/types'
+import type { EngineConfig } from '@/engine/types'
 
 interface GsiConfigContextValue {
     config: GsiConfig

@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { History } from './History'
-import { ChangeSet } from '@/engine/changeSet'
-import { GroupSetMeta } from '@/engine/types'
+import type { ChangeSet } from '@/engine/changeSet'
+import type { GroupSetMeta } from '@/engine/types'
+import { actAndFlush } from '@/testing/actAndFlush'
 
 jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://server', apiVersion: 42 }),
@@ -499,7 +500,7 @@ describe('History', () => {
             HTMLAnchorElement.prototype,
             'download',
             'set'
-        ).mockImplementation(function (this: HTMLAnchorElement, value: string) {
+        ).mockImplementation((value: string) => {
             downloadName = value
         })
         // jsdom's Blob has no usable `.text()` in this test environment, so
@@ -517,7 +518,7 @@ describe('History', () => {
             )
 
         render(<History />)
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: 'Export' }))
         })
         await waitFor(() => expect(clickSpy).toHaveBeenCalled())
@@ -583,7 +584,7 @@ describe('History', () => {
             .mockImplementation(() => undefined)
 
         render(<History />)
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: 'Export' }))
         })
         await waitFor(() => expect(clickSpy).toHaveBeenCalled())

@@ -1,9 +1,10 @@
-import { DataSource, fetchJson, Fetcher } from './DataSource'
+import type { DataSource, Fetcher } from './DataSource'
+import { fetchJson } from './DataSource'
 import { createMetadataSource } from './metadataSource'
+import type { SqlViewIds } from './sqlViewSource'
 import {
     createSqlViewSource,
     SQL_VIEW_CODES,
-    SqlViewIds,
     sqlViewLookupPath,
     USABLE_SQL_VIEW_TYPES,
 } from './sqlViewSource'

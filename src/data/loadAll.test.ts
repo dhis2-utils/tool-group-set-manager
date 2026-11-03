@@ -1,8 +1,10 @@
 import { CACHE_TTL_MS, createMemoryCache } from './cache'
-import { loadAll, LoadStatus } from './loadAll'
-import { DataSource } from './sources/DataSource'
-import { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
+import type { LoadStatus } from './loadAll'
+import { loadAll } from './loadAll'
+import type { DataSource } from './sources/DataSource'
+import type { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
 import { EngineStore } from '@/engine/store'
+import { defined } from '@/testing/defined'
 
 /** Engine client that runs the real store synchronously, no worker. */
 function inlineEngine() {
@@ -41,12 +43,12 @@ function fakeSource(): DataSource & { loads: string[] } {
         kind: 'metadata',
         nameSource: 'metadata',
         loads,
-        async loadObjects(type) {
+        loadObjects(type) {
             loads.push(`objects:${type}`)
             if (type === 'organisationUnit') {
-                return ouObjects
+                return Promise.resolve(ouObjects)
             }
-            return {
+            return Promise.resolve({
                 objectType: type,
                 ids: [],
                 names: [],
@@ -54,20 +56,22 @@ function fakeSource(): DataSource & { loads: string[] } {
                 parentIds: null,
                 domainType: null,
                 categoryIdsOfOption: null,
-            }
+            })
         },
-        async loadNames(type) {
+        loadNames(type) {
             loads.push(`names:${type}`)
-            return [
+            return Promise.resolve([
                 { id: 'a', displayName: 'A' },
                 { id: 'r', displayName: 'Root' },
-            ]
+            ])
         },
-        async loadMemberships(type) {
+        loadMemberships(type) {
             loads.push(`memberships:${type}`)
-            return type === 'organisationUnit'
-                ? ouMembers
-                : { objectType: type, groups: [] }
+            return Promise.resolve(
+                type === 'organisationUnit'
+                    ? ouMembers
+                    : { objectType: type, groups: [] }
+            )
         },
     }
 }
@@ -110,25 +114,34 @@ const stamps: Record<string, string> = {
     ig1: '2026-09-01T10:00:00.000',
 }
 
-const fetcher = async (path: string) => {
+const fetcher = (path: string) => {
     // Checked before the group check below: "organisationUnitGroupSets?"
     // also starts with "organisationUnitGroups".
     if (path.includes('GroupSets?')) {
-        return new Response(JSON.stringify(groupSetsBody), { status: 200 })
+        return Promise.resolve(
+            new Response(JSON.stringify(groupSetsBody), { status: 200 })
+        )
     }
     if (path.includes('Groups?fields=id,lastUpdated')) {
         const resource = path.slice(0, path.indexOf('?'))
         const ids = resource.startsWith('organisationUnit') ? ['pub'] : ['ig1']
-        return new Response(
-            JSON.stringify({
-                [resource]: ids.map((id) => ({ id, lastUpdated: stamps[id] })),
-            }),
-            { status: 200 }
+        return Promise.resolve(
+            new Response(
+                JSON.stringify({
+                    [resource]: ids.map((id) => ({
+                        id,
+                        lastUpdated: stamps[id],
+                    })),
+                }),
+                { status: 200 }
+            )
         )
     }
     // object totals: organisationUnits has 2, everything else 0
     const total = path.startsWith('organisationUnits') ? 2 : 0
-    return new Response(JSON.stringify({ pager: { total } }), { status: 200 })
+    return Promise.resolve(
+        new Response(JSON.stringify({ pager: { total } }), { status: 200 })
+    )
 }
 
 describe('loadAll', () => {
@@ -228,7 +241,7 @@ describe('loadAll', () => {
         // CachedType fixture that would drift from the real one.
         const entry = await cache.get('organisationUnit')
         await cache.put('organisationUnit', {
-            ...entry!,
+            ...defined(entry),
             savedAt: Date.now() - CACHE_TTL_MS - 1,
         })
 
@@ -278,7 +291,7 @@ describe('loadAll', () => {
         // `now` and `savedAt` cannot be confused.
         const savedAt = Date.now() - 60_000
         const entry = await cache.get('organisationUnit')
-        await cache.put('organisationUnit', { ...entry!, savedAt })
+        await cache.put('organisationUnit', { ...defined(entry), savedAt })
 
         const status: LoadStatus[] = []
         await loadAll({
@@ -320,21 +333,23 @@ describe('loadAll', () => {
 
     it('records an error for a failing type and still loads the others', async () => {
         const source = fakeSource()
-        source.loadObjects = async (type) => {
+        source.loadObjects = (type) => {
             if (type === 'indicator') {
-                throw new Error('nope')
+                return Promise.reject(new Error('nope'))
             }
-            return type === 'organisationUnit'
-                ? ouObjects
-                : {
-                      objectType: type,
-                      ids: [],
-                      names: [],
-                      level: null,
-                      parentIds: null,
-                      domainType: null,
-                      categoryIdsOfOption: null,
-                  }
+            return Promise.resolve(
+                type === 'organisationUnit'
+                    ? ouObjects
+                    : {
+                          objectType: type,
+                          ids: [],
+                          names: [],
+                          level: null,
+                          parentIds: null,
+                          domainType: null,
+                          categoryIdsOfOption: null,
+                      }
+            )
         }
         const status: LoadStatus[] = []
         await loadAll({
@@ -357,14 +372,14 @@ describe('loadAll', () => {
     // in its own bucket.
     it('records a names failure as its own kind of failure, not a type-level error, when counts are otherwise good', async () => {
         const source = fakeSource()
-        source.loadNames = async (type) => {
+        source.loadNames = (type) => {
             if (type === 'organisationUnit') {
-                throw new Error('names boom')
+                return Promise.reject(new Error('names boom'))
             }
-            return [
+            return Promise.resolve([
                 { id: 'a', displayName: 'A' },
                 { id: 'r', displayName: 'Root' },
-            ]
+            ])
         }
         const engine = inlineEngine()
         const status: LoadStatus[] = []
@@ -401,14 +416,14 @@ describe('loadAll', () => {
         const cache = createMemoryCache()
 
         const failingNamesSource = fakeSource()
-        failingNamesSource.loadNames = async (type) => {
+        failingNamesSource.loadNames = (type) => {
             if (type === 'organisationUnit') {
-                throw new Error('names boom')
+                return Promise.reject(new Error('names boom'))
             }
-            return [
+            return Promise.resolve([
                 { id: 'a', displayName: 'A' },
                 { id: 'r', displayName: 'Root' },
-            ]
+            ])
         }
         await loadAll({
             source: failingNamesSource,
@@ -446,13 +461,15 @@ describe('loadAll', () => {
 
     it('keeps a type out of the engine entirely when its memberships fail', async () => {
         const source = fakeSource()
-        source.loadMemberships = async (type) => {
+        source.loadMemberships = (type) => {
             if (type === 'indicator') {
-                throw new Error('memberships boom')
+                return Promise.reject(new Error('memberships boom'))
             }
-            return type === 'organisationUnit'
-                ? ouMembers
-                : { objectType: type, groups: [] }
+            return Promise.resolve(
+                type === 'organisationUnit'
+                    ? ouMembers
+                    : { objectType: type, groups: [] }
+            )
         }
         const engine = inlineEngine()
         const status: LoadStatus[] = []
@@ -518,9 +535,9 @@ describe('loadAll', () => {
         })
         expect(second.loads).toContain('objects:organisationUnit')
         expect(second.loads).toContain('memberships:organisationUnit')
-        expect(status[status.length - 1].fromCache.organisationUnit).toBe(
-            undefined
-        )
+        expect(
+            status[status.length - 1].fromCache.organisationUnit
+        ).toBeUndefined()
         // The unchanged type is still served from the cache: one changed
         // group set does not throw away everything.
         expect(second.loads.filter((l) => l.endsWith('indicator'))).toEqual([])
@@ -539,7 +556,7 @@ describe('loadAll', () => {
         const stored = await cache.get('organisationUnit')
         // An entry written by a build from before stamps were stored.
         delete (stored as { groupLastUpdated?: unknown }).groupLastUpdated
-        await cache.put('organisationUnit', stored!)
+        await cache.put('organisationUnit', defined(stored))
 
         const second = fakeSource()
         await loadAll({
@@ -659,11 +676,11 @@ describe('loadAll', () => {
     })
 
     it('records a type whose group sets could not be read and loads the rest', async () => {
-        const failing = async (path: string) => {
+        const failing = (path: string) => {
             if (path.startsWith('indicatorGroupSets')) {
-                return new Response('boom', { status: 500 })
+                return Promise.resolve(new Response('boom', { status: 500 }))
             }
-            return fetcher(path)
+            return Promise.resolve(fetcher(path))
         }
         const source = fakeSource()
         const status: LoadStatus[] = []
@@ -690,12 +707,14 @@ describe('loadAll', () => {
         const failingSqlSource: DataSource = {
             kind: 'sqlView',
             nameSource: 'sqlView',
-            async loadObjects(type) {
+            loadObjects(type) {
                 sqlViewCalls.push(`objects:${type}`)
                 if (type === 'organisationUnit') {
-                    throw new Error('sql view read failed: HTTP 500')
+                    return Promise.reject(
+                        new Error('sql view read failed: HTTP 500')
+                    )
                 }
-                return {
+                return Promise.resolve({
                     objectType: type,
                     ids: [],
                     names: [],
@@ -703,63 +722,73 @@ describe('loadAll', () => {
                     parentIds: null,
                     domainType: null,
                     categoryIdsOfOption: null,
-                }
+                })
             },
-            async loadNames(type) {
+            loadNames(type) {
                 sqlViewCalls.push(`names:${type}`)
-                return []
+                return Promise.resolve([])
             },
-            async loadMemberships(type) {
+            loadMemberships(type) {
                 sqlViewCalls.push(`memberships:${type}`)
-                return { objectType: type, groups: [] }
+                return Promise.resolve({ objectType: type, groups: [] })
             },
         }
-        const metadataFetcher = async (path: string) => {
+        const metadataFetcher = (path: string) => {
             if (path.startsWith('organisationUnits?fields=id,level,parent')) {
-                return new Response(
-                    JSON.stringify({
-                        organisationUnits: [
-                            { id: 'r', level: 1 },
-                            { id: 'a', level: 2, parent: { id: 'r' } },
-                        ],
-                    }),
-                    { status: 200 }
+                return Promise.resolve(
+                    new Response(
+                        JSON.stringify({
+                            organisationUnits: [
+                                { id: 'r', level: 1 },
+                                { id: 'a', level: 2, parent: { id: 'r' } },
+                            ],
+                        }),
+                        { status: 200 }
+                    )
                 )
             }
             if (path.startsWith('organisationUnits?fields=id,displayName')) {
-                return new Response(
-                    JSON.stringify({
-                        organisationUnits: [
-                            { id: 'r', displayName: 'Root' },
-                            { id: 'a', displayName: 'A' },
-                        ],
-                    }),
-                    { status: 200 }
+                return Promise.resolve(
+                    new Response(
+                        JSON.stringify({
+                            organisationUnits: [
+                                { id: 'r', displayName: 'Root' },
+                                { id: 'a', displayName: 'A' },
+                            ],
+                        }),
+                        { status: 200 }
+                    )
                 )
             }
             if (
                 path.startsWith('organisationUnitGroups/pub/organisationUnits')
             ) {
-                return new Response(
-                    JSON.stringify({ organisationUnits: [{ id: 'a' }] }),
-                    { status: 200 }
+                return Promise.resolve(
+                    new Response(
+                        JSON.stringify({ organisationUnits: [{ id: 'a' }] }),
+                        { status: 200 }
+                    )
                 )
             }
             if (path.startsWith('indicators?fields=id,displayName')) {
-                return new Response(
-                    JSON.stringify({
-                        indicators: [{ id: 'i1', displayName: 'Ind1' }],
-                    }),
-                    { status: 200 }
+                return Promise.resolve(
+                    new Response(
+                        JSON.stringify({
+                            indicators: [{ id: 'i1', displayName: 'Ind1' }],
+                        }),
+                        { status: 200 }
+                    )
                 )
             }
             if (path.startsWith('indicatorGroups/ig1/indicators')) {
-                return new Response(
-                    JSON.stringify({ indicators: [{ id: 'i1' }] }),
-                    { status: 200 }
+                return Promise.resolve(
+                    new Response(
+                        JSON.stringify({ indicators: [{ id: 'i1' }] }),
+                        { status: 200 }
+                    )
                 )
             }
-            return fetcher(path)
+            return Promise.resolve(fetcher(path))
         }
         const engine = inlineEngine()
         const status: LoadStatus[] = []

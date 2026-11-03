@@ -1,7 +1,7 @@
 import { ENDPOINTS } from './endpoints'
-import { Fetcher } from './sources/DataSource'
-import { GroupChange } from '@/engine/changeSet'
-import { ObjectType } from '@/engine/types'
+import type { Fetcher } from './sources/DataSource'
+import type { GroupChange } from '@/engine/changeSet'
+import type { ObjectType } from '@/engine/types'
 
 /**
  * The outcome of one batch request against one group. `requested` and
@@ -380,25 +380,27 @@ export async function writeMemberships(
     // collection, which is only sound when the membership it is built from
     // was just re-read (section 5). A caller that has not done that refresh
     // has no entry here and therefore cannot reach this route at all.
-    const routesToPatch = (change: GroupChange): boolean =>
-        takesPatchRoute(change, batchSize) &&
-        completeMembers?.has(change.groupId) === true
+    const patchMembers = (change: GroupChange): string[] | undefined =>
+        takesPatchRoute(change, batchSize)
+            ? completeMembers?.get(change.groupId)
+            : undefined
 
     // Each change is routed once, in the order given: a patch change
     // counts as one unit of `onProgress`'s total (the same as one batch),
     // and a batched change contributes the batches `splitChange` produces
     // for it (zero for a no-op change).
     type Unit =
-        | { kind: 'patch'; change: GroupChange }
+        | { kind: 'patch'; change: GroupChange; members: string[] }
         | { kind: 'batch'; batch: GroupChange }
-    const units: Unit[] = changes.flatMap((change): Unit[] =>
-        routesToPatch(change)
-            ? [{ kind: 'patch', change }]
+    const units: Unit[] = changes.flatMap((change): Unit[] => {
+        const members = patchMembers(change)
+        return members
+            ? [{ kind: 'patch', change, members }]
             : splitChange(change, batchSize).map((batch) => ({
                   kind: 'batch',
                   batch,
               }))
-    )
+    })
     const total = units.length
 
     const outcomes: BatchOutcome[] = []
@@ -413,13 +415,14 @@ export async function writeMemberships(
     const failedGroups = new Map<string, string>()
 
     let done = 0
+    /* oxlint-disable no-await-in-loop -- one request at a time: a group's 401/403 skips its later batches, and onProgress counts in order */
     for (const unit of units) {
         if (unit.kind === 'patch') {
             const { outcome, ok } = await patchChange(
                 fetcher,
                 objectType,
                 unit.change,
-                completeMembers!.get(unit.change.groupId)!
+                unit.members
             )
             outcomes.push(outcome)
             ;(ok ? applied : unaccounted).push(unit.change)
@@ -529,6 +532,7 @@ export async function writeMemberships(
             onProgress(done, total)
         }
     }
+    /* oxlint-enable no-await-in-loop */
 
     return { outcomes, applied, unaccounted }
 }
