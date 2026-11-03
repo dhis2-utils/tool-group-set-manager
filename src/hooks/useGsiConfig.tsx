@@ -100,7 +100,13 @@ export const GsiConfigProvider = ({
         const engineConfig: EngineConfig = {
             includeTracker: config.includeTracker,
         }
-        void client.call('setConfig', engineConfig)
+        client.call('setConfig', engineConfig).catch(() => {
+            // Deliberately swallowed. The call only rejects when the worker
+            // has died or been replaced (`EngineClient.failAll`); the
+            // provider then builds a new client, this effect runs again for
+            // it, and the config reaches the new worker that way. Left
+            // unhandled it was an unhandled promise rejection.
+        })
     }, [client, isLoaded, config.includeTracker])
 
     const setCatchAllGroup = useCallback(
