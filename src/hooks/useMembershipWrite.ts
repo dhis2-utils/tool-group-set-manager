@@ -92,9 +92,7 @@ function generateChangeSetId(): string {
  *    to the engine, so the screen reflects it without a reload.
  * 3. Invalidate the cache for the affected type -- on 2.43 a membership
  *    write does not bump a group's `lastUpdated`
- *    (docs/superpowers/notes/2026-09-plan2-write-api-findings.md section 3;
- *    2.40 does bump it, see
- *    docs/superpowers/notes/2026-09-plan2-write-compatibility.md section 4),
+ *    (2.40 does bump it; see docs/developer/dhis2-behavior.md),
  *    so the next load cannot be trusted to notice on its own regardless of
  *    which server this is running against.
  * 4. Record a change set in the dataStore for the History page -- skipped

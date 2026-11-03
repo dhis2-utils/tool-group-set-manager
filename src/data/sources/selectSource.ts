@@ -39,7 +39,7 @@ interface SqlViewRow {
  * function required all three views, so removing one sent the hierarchy
  * and the memberships to the metadata API as well, which the Plan 10
  * multi-version review measured on all four supported versions
- * (`2026-09-plan10-multiversion-review.md`, check 27). A missing names
+ * (docs/developer/dhis2-behavior.md, check 27). A missing names
  * view now leaves the other two serving and reports names as coming from
  * the metadata API, which the dashboard says out loud.
  */

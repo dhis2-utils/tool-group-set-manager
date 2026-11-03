@@ -11,11 +11,11 @@ import type { ObjectType } from '@/engine/types'
  * send was just re-read.
  *
  * `cache: 'no-store'` because a view or collection an earlier build created
- * may carry a two-week `Cache-Control` (2026-09-plan7-e2e-write-flows.md),
+ * may carry a two-week `Cache-Control` (docs/developer/dhis2-behavior.md),
  * and a cached answer here defeats the whole point. `paging=false` because
  * a default page of 50 would look like a small group. Groups are read in
  * parallel; the measured cost is 1-2 s per group on a 266k-unit instance
- * (2026-09-plan8-reread-cost.md).
+ * (docs/developer/dhis2-behavior.md).
  */
 export async function readGroupMembers(
     fetcher: Fetcher,

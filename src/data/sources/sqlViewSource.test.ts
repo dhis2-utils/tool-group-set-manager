@@ -183,7 +183,7 @@ describe('SQL_VIEW_DEFINITIONS', () => {
         // every post-write membership read from its own HTTP cache for a
         // fortnight, so a user's own fix vanishes on the next load and
         // History offers a Revert that reports "nothing to revert". See
-        // docs/superpowers/notes/2026-09-plan7-e2e-write-flows.md.
+        // docs/developer/dhis2-behavior.md.
         expect(SQL_VIEW_DEFINITIONS.map((d) => d.cacheStrategy)).toEqual([
             'NO_CACHE',
             'NO_CACHE',

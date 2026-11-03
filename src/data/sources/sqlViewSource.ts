@@ -71,7 +71,7 @@ export const SQL_VIEW_CODES = {
  * own fix vanishes on the next load, and History offers them a Revert that
  * correctly reports "nothing to revert" against data that never moved.
  * Measured and proved in
- * docs/superpowers/notes/2026-09-plan7-e2e-write-flows.md -- it is what
+ * docs/developer/dhis2-behavior.md -- it is what
  * three e2e write/revert flows had been failing on.
  *
  * Pinning this here only covers views *this* version creates. `fetchCsv`

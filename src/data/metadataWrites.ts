@@ -283,7 +283,7 @@ async function createGroup(
 /**
  * Patches `compulsory` and/or `dataDimension` on a group set with a JSON
  * patch (`application/json-patch+json`), confirmed by
- * docs/superpowers/notes/2026-09-plan2-write-api-findings.md to take effect
+ * docs/developer/dhis2-behavior.md to take effect
  * immediately. `set.objectType` is required even though a group set id
  * alone looks like it should be enough: the four object types each have
  * their own group-set collection (`organisationUnitGroupSets`,

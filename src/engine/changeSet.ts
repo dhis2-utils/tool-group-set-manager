@@ -10,7 +10,7 @@ export interface GroupChange {
 /**
  * A record of one user action against one group set, holding exactly the
  * membership additions and deletions the server confirmed (not what the
- * user asked for -- see docs/superpowers/notes/2026-09-plan2-write-api-findings.md
+ * user asked for -- see docs/developer/dhis2-behavior.md
  * finding 2: a batch write can silently drop an id). A History page lists
  * these and can undo one by reverting it.
  */

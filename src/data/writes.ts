@@ -8,7 +8,7 @@ import type { ObjectType } from '@/engine/types'
  * `accepted` are both counts of ids (additions plus deletions), not booleans,
  * because DHIS2 can accept some of a batch and drop the rest without saying
  * which -- see finding 2 in
- * docs/superpowers/notes/2026-09-plan2-write-api-findings.md. `accepted !==
+ * docs/developer/dhis2-behavior.md. `accepted !==
  * requested` marks a partial failure (a shortfall in the ordinary case, but
  * the batch is disowned either way if the server ever reports more than was
  * sent); `error` is set instead when the request itself failed (non-200, the
@@ -106,8 +106,8 @@ interface ImportReportBody {
  *
  * Full numbers, including why the metadata-import shape was measured, won on
  * every axis, and was still not adopted (its concurrency guard cannot be
- * built on 2.41-2.43 -- see 2026-09-plan7-lastupdated-guard.md):
- * docs/superpowers/notes/2026-09-plan7-write-shapes.md.
+ * built on 2.41-2.43 -- see
+ * docs/developer/dhis2-behavior.md).
  */
 export const DEFAULT_BATCH_SIZE = 5000
 
@@ -163,8 +163,8 @@ function splitChange(change: GroupChange, batchSize: number): GroupChange[] {
  * <endpoint.groups>/<groupId>`, `Content-Type: application/json-patch+json`,
  * a one-op body `[{op: 'replace', path: '/<endpoint.members>', value:
  * [...]}]`), the exact shape proven against live 2.40.12 and 2.41.10
- * instances by `scripts/perf/json-patch-members.js` and measured in
- * docs/superpowers/notes/2026-09-plan8-json-patch.md. Reports back as
+ * instances (see
+ * docs/developer/dhis2-behavior.md). Reports back as
  * exactly one `BatchOutcome`, so `WriteResult` cannot be told apart from the
  * batched route by a caller.
  *
@@ -202,8 +202,7 @@ function splitChange(change: GroupChange, batchSize: number): GroupChange[] {
  * `response.ok` really is the whole success signal here, the same
  * convention `setGroupSetProperties` (metadataWrites.ts) already uses for
  * this app's other JSON Patch call. See
- * docs/superpowers/notes/2026-09-plan9-json-patch-rejection.md; reproduce
- * with scripts/probe/json-patch-rejection.js.
+ * docs/developer/dhis2-behavior.md.
  */
 async function patchChange(
     fetcher: Fetcher,
@@ -304,7 +303,7 @@ async function patchChange(
  * than trusted at face value: DHIS2 returns 200 OK even when it silently
  * dropped an invalid id, so an HTTP status alone would report success for a
  * write that did not fully happen (see finding 2 in
- * docs/superpowers/notes/2026-09-plan2-write-api-findings.md). When a batch
+ * docs/developer/dhis2-behavior.md). When a batch
  * comes back short, the response names nothing that would let the caller
  * tell which ids it kept, so the whole batch is reported as unaccounted --
  * never a guessed subset -- and the caller must re-read that group from the

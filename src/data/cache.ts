@@ -8,7 +8,7 @@ import type { ObjectType } from '@/engine/types'
  *
  * This is not belt-and-braces on top of a working check. On 2.41 through
  * 2.43 a group's `lastUpdated` does not move when its membership changes
- * (docs/superpowers/notes/2026-09-plan7-lastupdated-guard.md), and neither
+ * (docs/developer/dhis2-behavior.md), and neither
  * the group id list nor the object total can see an object moving between
  * groups -- so on three of four supported versions every gate spec 4.4
  * defines is blind to the one change this tool exists to watch. Age cannot
@@ -47,11 +47,8 @@ export interface Cache {
     put: (type: ObjectType, value: CachedType) => Promise<void>
     /**
      * Removes only the one type's cached payload. On 2.43 a membership
-     * write does not bump a group's `lastUpdated` (see
-     * docs/superpowers/notes/2026-09-plan2-write-api-findings.md section 3;
-     * 2.40 does bump it -- see
-     * docs/superpowers/notes/2026-09-plan2-write-compatibility.md section 4
-     * -- but the app cannot assume that of every server it runs against),
+     * write does not bump a group's `lastUpdated` (2.40 does bump
+     * it; see docs/developer/dhis2-behavior.md) -- but the app cannot assume that of every server it runs against),
      * so the app must invalidate precisely what it changed itself rather
      * than rely on the next load noticing -- and `clear()` is too broad for
      * that: on a large instance, discarding all four types' payloads to fix

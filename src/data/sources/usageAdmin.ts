@@ -94,7 +94,7 @@ async function createView(
             // `keyCacheStrategy` says -- a fortnight on a stock install,
             // with nothing in the response to say how old either. Same
             // omission, same consequence, as the GSI_* views had; see
-            // docs/superpowers/notes/2026-09-plan7-e2e-write-flows.md.
+            // docs/developer/dhis2-behavior.md.
             cacheStrategy: 'NO_CACHE',
             sqlQuery: candidate.sqlQuery,
             // Data read too, not metadata read alone: see

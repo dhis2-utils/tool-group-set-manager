@@ -77,7 +77,7 @@ async function objectTotal(
  * The `lastUpdated` stamp of every group of the type, keyed by id (spec 4.4).
  * Whether a membership write bumps this stamp is version-dependent -- 2.40
  * does, 2.43 does not (see
- * docs/superpowers/notes/2026-09-plan2-write-compatibility.md section 4) --
+ * docs/developer/dhis2-behavior.md) --
  * but `tryCache` below treats any stamp it cannot fetch, or any mismatch, as
  * a reason to reload rather than trust the cache, so this is still what
  * tells a cached membership payload apart from the current one on either

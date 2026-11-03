@@ -53,7 +53,7 @@ describe('writeMemberships', () => {
     // preference: batch 5000 wrote 91,892 memberships in 47.4s against
     // batch 1000's 192s, and cost 2.9x less server work per object while
     // doing it (19.5 rows fetched per object against 56.1). See
-    // docs/superpowers/notes/2026-09-plan7-write-shapes.md and spec 6.4.
+    // docs/developer/dhis2-behavior.md and spec 6.4.
     // Pinned here so a future change to it has to be a deliberate one.
     it('defaults to the batch size measured fastest in Plan 7', async () => {
         expect(DEFAULT_BATCH_SIZE).toBe(5000)
@@ -573,8 +573,7 @@ describe('writeMemberships', () => {
 
         // Plan 8: the large-change route is a JSON Patch against the
         // group's own endpoint, not a metadata import -- exact call shape
-        // proven by scripts/perf/json-patch-members.js and measured in
-        // docs/superpowers/notes/2026-09-plan8-json-patch.md. No pre-read
+        // proven on live servers (see docs/developer/dhis2-behavior.md). No pre-read
         // of the group's fields: a patch scoped to the members path cannot
         // touch anything else, so there is nothing to read first.
         it('uses a JSON Patch replacing the members collection for a change above the threshold', async () => {
@@ -682,7 +681,7 @@ describe('writeMemberships', () => {
         // with an ObjectReport saying exactly what was wrong, and with the
         // membership untouched. That explanation used to be discarded,
         // leaving a failed large write diagnosable only as "HTTP 409" --
-        // see docs/superpowers/notes/2026-09-plan9-json-patch-rejection.md.
+        // see docs/developer/dhis2-behavior.md.
         // It belongs on `rawError`, not `error`: `error` is spliced into
         // translated sentences and must stay locale-neutral.
         it('keeps the server explanation for a rejected patch on rawError, never on error', async () => {
