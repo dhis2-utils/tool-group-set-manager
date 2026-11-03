@@ -6,23 +6,35 @@ This page describes what the app stores on the DHIS2 server and in the browser, 
 
 The app keeps its settings and its change history in the DHIS2 dataStore, in the namespace `group-set-integrity` (`src/data/datastore.ts`). The namespace does not exist until the app first saves something. Until then, a read of a settings key returns 404, and the app treats that as "not configured".
 
-| Key                | Content                                                           | Written by                             |
-| ------------------ | ----------------------------------------------------------------- | -------------------------------------- |
-| `config-catch-all` | One object for all group sets: group set id to catch-all group id | **Settings**                           |
-| `config-general`   | `{ "includeTracker": boolean }`                                   | **Settings**                           |
-| `history-<id>`     | One change set (see the following section)                        | Every membership write                 |
-| `write-probe`      | `null`, deleted again at once                                     | The write access check on **Settings** |
+| Key                        | Content                                                              | Written by                                       |
+| -------------------------- | -------------------------------------------------------------------- | ------------------------------------------------ |
+| `config-catch-all-<setId>` | The catch-all group of one group set                                 | **Settings**                                     |
+| `config-catch-all`         | Earlier versions: one object for all group sets. Read, never written | Earlier versions of **Settings**                 |
+| `config-general`           | `{ "includeTracker": boolean }`                                      | **Settings**                                     |
+| `config-sql-view-sharing`  | Who can read the SQL views                                           | **Settings**                                     |
+| `history-<id>`             | One change set (see the following section)                           | Every membership write and every property change |
+| `write-probe`              | `null`, deleted again at once                                        | The write access check on **Settings**           |
 
-### `config-catch-all`
+### `config-catch-all-<setId>`
 
 ```json
-{ "Bpx0589u8y0": "a1b2c3d4e5f" }
+{ "groupId": "a1b2c3d4e5f" }
 ```
 
-The catch-all group is the group that the bulk fix puts objects in when no real group fits, for example "Other/unknown". Each group set has its own catch-all group. Do not share one group between sets.
+The catch-all group is the group that the bulk fix puts objects in when no real group fits, for example "Other/unknown". Each group set has its own catch-all group and its own key (`src/data/datastore.ts`). Do not share one group between sets.
 
 - A set with no catch-all group has no entry. The app never stores an empty string. If a set has no entry, the bulk fix dialog looks for a group whose name matches `/other|unknown/i`.
-- All sets share this one document. A save reads the document, changes one entry, and writes it back. The read accepts only a 404 as "no document yet". Any other failure stops the save, so that a temporary error cannot erase the other sets' entries.
+- Earlier versions stored every set in one document, `config-catch-all` (`{ "<setId>": "<groupId>" }`). Two administrators who saved different sets at the same time could erase each other's entry. The app still reads that document, but never writes it. A per-set key wins over the shared document.
+- Clear deletes the per-set key. If the shared document still names a group for the set, Clear writes `{ "groupId": null }` instead, so that the old value does not come back on the next load.
+- If the stored group is no longer in the set, Settings says so next to **Clear**.
+
+### `config-sql-view-sharing`
+
+```json
+{ "kind": "userGroup", "userGroupId": "Kk12LkEWtXp" }
+```
+
+`kind` is `public` (every logged-in user) or `userGroup` (only the members of `userGroupId`). A missing key (404) means `public`, which is how every view was shared before this setting existed. Any other read failure stops a repair, so that a repair never opens restricted views to everyone (`src/data/sources/sqlViewSharing.ts`). Create and repair apply the stored choice to all four views.
 
 ### `config-general`
 
@@ -30,7 +42,7 @@ The catch-all group is the group that the bulk fix puts objects in when no real 
 
 ### `history-<id>`
 
-A change set records one user action on one group set: a move, an assignment or a revert. It holds the membership changes that the server confirmed, not the changes that the user asked for (`ChangeSet` in `src/engine/changeSet.ts`).
+A change set records one user action on one group set: a move, an assignment, a property change or a revert. It holds the changes that the server confirmed, not the changes that the user asked for (`ChangeSet` in `src/engine/changeSet.ts`).
 
 ```json
 {
@@ -58,11 +70,14 @@ A change set records one user action on one group set: a move, an assignment or 
 }
 ```
 
-- `action` is `move`, `assign` or `revert`. A revert also has `revertOf`, the id of the change set that it undoes.
+- `action` is `move`, `assign`, `properties` or `revert`. A revert also has `revertOf`, the id of the change set that it undoes.
+- A `properties` change set records a change to `compulsory` or `dataDimension` on the group set. Its `changes` is empty, and `properties` holds the changed values: `{ "before": { "compulsory": false }, "after": { "compulsory": true } }`. A revert of it has the same `properties` field. The revert leaves a property alone if it has changed again since.
+- A membership write saves its change set with `status: "pending"` and `planned` (the number of membership changes that it set out to make) before the first request, and updates it after each group. At the end the app replaces it with the finished record, which has no `status`, or deletes it when the server confirmed nothing. A record that stays `pending` is a write that was interrupted, for example by a closed tab. Its `changes` holds what was confirmed, and History offers to revert that part. Records without `status` are finished, which includes every record from earlier versions.
+- The History export has the columns `changeSetId`, `createdAt`, `createdBy`, `groupSet`, `action`, `note`, `revertOf`, `objectId`, `objectName`, `groupId`, `groupName`, `operation`, `property`, `oldValue` and `newValue` (`src/pages/History/historyExport.ts`). A property change has one row per property. CSV exports prefix a value that starts with `=`, `+`, `-`, `@`, a tab or a carriage return with `'`, so that a spreadsheet does not run it as a formula (`src/data/csv.ts`).
 - `createdAt` also decides whether History still offers a revert: only for 24 hours (`REVERT_WINDOW_MS` in `src/data/revertWindow.ts`). The app never deletes change sets; older ones stay in the dataStore and in the list, export only.
 - `targetGroupId` is present only when the action has one target group.
 - The id is a base-36 timestamp followed by 8 random characters. Ids therefore sort in creation order, and the **History** page sorts the key list newest first and reads only the documents of the page it shows. The id is never sent to DHIS2 as a metadata id.
-- The app does not save a change set when the server confirmed nothing.
+- The app does not keep a change set when the server confirmed nothing.
 - `changes` has no size limit. A national bulk fix stores every changed id, so one document can hold about 100,000 ids.
 
 ### Write access
@@ -75,7 +90,7 @@ The dataStore has no sharing object for a namespace that the app can read, so re
 
 The app keeps each object type's loaded data in IndexedDB, so that it can open the dashboard again without reading everything from the server (`src/data/cache.ts`).
 
-- Database `gsi-cache`, object store `types`, key `<server URL>|<object type>`.
+- Database `gsi-cache`, object store `types`, key `<server URL>|<user id>|<locale>|<object type>`. The locale is the user's UI and database locales, as `<ui>/<db>`. The same server shows different users different groups (sharing) and different names (locale), so an entry is never read for another user or language. If the app cannot read the user's id, it keeps nothing across page loads.
 - Each entry holds the objects payload, the memberships payload, the names, the group ids, each group's `lastUpdated`, the object total and the time it was saved.
 - If storage is blocked, for example in a private window, the app works without a cache.
 
@@ -94,7 +109,9 @@ On 2.41 and later, none of the server checks shows a membership write made throu
 
 ## The SQL views
 
-Settings can create four SQL views. Each one is a `VIEW` with `cacheStrategy: NO_CACHE` and public sharing `r-r-----`. [DHIS2 server behavior](dhis2-behavior.md) explains each of these choices. The app finds the views by code, and creating a view also runs it.
+Settings can create four SQL views. Each one is a `VIEW` with `cacheStrategy: NO_CACHE`. By default, its public sharing is `r-r-----`. If `config-sql-view-sharing` names a user group, public sharing is `--------` and the group gets `r-r-----`. [DHIS2 server behavior](dhis2-behavior.md) explains each of these choices. The app finds the views by code, and creating a view also runs it.
+
+Repair patches an existing view's `type`, `sqlQuery` and sharing back to the definition where they differ, then runs it. A `MATERIALIZED_VIEW` becomes a `QUERY`, which is never run. Repair never deletes a view, because it can belong to another administrator (`createOrRepairSqlViews` in `src/data/sources/sqlViewAdmin.ts`).
 
 | Code                      | Columns                                                                      | Content                                                                                                                               |
 | ------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |

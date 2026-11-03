@@ -2,7 +2,7 @@
 
 This page records how the DHIS2 Web API behaves in the places where the app's design depends on it. Each fact was measured against a live server. The version and the database are named with each fact, because several of them differ between versions.
 
-The versions measured are 2.40.12, 2.41.10, 2.42.6 and 2.43.1. The databases are:
+The versions measured are 2.40.12, 2.41.10, 2.42.6, 2.42.7 and 2.43.1. The databases are:
 
 - the Sierra Leone demo database (1,332 organisation units);
 - a national education (EMIS) metadata database with 266,396 organisation units, on 2.41.10;
@@ -28,7 +28,11 @@ The response is a `TypeReport` with counts in `response.stats` (`created`, `upda
 - **An invalid id is dropped without an error.** A batch with one valid and one nonexistent id returns `200 OK` with `stats.total: 1` and no error report. Nothing in the response names the dropped id. Measured on 2.40.12 and 2.43.1.
 - **A no-op is counted as `ignored`.** Adding an existing member, or deleting a non-member, reports `ignored: 1` and does not fail.
 
-So the HTTP status does not tell the app that a batch was partial. `writeMemberships` (`src/data/writes.ts`) adds `created + updated + deleted + ignored` and compares the sum with the number of ids it sent. A batch that comes back short is disowned in full, because the response does not say which ids were dropped. A response with no `stats` counts as zero accepted.
+So the HTTP status does not tell the app that a batch was partial. `writeMemberships` (`src/data/writes.ts`) adds `created + updated + deleted + ignored` and compares the sum with the number of ids it sent. A response with no `stats` counts as zero accepted.
+
+The response does not say which ids were dropped, so for a batch that comes back short the app reads the group again for exactly the batch's ids (`readMembersAmong` in `src/data/groupMembers.ts`: `filter=id:in:[...]` in chunks of 100, or one full read above 1,000 ids). The ids that are in place are recorded as applied, and only the rest are left for **Retry failed changes**. If that read fails, the whole batch is disowned.
+
+Because a dropped id raises no error, a move could remove an object from its old group after its addition to the new group failed, and leave it in no group. With `holdUnplacedDeletions`, which `useMembershipWrite` always sets, `writeMemberships` sends every addition before any deletion, and does not send the deletion of an object whose addition in the same write was not confirmed. That deletion is reported as not done, so Retry sends it after the addition succeeds.
 
 ### Batch size and server cost
 
@@ -71,11 +75,18 @@ Content-Type: application/json-patch+json
 
 So `response.ok` is a complete success signal for this patch. A 409 carries an `ObjectReport` with `errorReports`, for example `Invalid reference [Zz9GhOsT000] (OrganisationUnit)`. A 403 carries error code `E1006`. The app logs this body in `rawError` and does not show it to the user.
 
-A replace overwrites the whole collection, so the app uses it only with a member list that it has read from the server immediately before the write. The bulk fix dialog reads the members of each group that takes the patch route, and recomputes the plan from them, before it writes (`readPatchRouteGroups` in `src/components/BulkFixDialog/BulkFixDialog.tsx`). The check has a 60-second deadline.
+A replace overwrites the whole collection, so the app uses it only with a member list that it has read from the server immediately before the write.
 
-Reading every group of a set before every write is too slow on a large instance. On EMIS (2.41.10), reading all the members of a whole set took 4 to 11 seconds: up to 9.7 seconds for a set of 6 groups and up to 10.8 seconds for a set of 4 groups. This is why the app reads only the groups that take the patch route.
+Before every bulk fix and every revert, the app checks the plan against the server (`recheckPlan` in `src/components/BulkFixDialog/recheckPlan.ts`, `findMembershipDrift` in `src/data/freshness.ts`):
 
-The app also uses JSON Patch to set `compulsory` and `dataDimension` on a group set (`setGroupSetProperties` in `src/data/metadataWrites.ts`), which works the same way on 2.40.12 and 2.43.1. It also patches `/sharing/public` on a SQL view, so that it does not replace the view's user and user group sharing. Use `add`, not `replace`, for a property that the object does not have yet: `replace` needs the path to exist.
+- A group that takes the patch route is read in full.
+- Every other touched group is read only for the ids that the plan changes or assumes, with `filter=id:in:[...]` in chunks of 100, or one full read above 1,000 ids.
+
+If anything differs, the app corrects the engine, recomputes the plan, and asks the user to confirm again. The check has a 60-second deadline, and nothing is written if it fails or times out.
+
+Reading every member of every group of a set before every write is too slow on a large instance. On EMIS (2.41.10), reading all the members of a whole set took 4 to 11 seconds: up to 9.7 seconds for a set of 6 groups and up to 10.8 seconds for a set of 4 groups. This is why the app reads by id, and reads in full only the groups that take the patch route.
+
+The app also uses JSON Patch to set `compulsory` and `dataDimension` on a group set (`setGroupSetProperties` in `src/data/metadataWrites.ts`), which works the same way on 2.40.12 and 2.43.1. It also patches `/sharing/public`, and `/sharing/userGroups` with `add`, on a SQL view, so that it does not replace the view's user sharing. On 2.42.7, an `add` patch on `/sharing/userGroups` worked. Use `add`, not `replace`, for a property that the object does not have yet: `replace` needs the path to exist.
 
 ### Do not write membership through the metadata import
 
@@ -144,9 +155,14 @@ The app shows the integrity results only to a user with `ALL` or `F_PERFORM_MAIN
 These facts apply to the `GSI_*` views that the app creates (see [Data and storage](data-and-storage.md)).
 
 - **A view cannot be read until it has been run.** After `POST /api/sqlViews`, a read of `data.csv` returns 500. `POST /api/sqlViews/{id}/execute` returns 201 (`SQL view created`), and after that the read works. Running a view a second time is safe, so it is also the repair. Measured on 2.40.12 and 2.43.1.
-- **Reading rows needs the data read bit in sharing.** Public sharing `r-------` gives metadata read only. A user without `ALL` then gets `409 E4312` ("Current user is not authorised to read data from SQL view"), even the user who created the view. The app creates and repairs views with `r-r-----`. Found on 2.41.10.
+- **Reading rows needs the data read bit in sharing.** Public sharing `r-------` gives metadata read only. A user without `ALL` then gets `409 E4312` ("Current user is not authorised to read data from SQL view"), even the user who created the view. By default, the app creates and repairs views with public sharing `r-r-----`. If an administrator restricts the views to one user group, public sharing is `--------` and the group gets `r-r-----`. Found on 2.41.10.
 - **A view is cached for two weeks by default.** If `cacheStrategy` is not set, DHIS2 uses the system setting, which is `CACHE_TWO_WEEKS` on a new installation. The data response then has `Cache-Control: max-age=1209600, public`, and the browser answers later reads from its own cache without asking the server. The app's own writes then disappear on the next load. The app creates views with `cacheStrategy: NO_CACHE`, and reads them with `fetch(..., { cache: 'no-store' })` so that a view made by an older build cannot do this.
 - **A materialized view can return old rows.** A `MATERIALIZED_VIEW` returns the rows from its last run, and nothing in the response says how old they are. The app reads only views of type `VIEW` or `QUERY`, and uses the metadata API otherwise.
+- **A materialized view cannot be patched back to `VIEW`.** On 2.42.7, after a patch of `type` from `MATERIALIZED_VIEW` to `VIEW`, `POST /api/sqlViews/{id}/execute` fails with `409 E1004` ("relation ... already exists"), and reads then serve the old materialized rows. Repair therefore patches a materialized view to `QUERY`, which runs its SQL on every read (`patchedType` in `src/data/sources/sqlViewAdmin.ts`).
+- **A `QUERY` view cannot be run.** On 2.42.7, `POST /api/sqlViews/{id}/execute` on a `QUERY` view returns 409. Repair does not run one.
+- **A view shared with a group is invisible outside it.** On 2.42.7, a user outside the group gets 404 for the view, and does not find it by code. If that user then creates a view with the same code, the create fails with `409 E5003`. Settings explains this case to the user.
+- **Only the owner can change or delete a view.** On 2.42.7, an administrator who does not own the view and does not have `ALL` gets 403 on `PATCH` and on `DELETE`. Settings says that another administrator owns the view.
+- **The app checks the CSV header row.** A view that was edited by hand can return its columns in another order. The reader compares the header row with the definition before it reads by position, and if they differ, the app uses the metadata API.
 - **`paging=false` returns every row.** Checked on 2.40.12 and 2.43.1 for CSV and JSON up to 3,526 rows, and on 2.41.10 for CSV at 266,397 and 1,098,185 rows.
 - **A view returns the raw `name` column.** The metadata API returns `displayName` in the user's locale. See "Known open items" in [Data and storage](data-and-storage.md).
 

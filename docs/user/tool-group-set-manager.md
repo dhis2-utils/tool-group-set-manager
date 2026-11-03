@@ -23,6 +23,7 @@ What you can do in the tool depends on your authorities and on the sharing of ea
 | Create a catch-all group in a bulk fix      | The authority to add groups of that type, and write sharing on the group set  |
 | Open the **DHIS2 integrity** tab            | `ALL` or `F_PERFORM_MAINTENANCE`                                              |
 | Create or repair the SQL views              | `ALL` or `F_SQLVIEW_PUBLIC_ADD`                                               |
+| Remove the usage SQL view                   | `ALL` or `F_SQLVIEW_DELETE`                                                   |
 | Record changes in History and save settings | Read and write access to the `group-set-integrity` namespace in the dataStore |
 
 <!-- VERIFY IN APP: the exact authority needed to create a group of each type (for example the organisation unit group add authority) for the catch-all group. The app does not check it before it tries; it reports "Could not create the group" on failure. -->
@@ -94,13 +95,15 @@ A card shows these items:
 - **You can edit all groups**, or the number of groups that are read-only for you.
 - If the usage SQL view is installed, the number of favourites that use the set. A set with no favourites shows **Appears unused**. Click it to open the **Usage** tab of the set.
 
+If the tool could not load the group sets of one type, their cards show **This group set could not be loaded**. The cards of the other types still load.
+
 For data element group sets, the tool checks only aggregate data elements, unless you change this in Settings. See [Include tracker data elements](#tool-group-set-manager-tracker).
 
 ### Refresh the data { #tool-group-set-manager-refresh }
 
 The tool reads the data from the server when it opens, and keeps a copy in your browser. At the right of the filter bar, the tool shows how old the data is. After 10 minutes, the text changes to say that the data may be out of date.
 
-To read the data from the server again, click **Refresh**. Refresh before you fix anything if other people may have changed groups since you opened the tool.
+To read the data from the server again, click **Refresh**. Refresh to see changes that other people made since you opened the tool. A bulk fix and a revert do not depend on it: before they write anything, the tool checks the objects that they change again on the server.
 
 Under the filter bar, a line shows where the data came from: **Data loaded from the metadata API** or **Data loaded from the GSI SQL views**. On a large instance, set up the SQL views to make loading faster. See [Set up the SQL views for large instances](#tool-group-set-manager-sql-views).
 
@@ -111,6 +114,8 @@ The page of a group set shows where its problems are and which objects they conc
 The page has four tabs: **Overview**, **Objects**, **Usage**, and **DHIS2 integrity**. The **DHIS2 integrity** tab appears only if you have the `ALL` or `F_PERFORM_MAINTENANCE` authority.
 
 For an organisation unit group set, the filter bar has the same **Organisation unit** control as the dashboard. If you change it here, the dashboard uses the same organisation unit.
+
+If a link points to a group set that was deleted or that you cannot see, the tool loads the data, then shows **This group set does not exist, or you cannot see it.** If a page cannot be shown, the tool shows **Page not found** or **Something went wrong**. Click **Back to the dashboard** to continue.
 
 ### Use the overview matrix { #tool-group-set-manager-overview }
 
@@ -133,6 +138,8 @@ The row **Above the row level** counts the organisation units above the level th
 
 For data element, indicator, and category option group sets, the matrix has one row, **All objects**.
 
+The **Groups in this set** list shows each group with the number of objects that are in that group and in no other group of the set, for example **12 objects only in this group**.
+
 ### List the objects { #tool-group-set-manager-objects }
 
 The **Objects** tab lists the objects of the set, with their status and their group. The list covers the whole current organisation unit, or the area you clicked in the matrix.
@@ -144,7 +151,7 @@ The **Objects** tab lists the objects of the set, with their status and their gr
 3. In **Group**, choose a group, **No group**, **Several groups (conflict)**, or **Any**.
 4. In **Search**, enter part of a name.
 
-The number of matching objects shows above the list. The search covers every object that matches the filters, not only the rows on screen.
+The number of matching objects shows above the list. The search covers every object that matches the filters, not only the rows on screen. If no object matches, the list shows **No objects match this filter.**
 
 If you came from a cell of the matrix, the list is limited to one area. To remove this limit, click **Clear area filter**.
 
@@ -152,7 +159,7 @@ If you came from a cell of the matrix, the list is limited to one area. To remov
 
 The **Usage** tab shows how many saved favourites use the group set, by type, and how many times they were viewed in the last 12 months. Use it to find group sets that nothing uses any more.
 
-The tab needs the usage SQL view. If it is not installed, the tab shows **Usage data is not installed on this instance**. See [Install the usage SQL view](#tool-group-set-manager-usage-view).
+The tab needs the usage SQL view. If the view is not installed, or an administrator has shared it only with a user group that you are not in, the tab shows **Usage data is not available to you**. See [Install the usage SQL view](#tool-group-set-manager-usage-view).
 
 The counts are indicative. They cover saved favourites only. An analytics request from an external client or from the API leaves no favourite behind, so a count of zero does not prove that nothing uses the group set. Indicator group sets are not analytics dimensions, so they have no usage data.
 
@@ -166,7 +173,9 @@ For each check, the tab shows:
 - How many of those objects are in the current organisation unit.
 - The number of objects in this set that the tool finds, within the current organisation unit.
 
-To run the checks again, click **Run now**. On a large instance, the checks can take a minute. Running a check does not change any metadata.
+The check for organisation units that are missing from a compulsory group set shows only on a compulsory set.
+
+To run the checks again, click **Run now**. On a large instance, the checks can take a minute. Running a check does not change any metadata. If DHIS2 does not report a result in time, the tab says that the server can still be running the check. Click **Run now** again after a minute to read the result.
 
 After you fix objects, the tab shows **Stale** next to a result that is older than your change. Run the checks again to update it.
 
@@ -195,7 +204,7 @@ The bulk fix has two actions:
 
 > **Warning**
 >
-> A bulk fix can change the group membership of tens of thousands of objects. **Assign all to one group** also moves objects that are correctly assigned. The tool plans the fix from the data it loaded, so click **Refresh** first if other people may have changed groups since then. Check the filter and the preview before you apply.
+> A bulk fix can change the group membership of tens of thousands of objects. **Assign all to one group** also moves objects that are correctly assigned. Check the filter and the preview before you apply.
 
 ### Choose the objects and the action { #tool-group-set-manager-bulk-fix-choose }
 
@@ -215,6 +224,8 @@ If the set has no such group, you can create one in the dialog:
 
 DHIS2 creates the group, adds it to the set, and gives it the sharing of another group in the set. The tool chooses it as the catch-all group. This creates metadata on the server, and the tool does not record it in History.
 
+If another group already uses the name, the short name, or the code, the dialog says which one. Choose other names and try again.
+
 ### Preview and apply the bulk fix { #tool-group-set-manager-bulk-fix-apply }
 
 ![The preview step of a bulk fix](resources/images/tool-group-set-manager/bulk-fix-preview.png)
@@ -222,19 +233,22 @@ DHIS2 creates the group, adds it to the set, and gives it the sharing of another
 The preview lists, for each group, how many objects the fix adds and removes. A table shows a sample of objects, with their groups now and after the fix.
 
 1. Read the preview. If a group involved is read-only for you, the preview says how many objects the fix skips.
-2. To see every object that the fix changes, click **Download full list as CSV**.
+2. To see every object that the fix changes, click **Download full list as CSV**. In the file, a value that starts with `=`, `+`, `-`, `@`, a tab, or a carriage return starts with a single quote, so that a spreadsheet does not run it as a formula.
 3. Optional: in **Note for History (optional)**, enter why you made the change.
 4. Click **Apply…**.
 
 The tool writes the changes in batches and shows how many batches it has applied. A fix of tens of thousands of objects can take several minutes. Keep the dialog open until it finishes.
 
-When a group has more than 5,000 changes, the tool first reads the group again from the server. If someone changed the set after the preview, the tool shows **The metadata changed while you were reviewing**, with the number of changes before and now. Click **Review changes** to see the new plan, or click the **Apply** button that shows the new number of changes.
+Before it writes anything, the tool shows **Checking the metadata is up to date…** and reads the groups that the fix changes again from the server. If someone changed them after the preview, the tool updates the plan and shows **The metadata changed while you were reviewing**, with the number of changes before and now. Click **Review changes** to see the new plan, or click the **Apply** button that shows the new number of changes. If the check takes too long, the tool shows **Checking the metadata took too long** and writes nothing. Click **Apply…** again.
 
 When the fix finishes, the dialog shows the result for each group. Click **Close**.
 
 ### Retry changes that failed { #tool-group-set-manager-bulk-fix-retry }
 
 The tool checks each batch against what the server accepted. If the server did not confirm a batch, the result says which group failed.
+
+- If the server accepted only part of a batch, the tool records the confirmed part in History, where you can revert it. **Retry failed changes** sends only the rest.
+- The tool removes an object from its old group only after the server confirms that the object is in its new group. If the addition fails, the result says that the objects were not removed from the old group, so no object is left in no group. **Retry failed changes** sends the removal after the addition succeeds.
 
 1. In the result of the bulk fix, read which groups failed.
 2. Click **Retry failed changes**.
@@ -243,11 +257,11 @@ If a change still fails, click **Refresh** on the dashboard and check the object
 
 ## Change the properties of a group set { #tool-group-set-manager-properties }
 
-You can turn **Compulsory** and **Data dimension** on or off for a group set from the tool. These properties decide which objects the tool reports as errors.
+You can turn **Compulsory** and **Data dimension** on or off for a group set from the tool. These properties decide which objects the tool reports as errors. The tool records the change in History, and you can revert it there for 24 hours.
 
 > **Warning**
 >
-> This changes the group set on the server. Turning **Data dimension** off removes the set from the dimensions in analytics apps. The tool does not record this change in History, so you cannot revert it from the tool.
+> This changes the group set on the server. Turning **Data dimension** off removes the set from the dimensions in analytics apps.
 
 1. Open the group set.
 2. In the filter bar, click **Group set properties…**.
@@ -259,11 +273,9 @@ The dialog shows **The group set was updated on the server.**, and the tool coun
 
 ## Revert a change from History { #tool-group-set-manager-revert }
 
-History lists every membership change made with the tool on this instance, by any user. You can export any change. You can revert a change for 24 hours after it was made; after that, History shows **Can no longer be reverted (older than 24 hours)** instead of the **Revert** button, and the change can still be exported.
+History lists every membership change and every change to the properties of a group set made with the tool on this instance, by any user. You can export any change. You can revert a change for 24 hours after it was made.
 
 ![The History page with a change set](resources/images/tool-group-set-manager/history.png)
-
-The tool works out the revert from the data it loaded. If other people may have changed groups since then, click **Refresh** on the dashboard first.
 
 1. In the navigation bar, click **History**.
 2. Find the change in the list. To see older changes, click **Load more**.
@@ -274,7 +286,24 @@ The tool works out the revert from the data it loaded. If other people may have 
 
 The dialog shows the result for each group, and History records the revert as a new change. Click **Close**.
 
+Before it writes anything, the tool checks the objects that the revert changes again on the server. If someone changed them after you opened the page, the tool updates the revert and shows it again. Check it, and click **Revert** again.
+
 The revert skips every object that has moved to another group after the change, and every object whose group has left the set. The preview says how many objects it skips. If every object has moved, the dialog shows **Nothing to revert**.
+
+A revert of a property change puts back the old value of **Compulsory** or **Data dimension**. If someone changed the property again after the change, the revert leaves it as it is.
+
+### Read the History list { #tool-group-set-manager-history-list }
+
+If a write stopped before it finished, for example because the browser tab was closed, History shows how many of the planned changes the server confirmed, for example **Interrupted or still running, 3 of 10 changes confirmed**. You can revert the confirmed changes.
+
+When a change cannot be reverted, History shows the reason in place of the **Revert** button:
+
+- **Can no longer be reverted (older than 24 hours)**
+- **This group set no longer exists, so this change cannot be reverted from here**
+- **Group set information could not be loaded, so this change cannot be reverted from here**
+- **Nothing was confirmed before this change stopped, so there is nothing to revert**
+
+**Export** downloads a CSV file with one row for each object that the change touched. For a property change, the file has one row for each property, in the columns `property`, `oldValue`, and `newValue`. Values that a spreadsheet could run as a formula start with a single quote.
 
 ## Set up the SQL views for large instances { #tool-group-set-manager-sql-views }
 
@@ -284,10 +313,10 @@ You need the `ALL` or `F_SQLVIEW_PUBLIC_ADD` authority.
 
 > **Warning**
 >
-> The tool shares the SQL views publicly, so that every user can read them. Any logged-in user can then read the organisation unit hierarchy and the organisation unit group memberships through the API, including users who cannot open the tool.
+> By default, the tool shares the SQL views with every logged-in user. Any logged-in user can then read the organisation unit hierarchy and the organisation unit group memberships through the API, including users who cannot open the tool. To limit this, see [Choose who can read the SQL views](#tool-group-set-manager-sql-view-sharing).
 
 1. In the navigation bar, click **Settings**.
-2. Under **SQL views**, check the status of the three views: **Usable**, **Not usable yet**, or **Missing**.
+2. Under **SQL views**, check the status of the three views: **Usable**, **Not usable yet**, **Not shared with you**, or **Missing**.
 3. If a view is not usable, click **Create SQL views**. The tool creates the missing views and repairs the others.
 
 The tool shows **SQL view update complete** and loads the data again. The dashboard then shows **Data loaded from the GSI SQL views**.
@@ -296,7 +325,30 @@ The tool shows **SQL view update complete** and loads the data again. The dashbo
 
 If a SQL view stops working, the tool loads the data through the metadata API and shows **A GSI SQL view failed to load** on the dashboard. Go to **Settings** and click **Create SQL views** to repair it.
 
-The tool does not use a SQL view of the type materialized view, because such a view can return old data.
+A repair puts the type, the query, and the sharing of a view back to what the tool needs, if someone changed them in the **Maintenance** app. The tool does not read a SQL view of the type materialized view, because such a view can return old data. A repair changes a materialized view to a query view.
+
+If the tool cannot repair a view, the message says why:
+
+- Another administrator owns the view. Ask them, or a superuser, to repair it from the tool.
+- The view cannot be set back. Delete it in the **Maintenance** app, then click **Create SQL views** again.
+- A view with the same code exists, but is not shared with you. Ask the administrator who created it to repair it.
+
+**Not shared with you** means that the views are shared with a user group that you are not in. The tool then loads your data through the metadata API.
+
+### Choose who can read the SQL views { #tool-group-set-manager-sql-view-sharing }
+
+You can share the SQL views with every logged-in user, or only with the members of one user group. The choice applies to the three `GSI_` views and to the usage SQL view.
+
+> **Warning**
+>
+> If you choose one user group, users outside the group load their data through the slower metadata API, and they see no usage figures.
+
+1. In the navigation bar, click **Settings**.
+2. Under **SQL views**, in **Who can read the SQL views**, choose **Every logged-in user** or **Only the members of one user group**.
+3. If you chose one user group, in **User group**, choose the group.
+4. Click **Save and apply to the SQL views**.
+
+The tool shows **The sharing setting was saved.** and changes the sharing of the existing views. A repair keeps this choice.
 
 ### Install the usage SQL view { #tool-group-set-manager-usage-view }
 
@@ -305,7 +357,7 @@ The usage SQL view is optional. It counts the saved favourites that use each gro
 1. In the navigation bar, click **Settings**.
 2. Under **Group set usage**, click **Install usage SQL view**.
 
-The tool shows **Usage data is installed**. To remove the view, click **Remove usage SQL view**.
+The tool shows **Usage data is installed**. To remove the view, click **Remove usage SQL view**. This needs the `ALL` or `F_SQLVIEW_DELETE` authority.
 
 The usage view is shared in the same way as the other SQL views.
 
@@ -323,20 +375,20 @@ The catch-all group of a set is the group that **Move to catch-all group** sugge
 
 The tool saves the choice at once. To remove it, click **Clear**.
 
+If the group that you chose was deleted or has left the set, the tool shows **The configured catch-all group no longer exists in this set.** next to **Clear**. Choose another group, or click **Clear**.
+
 ### Include tracker data elements { #tool-group-set-manager-tracker }
 
 By default, the tool checks only aggregate data elements in data element group sets. To check tracker data elements as well:
 
 1. In the navigation bar, click **Settings**.
-2. Under **Tracker data**, choose **Include tracker attributes and data elements by default**.
+2. Under **Tracker data**, choose **Include tracker data elements when checking data element group sets**.
 
 The tool saves the setting at once and counts the data element group sets again.
 
-<!-- VERIFY IN APP: what "tracker attributes" in this label covers. In the code the setting only adds tracker data elements to data element group sets. -->
-
 ### Clear the cache { #tool-group-set-manager-cache }
 
-The tool keeps a copy of the data in your browser, so that it opens faster. It uses the copy only when the groups on the server have not changed. If the counts look wrong, clear the copy:
+The tool keeps a copy of the data in your browser, so that it opens faster. It keeps a separate copy for each user and each language. It uses the copy only when the groups on the server have not changed. If the counts look wrong, clear the copy:
 
 1. In the navigation bar, click **Settings**.
 2. Under **Cache**, click **Clear cache**.
@@ -346,12 +398,12 @@ The tool deletes the copy in this browser and loads all data from the server aga
 ## Known limitations { #tool-group-set-manager-limitations }
 
 - **A large bulk fix takes minutes.** Applying a fix to tens of thousands of objects takes several minutes. Most of the time is spent in the DHIS2 endpoint that updates group members, not in the tool.
-- **The SQL views are readable by every user.** The `GSI_*` SQL views and the usage SQL view are shared publicly with read access to metadata and data. Any logged-in user can read the organisation unit hierarchy and the organisation unit group memberships through the API, even without access to the tool.
+- **By default, the SQL views are readable by every user.** The `GSI_*` SQL views and the usage SQL view are shared with every logged-in user unless you choose one user group in Settings. Users who can read them can read the organisation unit hierarchy and the organisation unit group memberships through the API, even without access to the tool. See [Choose who can read the SQL views](#tool-group-set-manager-sql-view-sharing).
 - **Organisation unit names are not translated on the SQL view path.** When the tool loads data through the SQL views, it shows organisation unit names as they are stored, not in your language. The line under the dashboard filter bar says which source the tool used.
-- **A bulk fix uses the data that the page loaded.** The tool plans a fix from the data it read when it opened or when you last clicked **Refresh**. It reads a group again from the server only when that group has more than 5,000 changes. If other administrators may be editing the same groups, click **Refresh** before you fix.
+- **The counts on screen can be out of date.** The tool shows the data it read when it opened or when you last clicked **Refresh**. A bulk fix and a revert check the objects that they change on the server before they write, but the other counts do not change until you refresh.
 - **Only changes from the last 24 hours can be reverted.** An older change stays in History and can be exported, but the tool no longer reverts it, because a revert would undo everything that happened to those objects since.
 - **A revert skips objects that have moved.** A revert from History does not change an object that has moved to another group after the original change, or whose group has left the set.
-- **History covers only this tool.** History records membership changes made with the tool. It does not record changes made in the **Maintenance** app or through the API, changes to the properties of a group set, or catch-all groups that the tool created.
+- **History covers only this tool.** History records membership changes and changes to **Compulsory** and **Data dimension** made with the tool. It does not record changes made in the **Maintenance** app or through the API, or catch-all groups that the tool created.
 - **The DHIS2 integrity counts are national.** DHIS2 counts each integrity check across the whole instance and across every group set of the type. The tool cannot ask DHIS2 for a count for one set or one organisation unit.
 - **Usage counts are indicative.** They cover saved favourites and their recorded views only. A count of zero does not prove that nothing uses a group set.
 - **The row above the row level cannot be filtered.** In the overview matrix, you cannot click the numbers in the **Above the row level** row to list those objects.
