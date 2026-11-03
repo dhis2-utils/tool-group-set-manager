@@ -22,11 +22,23 @@
     flex-direction: column;
     gap: var(--spacers-dp8);
 }
-/* Sits in the button strip in place of Revert: the small button's height,
-   so the text lines up with Export beside it. */
+/* Sits in the button strip in place of Revert, saying why there is none
+   (M12: visible text, not a hover-only tooltip). At least the small
+   button's height so a one-line reason lines up with Export beside it;
+   a longer reason wraps instead of widening the column. */
 .windowClosed {
-    display: inline-block;
-    line-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    max-width: 280px;
+    line-height: 1.4;
     font-size: var(--gsi-font-size-sm, 12px);
     color: var(--colors-grey600);
+}
+.planList {
+    margin: var(--spacers-dp8) 0 0;
+    padding-left: 20px;
+}
+.summaryLine {
+    display: block;
 }
