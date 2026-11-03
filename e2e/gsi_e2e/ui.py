@@ -17,7 +17,7 @@ from playwright.sync_api import expect
 # --- selectors -------------------------------------------------------------
 IFRAME = "iframe"
 FILTER_BAR = '[data-test="filter-bar"]'
-CARD = '[role="button"]'
+CARD = '[data-test="group-set-card"]'
 CARD_NAME = '[data-test="group-set-card-name"]'
 FRESHNESS = '[data-test="metadata-freshness"]'
 OBJECTS_COUNT = '[data-test="objects-count"]'

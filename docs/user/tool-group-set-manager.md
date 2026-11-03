@@ -16,7 +16,7 @@ What you can do in the tool depends on your authorities and on the sharing of ea
 
 | To do this                                  | You need                                                                      |
 | ------------------------------------------- | ----------------------------------------------------------------------------- |
-| Open the tool                               | The app in one of your user roles, or the `ALL` authority                     |
+| Open the tool                               | The app (`M_toolgroupsetmanager`) in one of your user roles, or `ALL`         |
 | See a group set and its groups              | Metadata read sharing on the group set and its groups                         |
 | Fix the membership of an object             | Metadata write sharing on every group that the fix changes                    |
 | Change the properties of a group set        | Metadata write sharing on the group set                                       |

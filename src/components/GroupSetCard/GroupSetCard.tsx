@@ -68,7 +68,11 @@ export const GroupSetCard = ({
     return (
         <Card>
             {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- a mouse-only enlargement of the name button below, which is the keyboard and screen reader control for the same action */}
-            <div className={styles.card} onClick={onOpen}>
+            <div
+                className={styles.card}
+                data-test="group-set-card"
+                onClick={onOpen}
+            >
                 <button
                     type="button"
                     className={styles.name}

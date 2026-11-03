@@ -13,8 +13,9 @@ the project uses [Semantic Versioning](https://semver.org/).
   release as a different app:
     - Install the new version, then uninstall the old Group Set Integrity Tool
       in App Management, or two entries remain in the menu.
-    - Add the new app to every user role that gave access to the old one. Until
-      then, users without the `ALL` authority cannot open it.
+    - Add the new app (authority `M_toolgroupsetmanager`) to every user role
+      that gave access to the old one. Until then, users without the `ALL`
+      authority cannot open it.
     - Bookmarks to the old app URL stop working.
 - History, settings and the `GSI_*` SQL views are kept: they are stored on
   the server under names that do not depend on the app key.
