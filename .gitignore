@@ -11,8 +11,7 @@ build
 # Playwright CLI session scratch from browser checks
 .playwright-cli/
 
-# Playwright test run output (traces, screenshots, HTML report)
-/test-results/
-/playwright-report/
-/blob-report/
+# e2e suite output (e2e/README.md) and Python bytecode
+/e2e/results/
+__pycache__/
 .superpowers/
