@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-11-03T13:29:29.466Z\n"
-"PO-Revision-Date: 2026-11-03T13:29:29.466Z\n"
+"POT-Creation-Date: 2026-11-03T14:46:49.238Z\n"
+"PO-Revision-Date: 2026-11-03T14:46:49.238Z\n"
 
 msgid "Move to catch-all group"
 msgstr "Move to catch-all group"
@@ -193,13 +193,6 @@ msgid "Note for History (optional)"
 msgstr "Note for History (optional)"
 
 msgid ""
-"A group with this name already belongs to a different group set. Choose "
-"another name — one group must not be shared between two sets."
-msgstr ""
-"A group with this name already belongs to a different group set. Choose "
-"another name — one group must not be shared between two sets."
-
-msgid ""
 "1 object was skipped because it has moved since this change, its group has "
 "left the set, or a group involved is read-only for you"
 msgstr ""
@@ -249,11 +242,14 @@ msgstr "Compulsory"
 msgid "Data dimension"
 msgstr "Data dimension"
 
-msgid "Loading…"
-msgstr "Loading…"
-
 msgid "This group set has no groups configured"
 msgstr "This group set has no groups configured"
+
+msgid "This group set could not be loaded"
+msgstr "This group set could not be loaded"
+
+msgid "Loading…"
+msgstr "Loading…"
 
 msgid "Conflicts"
 msgstr "Conflicts"
@@ -273,8 +269,11 @@ msgstr "You can edit all groups"
 msgid "Appears unused"
 msgstr "Appears unused"
 
-msgid "Show 1 group"
-msgstr "Show 1 group"
+msgid "1 object only in this group"
+msgstr "1 object only in this group"
+
+msgid "{count} objects only in this group"
+msgstr "{count} objects only in this group"
 
 msgid "Show all {count} groups"
 msgstr "Show all {count} groups"
@@ -341,6 +340,15 @@ msgstr "Checking rules"
 msgid "Done"
 msgstr "Done"
 
+msgid "Loading {type}, {done} of {total}"
+msgstr "Loading {type}, {done} of {total}"
+
+msgid "Loading group memberships for {type}, {done} of {total}"
+msgstr "Loading group memberships for {type}, {done} of {total}"
+
+msgid "Loading names for {type}, {done} of {total}"
+msgstr "Loading names for {type}, {done} of {total}"
+
 msgid "Some data could not be loaded"
 msgstr "Some data could not be loaded"
 
@@ -352,9 +360,6 @@ msgstr "Some names could not be loaded"
 
 msgid "Names for {type} could not be loaded; the counts shown are still correct"
 msgstr "Names for {type} could not be loaded; the counts shown are still correct"
-
-msgid "{done} of {total}"
-msgstr "{done} of {total}"
 
 msgid "Keep {group} and remove the others"
 msgstr "Keep {group} and remove the others"
@@ -385,6 +390,12 @@ msgstr "Reloading metadata…"
 
 msgid "Refresh"
 msgstr "Refresh"
+
+msgid "1 object, loading more rows…"
+msgstr "1 object, loading more rows…"
+
+msgid "{count} objects, loading more rows…"
+msgstr "{count} objects, loading more rows…"
 
 msgid ""
 "The change was saved to the server and this row now reflects it, but the "
@@ -431,9 +442,6 @@ msgstr "Could not load this page of objects"
 msgid "Try again"
 msgstr "Try again"
 
-msgid "Loading more rows…"
-msgstr "Loading more rows…"
-
 msgid "Name"
 msgstr "Name"
 
@@ -448,6 +456,9 @@ msgstr "Status"
 
 msgid "Group in this set"
 msgstr "Group in this set"
+
+msgid "No objects match this filter."
+msgstr "No objects match this filter."
 
 msgid "Confirm group change"
 msgstr "Confirm group change"
@@ -493,9 +504,6 @@ msgstr ""
 "Data dimension off — this set stops being available as an analytics "
 "dimension"
 
-msgid "The group set could not be updated — {message}"
-msgstr "The group set could not be updated — {message}"
-
 msgid "Properties of {name}"
 msgstr "Properties of {name}"
 
@@ -508,6 +516,13 @@ msgstr ""
 
 msgid "The group set was updated on the server."
 msgstr "The group set was updated on the server."
+
+msgid ""
+"The change was applied but could not be recorded in History, so it cannot "
+"be reverted from there"
+msgstr ""
+"The change was applied but could not be recorded in History, so it cannot "
+"be reverted from there"
 
 msgid "Every object in scope must belong to exactly one group of a compulsory set."
 msgstr "Every object in scope must belong to exactly one group of a compulsory set."
@@ -525,6 +540,13 @@ msgid ""
 msgstr ""
 "This changes the group set itself on the server, and with it what counts as "
 "a violation on every screen for this set."
+
+msgid ""
+"The change is recorded in History, and can be reverted from there for 24 "
+"hours."
+msgstr ""
+"The change is recorded in History, and can be reverted from there for 24 "
+"hours."
 
 msgid "Save"
 msgstr "Save"
@@ -546,6 +568,9 @@ msgstr "Includes organisation units above the chosen row level"
 
 msgid "Objects above the row level cannot be filtered yet"
 msgstr "Objects above the row level cannot be filtered yet"
+
+msgid "Objects"
+msgstr "Objects"
 
 msgid "Other groups"
 msgstr "Other groups"
@@ -571,6 +596,80 @@ msgstr ""
 
 msgid "Reset"
 msgstr "Reset"
+
+msgid ""
+"The catch-all group could not be created because another group already uses "
+"its code. Rename or recode that group, then try again."
+msgstr ""
+"The catch-all group could not be created because another group already uses "
+"its code. Rename or recode that group, then try again."
+
+msgid ""
+"The catch-all group could not be created because another group already uses "
+"this short name. Choose another short name."
+msgstr ""
+"The catch-all group could not be created because another group already uses "
+"this short name. Choose another short name."
+
+msgid ""
+"The catch-all group could not be created because another group already uses "
+"this name. Choose another name."
+msgstr ""
+"The catch-all group could not be created because another group already uses "
+"this name. Choose another name."
+
+msgid ""
+"The catch-all group could not be created because another group already uses "
+"its name, short name or code. Choose other names and try again."
+msgstr ""
+"The catch-all group could not be created because another group already uses "
+"its name, short name or code. Choose other names and try again."
+
+msgid ""
+"A group with this name already belongs to a different group set. Choose "
+"another name — one group must not be shared between two sets."
+msgstr ""
+"A group with this name already belongs to a different group set. Choose "
+"another name — one group must not be shared between two sets."
+
+msgid ""
+"The catch-all group was created, but you do not have permission to add it "
+"to this group set."
+msgstr ""
+"The catch-all group was created, but you do not have permission to add it "
+"to this group set."
+
+msgid "You do not have permission to create a group of this type."
+msgstr "You do not have permission to create a group of this type."
+
+msgid ""
+"The catch-all group was created, but could not be added to the group set "
+"(HTTP {status}). Try again to finish."
+msgstr ""
+"The catch-all group was created, but could not be added to the group set "
+"(HTTP {status}). Try again to finish."
+
+msgid ""
+"The catch-all group could not be created. Check your connection and try "
+"again."
+msgstr ""
+"The catch-all group could not be created. Check your connection and try "
+"again."
+
+msgid "The catch-all group could not be created (HTTP {status})."
+msgstr "The catch-all group could not be created (HTTP {status})."
+
+msgid "You do not have permission to change this group set."
+msgstr "You do not have permission to change this group set."
+
+msgid "The group set no longer exists on the server, so it could not be updated."
+msgstr "The group set no longer exists on the server, so it could not be updated."
+
+msgid "The group set could not be updated. Check your connection and try again."
+msgstr "The group set could not be updated. Check your connection and try again."
+
+msgid "The group set could not be updated (HTTP {status})."
+msgstr "The group set could not be updated (HTTP {status})."
 
 msgid "All changes applied to {name}"
 msgstr "All changes applied to {name}"
@@ -599,6 +698,15 @@ msgstr ""
 "-- the affected objects need to be re-read from the server"
 
 msgid ""
+"Objects were not removed from {name} because adding them to their new group "
+"was not confirmed, so none of them was left without a group -- retry once "
+"the addition succeeds"
+msgstr ""
+"Objects were not removed from {name} because adding them to their new group "
+"was not confirmed, so none of them was left without a group -- retry once "
+"the addition succeeds"
+
+msgid ""
 "{name} accepted {accepted} of {requested} changes -- the affected objects "
 "need to be re-read from the server"
 msgstr ""
@@ -624,8 +732,8 @@ msgstr ""
 msgid "Data loaded from the GSI SQL views"
 msgstr "Data loaded from the GSI SQL views"
 
-msgid "Usage data is not installed on this instance"
-msgstr "Usage data is not installed on this instance"
+msgid "Usage data is not available to you"
+msgstr "Usage data is not available to you"
 
 msgid "Usage data could not be read on this instance"
 msgstr "Usage data could not be read on this instance"
@@ -691,20 +799,35 @@ msgstr "This type's summary could not be computed"
 msgid "Still loading, so these summaries are not ready yet"
 msgstr "Still loading, so these summaries are not ready yet"
 
-msgid "Group set not found or not loaded yet."
-msgstr "Group set not found or not loaded yet."
+msgid "Rows"
+msgstr "Rows"
+
+msgid "{name} (level {level})"
+msgstr "{name} (level {level})"
+
+msgid "Overview"
+msgstr "Overview"
+
+msgid "Usage"
+msgstr "Usage"
+
+msgid "DHIS2 integrity"
+msgstr "DHIS2 integrity"
+
+msgid "Group set not found"
+msgstr "Group set not found"
+
+msgid "This group set does not exist, or you cannot see it."
+msgstr "This group set does not exist, or you cannot see it."
+
+msgid "Back to the dashboard"
+msgstr "Back to the dashboard"
 
 msgid "Includes organisation units above the {level} level"
 msgstr "Includes organisation units above the {level} level"
 
 msgid "All organisation units"
 msgstr "All organisation units"
-
-msgid "Rows"
-msgstr "Rows"
-
-msgid "{name} (level {level})"
-msgstr "{name} (level {level})"
 
 msgid "Group set"
 msgstr "Group set"
@@ -714,18 +837,6 @@ msgstr "You do not have permission to change this group set"
 
 msgid "Group set properties…"
 msgstr "Group set properties…"
-
-msgid "Overview"
-msgstr "Overview"
-
-msgid "Objects"
-msgstr "Objects"
-
-msgid "Usage"
-msgstr "Usage"
-
-msgid "DHIS2 integrity"
-msgstr "DHIS2 integrity"
 
 msgid ""
 "DHIS2 has not computed the issue list for this check yet; press Run now to "
@@ -781,6 +892,16 @@ msgstr ""
 
 msgid "Run now"
 msgstr "Run now"
+
+msgid "The check is taking a while"
+msgstr "The check is taking a while"
+
+msgid ""
+"DHIS2 has not reported a result yet. The server may still be running the "
+"check; click Run now again in a minute to read the result."
+msgstr ""
+"DHIS2 has not reported a result yet. The server may still be running the "
+"check; click Run now again in a minute to read the result."
 
 msgid "DHIS2 integrity error"
 msgstr "DHIS2 integrity error"
@@ -841,14 +962,14 @@ msgstr ""
 "data for them."
 
 msgid ""
-"Usage counts come from an optional SQL view that an administrator installs "
-"once."
+"Usage counts come from an optional SQL view. Either it is not installed, or "
+"an administrator has shared it only with a user group you are not in."
 msgstr ""
-"Usage counts come from an optional SQL view that an administrator installs "
-"once."
+"Usage counts come from an optional SQL view. Either it is not installed, or "
+"an administrator has shared it only with a user group you are not in."
 
-msgid "Go to Settings to install it"
-msgstr "Go to Settings to install it"
+msgid "Go to Settings to check it"
+msgstr "Go to Settings to check it"
 
 msgid "Usage data could not be read"
 msgstr "Usage data could not be read"
@@ -870,74 +991,14 @@ msgstr ""
 "so a count of zero means nothing on this instance references the group set "
 "— not that nothing uses it."
 
-msgid "Moved to a group"
-msgstr "Moved to a group"
-
-msgid "Assigned to a group"
-msgstr "Assigned to a group"
-
-msgid "Reverted an earlier change"
-msgstr "Reverted an earlier change"
-
-msgid "1 membership change"
-msgstr "1 membership change"
-
-msgid "{count} membership changes"
-msgstr "{count} membership changes"
-
 msgid "Unknown user"
 msgstr "Unknown user"
 
 msgid "No changes have been recorded on this instance yet"
 msgstr "No changes have been recorded on this instance yet"
 
-msgid "This group set no longer exists, so this change cannot be reverted from here"
-msgstr "This group set no longer exists, so this change cannot be reverted from here"
-
-msgid ""
-"Group set information could not be loaded, so this change cannot be "
-"reverted from here"
-msgstr ""
-"Group set information could not be loaded, so this change cannot be "
-"reverted from here"
-
-msgid "Can no longer be reverted (older than 24 hours)"
-msgstr "Can no longer be reverted (older than 24 hours)"
-
-msgid "Revert change"
-msgstr "Revert change"
-
-msgid "This change cannot be reverted"
-msgstr "This change cannot be reverted"
-
-msgid "Could not compute what this revert would change"
-msgstr "Could not compute what this revert would change"
-
-msgid "Nothing to revert"
-msgstr "Nothing to revert"
-
-msgid ""
-"Every object this change touched has since been reassigned by hand, so "
-"reverting it now would not change anything"
-msgstr ""
-"Every object this change touched has since been reassigned by hand, so "
-"reverting it now would not change anything"
-
-msgid "Note (optional)"
-msgstr "Note (optional)"
-
-msgid "Applying the revert…"
-msgstr "Applying the revert…"
-
-msgid ""
-"The revert was applied but could not itself be recorded in History, so it "
-"cannot in turn be reverted from here"
-msgstr ""
-"The revert was applied but could not itself be recorded in History, so it "
-"cannot in turn be reverted from here"
-
-msgid "Revert"
-msgstr "Revert"
+msgid "Export"
+msgstr "Export"
 
 msgid "History"
 msgstr "History"
@@ -966,47 +1027,249 @@ msgstr "Changes"
 msgid "Note"
 msgstr "Note"
 
-msgid "Export"
-msgstr "Export"
-
 msgid "Load more"
 msgstr "Load more"
 
-msgid "Created 1 SQL view"
-msgstr "Created 1 SQL view"
+msgid "Compulsory has been changed again since, so it is left as it is"
+msgstr "Compulsory has been changed again since, so it is left as it is"
 
-msgid "Created {count} SQL views"
-msgstr "Created {count} SQL views"
+msgid "Data dimension has been changed again since, so it is left as it is"
+msgstr "Data dimension has been changed again since, so it is left as it is"
 
-msgid "Repaired 1 SQL view"
-msgstr "Repaired 1 SQL view"
+msgid "This change cannot be reverted"
+msgstr "This change cannot be reverted"
 
-msgid "Repaired {count} SQL views"
-msgstr "Repaired {count} SQL views"
+msgid ""
+"Someone else has changed this group set since this dialog opened. Check "
+"what the revert will now do before reverting."
+msgstr ""
+"Someone else has changed this group set since this dialog opened. Check "
+"what the revert will now do before reverting."
 
-msgid "{code} could not be created or repaired — {message}"
-msgstr "{code} could not be created or repaired — {message}"
+msgid "Nothing to revert"
+msgstr "Nothing to revert"
+
+msgid ""
+"Every property this change set changed has been changed again since, so "
+"reverting it now would not change anything"
+msgstr ""
+"Every property this change set changed has been changed again since, so "
+"reverting it now would not change anything"
+
+msgid "Revert change"
+msgstr "Revert change"
+
+msgid "Revert"
+msgstr "Revert"
+
+msgid ""
+"Every object this change touched has since been reassigned by hand, so "
+"reverting it now would not change anything"
+msgstr ""
+"Every object this change touched has since been reassigned by hand, so "
+"reverting it now would not change anything"
+
+msgid "Note (optional)"
+msgstr "Note (optional)"
+
+msgid "Could not compute what this revert would change"
+msgstr "Could not compute what this revert would change"
+
+msgid ""
+"Reading the latest metadata before reverting failed, so nothing was written "
+"— try Revert again"
+msgstr ""
+"Reading the latest metadata before reverting failed, so nothing was written "
+"— try Revert again"
+
+msgid ""
+"Someone else has changed these objects since this page loaded. The revert "
+"below has been recalculated against the current metadata — check it before "
+"reverting."
+msgstr ""
+"Someone else has changed these objects since this page loaded. The revert "
+"below has been recalculated against the current metadata — check it before "
+"reverting."
+
+msgid "Applying the revert…"
+msgstr "Applying the revert…"
+
+msgid "Moved to a group"
+msgstr "Moved to a group"
+
+msgid "Assigned to a group"
+msgstr "Assigned to a group"
+
+msgid "Changed group set properties"
+msgstr "Changed group set properties"
+
+msgid "Reverted an earlier change"
+msgstr "Reverted an earlier change"
+
+msgid "1 membership change"
+msgstr "1 membership change"
+
+msgid "{count} membership changes"
+msgstr "{count} membership changes"
+
+msgid "Compulsory turned on"
+msgstr "Compulsory turned on"
+
+msgid "Compulsory turned off"
+msgstr "Compulsory turned off"
+
+msgid "Data dimension turned on"
+msgstr "Data dimension turned on"
+
+msgid "Data dimension turned off"
+msgstr "Data dimension turned off"
+
+msgid "Interrupted or still running, {confirmed} of 1 change confirmed"
+msgstr "Interrupted or still running, {confirmed} of 1 change confirmed"
+
+msgid "Interrupted or still running, {confirmed} of {planned} changes confirmed"
+msgstr "Interrupted or still running, {confirmed} of {planned} changes confirmed"
+
+msgid "This group set no longer exists, so this change cannot be reverted from here"
+msgstr "This group set no longer exists, so this change cannot be reverted from here"
+
+msgid ""
+"Group set information could not be loaded, so this change cannot be "
+"reverted from here"
+msgstr ""
+"Group set information could not be loaded, so this change cannot be "
+"reverted from here"
+
+msgid "Can no longer be reverted (older than 24 hours)"
+msgstr "Can no longer be reverted (older than 24 hours)"
+
+msgid ""
+"Nothing was confirmed before this change stopped, so there is nothing to "
+"revert"
+msgstr ""
+"Nothing was confirmed before this change stopped, so there is nothing to "
+"revert"
+
+msgid ""
+"The revert was applied but could not itself be recorded in History, so it "
+"cannot in turn be reverted from here"
+msgstr ""
+"The revert was applied but could not itself be recorded in History, so it "
+"cannot in turn be reverted from here"
+
+msgid "Page not found"
+msgstr "Page not found"
+
+msgid "There is no page at this address in this app."
+msgstr "There is no page at this address in this app."
+
+msgid "Something went wrong"
+msgstr "Something went wrong"
+
+msgid "This page could not be shown. Reloading the app may help."
+msgstr "This page could not be shown. Reloading the app may help."
+
+msgid "Choose catch-all group"
+msgstr "Choose catch-all group"
+
+msgid "The configured catch-all group no longer exists in this set."
+msgstr "The configured catch-all group no longer exists in this set."
+
+msgid "Clear the catch-all group of {name}"
+msgstr "Clear the catch-all group of {name}"
+
+msgid "Clear"
+msgstr "Clear"
+
+msgid "Could not save the catch-all group"
+msgstr "Could not save the catch-all group"
+
+msgid "Tracker data"
+msgstr "Tracker data"
+
+msgid "Include tracker data elements when checking data element group sets"
+msgstr "Include tracker data elements when checking data element group sets"
+
+msgid "Could not save the tracker data setting"
+msgstr "Could not save the tracker data setting"
+
+msgid "Cache"
+msgstr "Cache"
+
+msgid "Clear cache"
+msgstr "Clear cache"
 
 msgid "SQL views"
 msgstr "SQL views"
 
-msgid "Could not check SQL view status"
-msgstr "Could not check SQL view status"
+msgid "Group set usage"
+msgstr "Group set usage"
+
+msgid ""
+"An optional SQL view that counts the saved favourites referencing each "
+"group set, and how often they were viewed in the last 12 months. Without it "
+"the app works exactly as before, only with no usage figures."
+msgstr ""
+"An optional SQL view that counts the saved favourites referencing each "
+"group set, and how often they were viewed in the last 12 months. Without it "
+"the app works exactly as before, only with no usage figures."
+
+msgid "Who can read the SQL views"
+msgstr "Who can read the SQL views"
+
+msgid "Every logged-in user"
+msgstr "Every logged-in user"
+
+msgid ""
+"The fast path for everyone. Any logged-in user can also read the rows of "
+"these views through the API, which list the members of every organisation "
+"unit group and the usage of every favourite, including groups and "
+"favourites that are not shared with them."
+msgstr ""
+"The fast path for everyone. Any logged-in user can also read the rows of "
+"these views through the API, which list the members of every organisation "
+"unit group and the usage of every favourite, including groups and "
+"favourites that are not shared with them."
+
+msgid "Only the members of one user group"
+msgstr "Only the members of one user group"
+
+msgid ""
+"Members of the group get the fast path. Everyone else can still use the "
+"app; it loads their data through the slower metadata API, and they see no "
+"usage figures."
+msgstr ""
+"Members of the group get the fast path. Everyone else can still use the "
+"app; it loads their data through the slower metadata API, and they see no "
+"usage figures."
+
+msgid "User group"
+msgstr "User group"
+
+msgid "Choose a user group"
+msgstr "Choose a user group"
+
+msgid ""
+"The user group the SQL views are shared with no longer exists, or you "
+"cannot see it. Choose another."
+msgstr ""
+"The user group the SQL views are shared with no longer exists, or you "
+"cannot see it. Choose another."
+
+msgid "Could not load user groups"
+msgstr "Could not load user groups"
+
+msgid "Save and apply to the SQL views"
+msgstr "Save and apply to the SQL views"
 
 msgid "Usable"
 msgstr "Usable"
 
+msgid "Not shared with you"
+msgstr "Not shared with you"
+
 msgid "Not usable yet"
 msgstr "Not usable yet"
-
-msgid "SQL views are set up"
-msgstr "SQL views are set up"
-
-msgid "The app is reading organisation unit data through the fast SQL view path."
-msgstr "The app is reading organisation unit data through the fast SQL view path."
-
-msgid "Create SQL views"
-msgstr "Create SQL views"
 
 msgid "SQL views are not set up"
 msgstr "SQL views are not set up"
@@ -1023,35 +1286,44 @@ msgstr ""
 msgid "The app could not determine whether you can create SQL views."
 msgstr "The app could not determine whether you can create SQL views."
 
+msgid "The sharing setting was saved."
+msgstr "The sharing setting was saved."
+
+msgid "SQL views are set up"
+msgstr "SQL views are set up"
+
+msgid "The app is reading organisation unit data through the fast SQL view path."
+msgstr "The app is reading organisation unit data through the fast SQL view path."
+
+msgid "SQL views are not shared with you"
+msgstr "SQL views are not shared with you"
+
+msgid ""
+"The SQL views are shared with a user group you are not in, so the app loads "
+"your data through the slower metadata API. Join that group to use the fast "
+"path."
+msgstr ""
+"The SQL views are shared with a user group you are not in, so the app loads "
+"your data through the slower metadata API. Join that group to use the fast "
+"path."
+
 msgid "SQL view update complete"
 msgstr "SQL view update complete"
 
 msgid "SQL view update failed"
 msgstr "SQL view update failed"
 
-msgid "Group set usage"
-msgstr "Group set usage"
+msgid "Could not check SQL view status"
+msgstr "Could not check SQL view status"
 
-msgid ""
-"An optional SQL view that counts the saved favourites referencing each "
-"group set, and how often they were viewed in the last 12 months. Without it "
-"the app works exactly as before, only with no usage figures."
-msgstr ""
-"An optional SQL view that counts the saved favourites referencing each "
-"group set, and how often they were viewed in the last 12 months. Without it "
-"the app works exactly as before, only with no usage figures."
+msgid "Create SQL views"
+msgstr "Create SQL views"
 
-msgid "Could not check the usage SQL view"
-msgstr "Could not check the usage SQL view"
+msgid "The existing usage SQL view could not be repaired — {message}"
+msgstr "The existing usage SQL view could not be repaired — {message}"
 
-msgid "Group set usage view"
-msgstr "Group set usage view"
-
-msgid "Install usage SQL view"
-msgstr "Install usage SQL view"
-
-msgid "Remove usage SQL view"
-msgstr "Remove usage SQL view"
+msgid "The {variant} query variant could not be installed — {message}"
+msgstr "The {variant} query variant could not be installed — {message}"
 
 msgid "Usage data is installed"
 msgstr "Usage data is installed"
@@ -1065,38 +1337,65 @@ msgstr "The existing usage SQL view was repaired and can now be read."
 msgid "The usage SQL view could not be installed"
 msgstr "The usage SQL view could not be installed"
 
-msgid "The existing usage SQL view could not be repaired — {message}"
-msgstr "The existing usage SQL view could not be repaired — {message}"
+msgid "Could not check the usage SQL view"
+msgstr "Could not check the usage SQL view"
 
-msgid "The {variant} query variant could not be installed — {message}"
-msgstr "The {variant} query variant could not be installed — {message}"
+msgid ""
+"You may not delete the usage SQL view. Another administrator probably owns "
+"it; ask them or a superuser to remove it."
+msgstr ""
+"You may not delete the usage SQL view. Another administrator probably owns "
+"it; ask them or a superuser to remove it."
+
+msgid "Group set usage view"
+msgstr "Group set usage view"
+
+msgid "Install usage SQL view"
+msgstr "Install usage SQL view"
+
+msgid "Remove usage SQL view"
+msgstr "Remove usage SQL view"
 
 msgid "The usage SQL view action failed"
 msgstr "The usage SQL view action failed"
 
-msgid "Choose catch-all group"
-msgstr "Choose catch-all group"
+msgid "Created 1 SQL view"
+msgstr "Created 1 SQL view"
 
-msgid "Clear"
-msgstr "Clear"
+msgid "Created {count} SQL views"
+msgstr "Created {count} SQL views"
 
-msgid "Could not save the catch-all group"
-msgstr "Could not save the catch-all group"
+msgid "Repaired 1 SQL view"
+msgstr "Repaired 1 SQL view"
 
-msgid "Tracker data"
-msgstr "Tracker data"
+msgid "Repaired {count} SQL views"
+msgstr "Repaired {count} SQL views"
 
-msgid "Include tracker attributes and data elements by default"
-msgstr "Include tracker attributes and data elements by default"
+msgid ""
+"{code} could not be changed because you may not edit it. Another "
+"administrator probably owns it. Ask them or a superuser to repair it here."
+msgstr ""
+"{code} could not be changed because you may not edit it. Another "
+"administrator probably owns it. Ask them or a superuser to repair it here."
 
-msgid "Could not save the tracker data setting"
-msgstr "Could not save the tracker data setting"
+msgid ""
+"{code} exists but does not match what the app needs, and could not be set "
+"back. Delete it in the Maintenance app, then create the SQL views here "
+"again."
+msgstr ""
+"{code} exists but does not match what the app needs, and could not be set "
+"back. Delete it in the Maintenance app, then create the SQL views here "
+"again."
 
-msgid "Cache"
-msgstr "Cache"
+msgid ""
+"{code} already exists but is not shared with you. Ask the administrator who "
+"created it, or a superuser, to repair it here."
+msgstr ""
+"{code} already exists but is not shared with you. Ask the administrator who "
+"created it, or a superuser, to repair it here."
 
-msgid "Clear cache"
-msgstr "Clear cache"
+msgid "{code} could not be created or repaired — {message}"
+msgstr "{code} could not be created or repaired — {message}"
 
 msgid "Dashboard"
 msgstr "Dashboard"

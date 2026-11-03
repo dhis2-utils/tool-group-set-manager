@@ -105,7 +105,7 @@ const sourceLabel = (
 const usageSortHelpText = (status: UsageStatus) => {
     switch (status) {
         case 'absent':
-            return i18n.t('Usage data is not installed on this instance')
+            return i18n.t('Usage data is not available to you')
         case 'error':
             return i18n.t('Usage data could not be read on this instance')
         default:

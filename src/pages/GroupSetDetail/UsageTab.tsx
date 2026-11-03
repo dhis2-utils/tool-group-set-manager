@@ -58,16 +58,14 @@ export const UsageTab = ({ set }: { set: GroupSetMeta }) => {
 
     if (usage.status === 'absent') {
         return (
-            <NoticeBox
-                title={i18n.t('Usage data is not installed on this instance')}
-            >
+            <NoticeBox title={i18n.t('Usage data is not available to you')}>
                 <p>
                     {i18n.t(
-                        'Usage counts come from an optional SQL view that an administrator installs once.'
+                        'Usage counts come from an optional SQL view. Either it is not installed, or an administrator has shared it only with a user group you are not in.'
                     )}
                 </p>
                 <Link to="/settings">
-                    {i18n.t('Go to Settings to install it')}
+                    {i18n.t('Go to Settings to check it')}
                 </Link>
             </NoticeBox>
         )

@@ -725,7 +725,7 @@ test('disables the not-yet-available usage sort, with help text explaining why',
         expect(screen.getByText('Ownership')).toBeInTheDocument()
     )
     expect(
-        screen.getByText('Usage data is not installed on this instance')
+        screen.getByText('Usage data is not available to you')
     ).toBeInTheDocument()
 
     // The option list isn't mounted until the field is opened (matching
@@ -758,7 +758,7 @@ test('enables the usage sort, with no help text, once usage data is ready', asyn
         expect(screen.getByText('Ownership')).toBeInTheDocument()
     )
     expect(
-        screen.queryByText('Usage data is not installed on this instance')
+        screen.queryByText('Usage data is not available to you')
     ).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByText('Issues'))
@@ -789,7 +789,7 @@ test('shows no help text for the usage sort while usage is still loading, but ke
         expect(screen.getByText('Ownership')).toBeInTheDocument()
     )
     expect(
-        screen.queryByText('Usage data is not installed on this instance')
+        screen.queryByText('Usage data is not available to you')
     ).not.toBeInTheDocument()
     expect(
         screen.queryByText('Usage data could not be read on this instance')
@@ -826,7 +826,7 @@ test('shows the "could not be read" wording for an unreadable usage view, never 
         screen.getByText('Usage data could not be read on this instance')
     ).toBeInTheDocument()
     expect(
-        screen.queryByText('Usage data is not installed on this instance')
+        screen.queryByText('Usage data is not available to you')
     ).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByText('Issues'))
