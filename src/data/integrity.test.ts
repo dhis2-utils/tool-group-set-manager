@@ -122,7 +122,7 @@ describe('resolveChecks', () => {
         )
     })
 
-    it('resolves all six logical checks to their 2.43 names', async () => {
+    it('resolves all five logical checks to their 2.43 names', async () => {
         const fetcher = () => Promise.resolve(jsonResponse(CHECK_2_43))
         const resolved = await resolveChecks(fetcher)
         expect(resolved.map((r) => r.logical)).toEqual([
@@ -131,7 +131,6 @@ describe('resolveChecks', () => {
             'dataElementsConflicting',
             'indicatorsConflicting',
             'categoryOptionsConflicting',
-            'categoryOptionGroupSetsIncomplete',
         ])
         expect(resolved.map((r) => r.name)).toEqual([
             'org_units_not_in_compulsory_group_sets',
@@ -139,11 +138,10 @@ describe('resolveChecks', () => {
             'data_elements_violating_exclusive_group_sets',
             'indicators_violating_exclusive_group_sets',
             'category_options_excess_groupset_membership',
-            'category_option_group_sets_incomplete',
         ])
     })
 
-    it('resolves the two org unit checks to their 2.40 names while the other four keep shared names', async () => {
+    it('resolves the two org unit checks to their 2.40 names while the other three keep shared names', async () => {
         const fetcher = () => Promise.resolve(jsonResponse(CHECK_2_40))
         const resolved = await resolveChecks(fetcher)
         const byLogical = new Map(resolved.map((r) => [r.logical, r]))
@@ -162,9 +160,12 @@ describe('resolveChecks', () => {
         expect(byLogical.get('categoryOptionsConflicting')?.name).toBe(
             'category_options_excess_groupset_membership'
         )
-        expect(byLogical.get('categoryOptionGroupSetsIncomplete')?.name).toBe(
-            'category_option_group_sets_incomplete'
-        )
+        // Present on the server, but concerns no type the app loads.
+        expect(
+            resolved.some(
+                (r) => r.name === 'category_option_group_sets_incomplete'
+            )
+        ).toBe(false)
     })
 
     it('returns only the checks present, in LogicalCheck order, with no throw', async () => {
@@ -237,9 +238,6 @@ describe('resolveChecks', () => {
         expect(byLogical.get('categoryOptionsConflicting')?.objectType).toBe(
             'categoryOption'
         )
-        expect(
-            byLogical.get('categoryOptionGroupSetsIncomplete')?.objectType
-        ).toBeNull()
     })
 })
 

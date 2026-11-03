@@ -16,7 +16,6 @@ export interface UsageState {
     error: string | null
     /** null whenever status is not 'ready' -- see the plan's note on this */
     forSet: (groupSetId: string) => SetUsage | null
-    refresh: () => void
 }
 
 interface LookupResponse {
@@ -52,12 +51,16 @@ const dataKey = (viewId: string) => [USAGE_QUERY_PREFIX, 'sqlViewData', viewId]
 
 /**
  * Tells every mounted reader of `useUsage()` that the view changed, without
- * reading anything itself. Settings uses this: it installs and removes the
- * view but never displays usage, and mounting the full hook there cost a
- * lookup plus an up-to-5000-row read for data it threw away.
+ * reading anything itself. Settings uses this: it installs, repairs and
+ * removes the view but never displays usage.
  *
- * Invalidation rather than refetch, and by prefix rather than by id: the
- * reasoning is in `useUsage`'s own comment on `refresh`.
+ * Invalidation rather than `refetch()`, and by prefix rather than by id: a
+ * caller runs this after an install or removal has changed which view id
+ * the *next* render reads, so a refetch captured at an earlier render would
+ * target the old key (`sqlViewData/none` right after an install, or the id
+ * just deleted). Invalidating the prefix lets whichever reader is mounted
+ * refetch under its own current key, and clears the data query's
+ * `staleTime` for a repair, where the view id does not change at all.
  */
 export function useUsageRefresh(): () => void {
     const queryClient = useQueryClient()
@@ -164,36 +167,5 @@ export function useUsage(): UsageState {
         [byId]
     )
 
-    // Fix round 1: this used to call `lookup.refetch()`/`read.refetch()`
-    // directly, but those are captured at render time -- by the time a
-    // caller (Settings, after an install or remove) actually invokes
-    // `refresh()`, the `read` closure's own queryKey can already be wrong.
-    // On install it was still `sqlViewData/none` (the view didn't exist
-    // yet at the render that produced this closure), so the "refetch" was
-    // really a GET against `sqlViews/none/data`; on remove it was still the
-    // id that request had just deleted. `refetch()` bypasses `enabled:
-    // false` and fires anyway (v4), so both were doomed requests that
-    // happened to do nothing harmful only because their responses were
-    // discarded once the *next* render replaced this hook's own view of
-    // the world.
-    //
-    // Invalidating by key instead names what changed and lets whichever
-    // consumer is actually mounted -- possibly a different component with a
-    // newer `view.id` than this render ever saw -- refetch under its own,
-    // current key. `invalidateQueries` only refetches a query that is
-    // active, so an inactive `sqlViewData/none` some other absent-state
-    // reader still holds is marked stale but never actually fetched.
-    // Invalidating the shared prefix covers both keys, whichever view id is
-    // current.
-    //
-    // The repair case (`installUsageView` re-executing an existing,
-    // previously-unusable view) is exactly why the lookup key is
-    // invalidated too, not just the data key: the view's id, type and
-    // access are unchanged by a repair, so `view` never changes and the
-    // data query's key never changes either -- only invalidating it
-    // (rather than relying on a key change to trigger a fresh fetch)
-    // clears its 5-minute `staleTime` and forces the re-read.
-    const refresh = useUsageRefresh()
-
-    return { status, error, forSet, refresh }
+    return { status, error, forSet }
 }
