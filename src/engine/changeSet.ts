@@ -26,6 +26,21 @@ export interface ChangeSet {
     targetGroupId?: string
     changes: GroupChange[]
     revertOf?: string
+    /**
+     * `'pending'` while the write it records is still running, and for good
+     * if that write never finished (a closed tab, a lost connection):
+     * `changes` then holds only the groups confirmed before it stopped.
+     * Absent on a finished record, which is also how every record written
+     * before this field existed reads.
+     */
+    status?: 'pending'
+    /** On a pending record, how many membership changes the write set out to make. */
+    planned?: number
+}
+
+/** Whether a record's write finished. A record without `status` always did. */
+export function isPending(changeSet: Pick<ChangeSet, 'status'>): boolean {
+    return changeSet.status === 'pending'
 }
 
 /**

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import React from 'react'
 import { useMembershipWrite } from './useMembershipWrite'
+import type { ChangeSet } from '@/engine/changeSet'
 import type { GroupSetMeta } from '@/engine/types'
 
 const mockDataEngineQuery = jest.fn(() =>
@@ -41,8 +42,10 @@ jest.mock('@/data/writes', () => ({
 }))
 
 const mockSaveChangeSet: jest.Mock = jest.fn(() => Promise.resolve(undefined))
+const mockDeleteChangeSet: jest.Mock = jest.fn(() => Promise.resolve(undefined))
 jest.mock('@/data/datastore', () => ({
     saveChangeSet: (...args: unknown[]) => mockSaveChangeSet(...args),
+    deleteChangeSet: (...args: unknown[]) => mockDeleteChangeSet(...args),
 }))
 
 const set: GroupSetMeta = {
@@ -107,6 +110,8 @@ beforeEach(() => {
     mockMarkStale.mockImplementation(() => undefined)
     mockSaveChangeSet.mockClear()
     mockSaveChangeSet.mockResolvedValue(undefined)
+    mockDeleteChangeSet.mockClear()
+    mockDeleteChangeSet.mockResolvedValue(undefined)
     mockWriteMembershipsImpl = jest.fn(() =>
         Promise.resolve({
             outcomes: [{ groupId: 'g1', requested: 1, accepted: 1 }],
@@ -182,7 +187,7 @@ test('applies only what was confirmed on a partial write', async () => {
 })
 
 test('still applies the engine update and invalidates the cache when saving the change set fails, and surfaces the failure', async () => {
-    mockSaveChangeSet.mockRejectedValueOnce(new Error('dataStore down'))
+    mockSaveChangeSet.mockRejectedValue(new Error('dataStore down'))
 
     const writeResult = await doWrite()
 
@@ -236,7 +241,7 @@ test('still invalidates the cache and records history when there is no engine cl
 // tests above (which pin that the later steps still happen, not that they
 // happen in this order). Each mock pushes its own label before resolving.
 
-test("performs the four steps in D4's order: server, engine, cache, history", async () => {
+test("performs the steps in D4's order: pending history, server, engine, cache, history", async () => {
     const order: string[] = []
     mockWriteMembershipsImpl = jest.fn(() => {
         order.push('server')
@@ -254,21 +259,21 @@ test("performs the four steps in D4's order: server, engine, cache, history", as
         order.push('cache')
         return Promise.resolve(undefined)
     })
-    mockSaveChangeSet.mockImplementation(() => {
-        order.push('history')
+    mockSaveChangeSet.mockImplementation((_f: unknown, cs: ChangeSet) => {
+        order.push(cs.status === 'pending' ? 'pending' : 'history')
         return Promise.resolve()
     })
 
     await doWrite()
 
-    expect(order).toEqual(['server', 'engine', 'cache', 'history'])
+    expect(order).toEqual(['pending', 'server', 'engine', 'cache', 'history'])
 })
 
 // M3: a write that confirmed nothing must not leave a History row
 // describing no change (Task 9 offers a revert on every row, and
 // reverting an empty change set is a control that cannot do anything).
 
-test('skips saving a change set when nothing was applied, but still returns one and still invalidates the cache', async () => {
+test('removes the pending record when nothing was applied, but still returns a change set and still invalidates the cache', async () => {
     mockWriteMembershipsImpl = jest.fn(() =>
         Promise.resolve({
             outcomes: [
@@ -281,7 +286,14 @@ test('skips saving a change set when nothing was applied, but still returns one 
 
     const writeResult = await doWrite()
 
-    expect(mockSaveChangeSet).not.toHaveBeenCalled()
+    expect(mockSaveChangeSet).toHaveBeenCalledTimes(1)
+    expect(mockSaveChangeSet.mock.calls[0][1]).toMatchObject({
+        status: 'pending',
+    })
+    expect(mockDeleteChangeSet).toHaveBeenCalledWith(
+        expect.anything(),
+        writeResult.changeSet.id
+    )
     expect(mockInvalidateType).toHaveBeenCalledWith('organisationUnit')
     expect(writeResult.changeSet.changes).toEqual([])
     expect(writeResult.historyError).toBeUndefined()
@@ -330,6 +342,7 @@ test('keeps isWriting true while any overlapping write is still in flight', asyn
         })
     })
     expect(result.current.isWriting).toBe(true)
+    await waitFor(() => expect(resolvers).toHaveLength(2))
 
     await act(async () => {
         resolvers[0]()
@@ -395,7 +408,7 @@ test('passes completeMembers through, and no batch size', async () => {
         'organisationUnit',
         [change],
         expect.any(Function),
-        { completeMembers }
+        { completeMembers, onChangeSettled: expect.any(Function) }
     )
 })
 
@@ -406,7 +419,10 @@ test('still writes when completeMembers is omitted, passing none through', async
         string,
         unknown
     >
-    expect(options).toEqual({ completeMembers: undefined })
+    expect(options).toEqual({
+        completeMembers: undefined,
+        onChangeSettled: expect.any(Function),
+    })
     expect(Object.keys(options)).not.toContain('batchSize')
     expect(writeResult.changeSet).toBeDefined()
 })
@@ -421,4 +437,130 @@ test('still resolves the write when markStale throws', async () => {
     expect(writeResult.changeSet).toBeDefined()
     expect(mockInvalidateType).toHaveBeenCalledWith('organisationUnit')
     expect(mockSaveChangeSet).toHaveBeenCalled()
+})
+
+// M3: History is written before the server is, so a write that stops
+// partway still leaves a revertible row for what it finished.
+
+test('saves a pending record before writing, then replaces it with the finished one under the same id', async () => {
+    const order: string[] = []
+    mockSaveChangeSet.mockImplementation((_f: unknown, cs: ChangeSet) => {
+        order.push(cs.status === 'pending' ? 'pending' : 'final')
+        return Promise.resolve()
+    })
+    mockWriteMembershipsImpl = jest.fn(() => {
+        order.push('server')
+        return Promise.resolve({
+            outcomes: [{ groupId: 'g1', requested: 1, accepted: 1 }],
+            applied: [change],
+            unaccounted: [],
+        })
+    })
+
+    const writeResult = await doWrite([
+        change,
+        { groupId: 'g2', additions: ['b', 'c', 'd'], deletions: [] },
+    ])
+
+    expect(order).toEqual(['pending', 'server', 'final'])
+    expect(mockSaveChangeSet.mock.calls[0][1]).toMatchObject({
+        id: writeResult.changeSet.id,
+        status: 'pending',
+        planned: 4,
+        changes: [],
+    })
+    const final = mockSaveChangeSet.mock.calls[1][1] as ChangeSet
+    expect(final).toEqual(writeResult.changeSet)
+    expect(final.id).toBe(writeResult.changeSet.id)
+    expect('status' in final).toBe(false)
+    expect('planned' in final).toBe(false)
+})
+
+test('updates the pending record with what each finished group confirmed', async () => {
+    const second = { groupId: 'g2', additions: ['b'], deletions: [] }
+    mockWriteMembershipsImpl = jest.fn(async (...args: unknown[]) => {
+        const options = args[4] as {
+            onChangeSettled?: (applied: unknown[]) => Promise<void>
+        }
+        await options.onChangeSettled?.([change])
+        return {
+            outcomes: [
+                { groupId: 'g1', requested: 1, accepted: 1 },
+                { groupId: 'g2', requested: 1, accepted: 1 },
+            ],
+            applied: [change, second],
+            unaccounted: [],
+        }
+    })
+
+    await doWrite([change, second])
+
+    const saved = mockSaveChangeSet.mock.calls.map(
+        (call) => call[1] as ChangeSet
+    )
+    expect(saved.map((cs) => [cs.status, cs.changes])).toEqual([
+        ['pending', []],
+        ['pending', [change]],
+        [undefined, [change, second]],
+    ])
+})
+
+test('an interrupted write leaves the pending record holding what it confirmed', async () => {
+    mockWriteMembershipsImpl = jest.fn(async (...args: unknown[]) => {
+        const options = args[4] as {
+            onChangeSettled?: (applied: unknown[]) => Promise<void>
+        }
+        await options.onChangeSettled?.([change])
+        // The tab closes here: the write never settles.
+        return new Promise(() => {
+            // never settles
+        })
+    })
+    const { result } = renderHook(() => useMembershipWrite(), { wrapper })
+    act(() => {
+        void result.current.write({
+            set,
+            changes: [
+                change,
+                { groupId: 'g2', additions: ['b'], deletions: [] },
+            ],
+            action: 'move',
+            note: '',
+        })
+    })
+
+    await waitFor(() => expect(mockSaveChangeSet).toHaveBeenCalledTimes(2))
+    expect(mockSaveChangeSet.mock.calls[1][1]).toMatchObject({
+        status: 'pending',
+        planned: 2,
+        changes: [change],
+    })
+})
+
+test('still writes and records the result when the pending save fails', async () => {
+    mockSaveChangeSet
+        .mockRejectedValueOnce(new Error('dataStore down'))
+        .mockResolvedValue(undefined)
+
+    const writeResult = await doWrite()
+
+    expect(mockWriteMembershipsImpl).toHaveBeenCalled()
+    expect(writeResult.historyError).toBeUndefined()
+    expect(mockSaveChangeSet).toHaveBeenLastCalledWith(
+        expect.anything(),
+        writeResult.changeSet
+    )
+})
+
+test('still records history and resolves when invalidating the cache fails', async () => {
+    mockInvalidateType.mockRejectedValueOnce(new Error('IndexedDB blocked'))
+
+    const writeResult = await doWrite()
+
+    expect(writeResult.historyError).toBeUndefined()
+    expect(mockSaveChangeSet).toHaveBeenLastCalledWith(
+        expect.anything(),
+        writeResult.changeSet
+    )
+    expect(mockMarkStale).toHaveBeenCalledWith('organisationUnit')
 })

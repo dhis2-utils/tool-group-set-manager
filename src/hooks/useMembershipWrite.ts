@@ -2,8 +2,9 @@ import { useConfig } from '@dhis2/app-runtime'
 import { useCallback, useState } from 'react'
 import { useEngine } from './useEngine'
 import { useIntegrity } from './useIntegrity'
-import { saveChangeSet } from '@/data/datastore'
+import { deleteChangeSet, saveChangeSet } from '@/data/datastore'
 import { createFetcher } from '@/data/fetcher'
+import type { Fetcher } from '@/data/sources/DataSource'
 import type { WriteResult } from '@/data/writes'
 import { writeMemberships } from '@/data/writes'
 import type { ChangeSet, GroupChange } from '@/engine/changeSet'
@@ -89,11 +90,101 @@ function generateChangeSetId(): string {
     return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
 }
 
+function plannedCount(changes: GroupChange[]): number {
+    return changes.reduce(
+        (sum, c) => sum + c.additions.length + c.deletions.length,
+        0
+    )
+}
+
+function errorText(e: unknown): string {
+    return e instanceof Error ? e.message : String(e)
+}
+
+interface HistoryRecorder {
+    /** Saves what is confirmed so far into the pending record; never throws. */
+    update?: (appliedSoFar: GroupChange[]) => Promise<void>
+    /**
+     * Replaces the pending record with the finished one, or removes it when
+     * nothing was confirmed. Returns the save error, if any; never throws.
+     */
+    finish: (changeSet: ChangeSet) => Promise<string | undefined>
+}
+
+/**
+ * Saves a pending History record before anything is written, so a write
+ * interrupted partway -- a closed tab, a dropped connection, an expired
+ * session -- still leaves a row for the groups it finished. The record is
+ * updated after each group and replaced by the finished change set at the
+ * end, which carries no `status` and so reads exactly like one written by
+ * an earlier version.
+ *
+ * When the pending save itself fails (no write access to the dataStore,
+ * say), the write still goes ahead -- the server change matters more than
+ * its History row, as it always has -- and only the final save is tried.
+ */
+async function startHistory(
+    fetcher: Fetcher,
+    record: ChangeSet,
+    planned: number
+): Promise<HistoryRecorder> {
+    const pending = (changes: GroupChange[]): ChangeSet => ({
+        ...record,
+        status: 'pending',
+        planned,
+        changes,
+    })
+    let pendingSaved = false
+    try {
+        await saveChangeSet(fetcher, pending([]))
+        pendingSaved = true
+    } catch {
+        // See the doc comment: the write does not wait on its History row.
+    }
+    return {
+        update: pendingSaved
+            ? async (appliedSoFar) => {
+                  try {
+                      await saveChangeSet(fetcher, pending(appliedSoFar))
+                  } catch {
+                      // The next update, or the final save, tries again.
+                  }
+              }
+            : undefined,
+        finish: async (changeSet) => {
+            if (changeSet.changes.length === 0) {
+                // A History row describing no change is worse than no row:
+                // every row offers Revert, and reverting nothing is a
+                // control that cannot do anything.
+                if (pendingSaved) {
+                    try {
+                        await deleteChangeSet(fetcher, changeSet.id)
+                    } catch {
+                        // Left behind as a pending row with nothing
+                        // confirmed, which History shows as such.
+                    }
+                }
+                return undefined
+            }
+            try {
+                await saveChangeSet(fetcher, changeSet)
+                return undefined
+            } catch (e) {
+                return errorText(e)
+            }
+        },
+    }
+}
+
 /**
  * The single place a membership change happens. Every screen that moves,
  * assigns or reverts an object between groups calls `write()`, which does
- * four things in this order -- server, engine, cache, history:
+ * these things in this order -- pending history, server, engine, cache,
+ * history:
  *
+ * 0. Save a pending History record (`startHistory`), updated after each
+ *    group, so a write that never reaches step 4 still leaves the groups it
+ *    finished in History, revertible.
  * 1. Write to the server (`writeMemberships`), batched and reconciled
  *    against what the server actually confirmed.
  * 2. Apply exactly what was confirmed (`result.applied`, never the input)
@@ -103,11 +194,11 @@ function generateChangeSetId(): string {
  *    (2.40 does bump it; see docs/developer/dhis2-behavior.md),
  *    so the next load cannot be trusted to notice on its own regardless of
  *    which server this is running against.
- * 4. Record a change set in the dataStore for the History page -- skipped
- *    entirely when `result.applied` is empty (nothing was confirmed): a
- *    History row describing no change is worse than no row, since Task 9
- *    offers a revert on every row and reverting nothing is a control that
- *    cannot do anything.
+ * 4. Replace the pending record with the finished change set -- or delete
+ *    it when `result.applied` is empty (nothing was confirmed): a History
+ *    row describing no change is worse than no row, since History offers a
+ *    revert on every row and reverting nothing is a control that cannot do
+ *    anything.
  *
  * Steps 2, 3 and 4 are independent of each other once the server write has
  * happened: a rejection from the engine call (the worker crashed, or was
@@ -151,12 +242,40 @@ export function useMembershipWrite(): {
                 const fetcher = createFetcher(baseUrl, apiVersion)
                 const objectType = input.set.objectType
 
+                // `changes` is the batch list verbatim and therefore
+                // unbounded: a hundred-thousand-membership national fix
+                // produces one dataStore document holding a hundred
+                // thousand ids. That is a property of this contract
+                // (writeMemberships batches, this hook stores whatever it
+                // confirmed), not a bug to fix here.
+                const record: ChangeSet = {
+                    id: generateChangeSetId(),
+                    createdAt: new Date().toISOString(),
+                    createdBy: identity ?? UNKNOWN_IDENTITY,
+                    objectType,
+                    groupSetId: input.set.id,
+                    groupSetName: input.set.displayName,
+                    action: input.action,
+                    note: input.note,
+                    targetGroupId: input.targetGroupId,
+                    changes: [],
+                    revertOf: input.revertOf,
+                }
+                const history = await startHistory(
+                    fetcher,
+                    record,
+                    plannedCount(input.changes)
+                )
+
                 const result = await writeMemberships(
                     fetcher,
                     objectType,
                     input.changes,
                     input.onProgress ?? (() => undefined),
-                    { completeMembers: input.completeMembers }
+                    {
+                        completeMembers: input.completeMembers,
+                        onChangeSettled: history.update,
+                    }
                 )
 
                 let engineError: string | undefined
@@ -174,49 +293,28 @@ export function useMembershipWrite(): {
                     engineError = NO_ENGINE_CLIENT
                 }
 
-                await invalidateType(objectType)
-
-                // Like invalidateType, a failure to mark the affected
-                // checks stale must never fail an already-confirmed write --
-                // it is a same-session UI hint, not part of the write's
-                // contract with the server.
+                // Neither of these may fail an already-confirmed write or
+                // skip the History save below: a cache that could not be
+                // cleared (IndexedDB unavailable) costs at worst a stale
+                // next load, and stale check results are a same-session UI
+                // hint, while a confirmed change missing from History
+                // cannot be reverted at all.
+                try {
+                    await invalidateType(objectType)
+                } catch {
+                    // deliberately ignored -- see comment above
+                }
                 try {
                     markStale(objectType)
                 } catch {
                     // deliberately ignored -- see comment above
                 }
 
-                // `changes: result.applied` is the batch list verbatim and
-                // therefore unbounded: a hundred-thousand-membership
-                // national fix produces one dataStore document holding a
-                // hundred thousand ids. That is a property of this
-                // contract (writeMemberships batches, this hook stores
-                // whatever it confirmed), not a bug to fix here -- noted
-                // so a page rendering History (Task 9) doesn't discover it
-                // against a large real instance.
                 const changeSet: ChangeSet = {
-                    id: generateChangeSetId(),
-                    createdAt: new Date().toISOString(),
-                    createdBy: identity ?? UNKNOWN_IDENTITY,
-                    objectType,
-                    groupSetId: input.set.id,
-                    groupSetName: input.set.displayName,
-                    action: input.action,
-                    note: input.note,
-                    targetGroupId: input.targetGroupId,
+                    ...record,
                     changes: result.applied,
-                    revertOf: input.revertOf,
                 }
-
-                let historyError: string | undefined
-                if (result.applied.length > 0) {
-                    try {
-                        await saveChangeSet(fetcher, changeSet)
-                    } catch (e) {
-                        historyError =
-                            e instanceof Error ? e.message : String(e)
-                    }
-                }
+                const historyError = await history.finish(changeSet)
 
                 return { ...result, changeSet, historyError, engineError }
             } finally {
