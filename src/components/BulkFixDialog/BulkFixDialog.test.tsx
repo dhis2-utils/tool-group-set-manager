@@ -89,9 +89,9 @@ jest.mock('@/hooks/useMembershipWrite', () => ({
     }),
 }))
 
-// Task 9: `readPatchRouteGroups` calls the real fetcher, not `client.call`
-// -- this is the one place in the file that needs the raw HTTP layer
-// stubbed, since every other data access goes through the mocked engine
+// Task 9 / finding M1: the pre-write re-read (`recheckPlan`) calls the real
+// fetcher, not `client.call` -- this is the one place in the file that
+// needs the raw HTTP layer stubbed, since every other data access goes through the mocked engine
 // client or the mocked hooks above.
 const mockFetcher = jest.fn()
 jest.mock('@/data/fetcher', () => ({
@@ -1794,11 +1794,10 @@ describe('BulkFixDialog apply step', () => {
             ).not.toBeInTheDocument()
         })
 
-        it('writes straight through, with no re-read at all, when nothing crosses the patch threshold', async () => {
-            // The common case by far: a few hundred violations, every group
-            // taking the batched delta route. A delta cannot silently drop
-            // a concurrent editor's member, so there is nothing to check
-            // and nothing to pay.
+        it('reads nothing and writes straight through when the plan touches no group', async () => {
+            // A plan with no changes makes no assumption about any group,
+            // so there is nothing to re-read. Every other plan is checked:
+            // see "for a plan below the patch threshold" below.
             mockUseEngineQuery.mockImplementation((method: string) =>
                 method === 'planAssignment'
                     ? {
@@ -2422,6 +2421,212 @@ describe('BulkFixDialog apply step', () => {
             ).toBeInTheDocument()
             expect(mockWrite).not.toHaveBeenCalled()
             expect(mockFetcher).not.toHaveBeenCalled()
+        })
+
+        // Finding M1: a plan of any size is re-checked against the server
+        // before it is written, not only one that crosses the patch
+        // threshold. The engine never refreshes on its own, so a plan can
+        // be hours old by the time Apply is clicked.
+        describe('for a plan below the patch threshold', () => {
+            // Moves u1 from g1 to g2 (the target).
+            const SMALL_MOVE = [
+                { groupId: 'g1', additions: [], deletions: ['u1'] },
+                { groupId: 'g2', additions: ['u1'], deletions: [] },
+            ]
+            const idsAskedFor = (path: string) => {
+                const match = /id:in:\[([^\]]*)\]/.exec(
+                    decodeURIComponent(path)
+                )
+                return match ? match[1].split(',') : []
+            }
+            // A fake server: which of the requested ids each group holds.
+            const serveMembers = (members: Record<string, string[]>) => {
+                mockFetcher.mockImplementation((path: string) => {
+                    const groupId = /Groups\/([^/]+)\//.exec(path)?.[1] ?? ''
+                    const held = new Set(members[groupId] ?? [])
+                    return Promise.resolve({
+                        ok: true,
+                        json: () =>
+                            Promise.resolve({
+                                organisationUnits: idsAskedFor(path)
+                                    .filter((id) => held.has(id))
+                                    .map((id) => ({ id })),
+                            }),
+                    })
+                })
+            }
+
+            beforeEach(() => {
+                mockUseEngineQuery.mockImplementation((method: string) =>
+                    method === 'planAssignment'
+                        ? {
+                              data: plan({ changes: SMALL_MOVE, affected: 1 }),
+                              isLoading: false,
+                              error: null,
+                          }
+                        : {
+                              data: { total: 0, offset: 0, items: [] },
+                              isLoading: false,
+                              error: null,
+                          }
+                )
+            })
+
+            it('re-reads every touched group for exactly the plan objects, and writes when nothing changed', async () => {
+                serveMembers({ g1: ['u1'] })
+                await renderAndReachApply()
+                await actAndFlush(() => {
+                    fireEvent.click(
+                        screen.getByRole('button', { name: /^apply/i })
+                    )
+                })
+
+                await waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1))
+                expect(mockWrite).toHaveBeenCalledWith(
+                    expect.objectContaining({ changes: SMALL_MOVE })
+                )
+                const reads = mockFetcher.mock.calls.map(([path, init]) => ({
+                    path: decodeURIComponent(path as string),
+                    cache: (init as RequestInit).cache,
+                }))
+                expect(reads).toEqual(
+                    expect.arrayContaining([
+                        {
+                            path: 'organisationUnitGroups/g1/organisationUnits?fields=id&filter=id:in:[u1]&paging=false',
+                            cache: 'no-store',
+                        },
+                        {
+                            path: 'organisationUnitGroups/g2/organisationUnits?fields=id&filter=id:in:[u1]&paging=false',
+                            cache: 'no-store',
+                        },
+                    ])
+                )
+                expect(reads).toHaveLength(2)
+                // Nothing drifted, so the engine was not asked to recompute.
+                expect(mockClientCall).not.toHaveBeenCalledWith(
+                    'planAssignment',
+                    expect.anything(),
+                    expect.anything(),
+                    expect.anything(),
+                    expect.anything()
+                )
+            })
+
+            it('re-confirms instead of writing when another admin already moved the object', async () => {
+                // u1 is no longer in g1: someone resolved it meanwhile.
+                serveMembers({ g1: [], g2: ['u1'] })
+                mockClientCall.mockImplementation((method: string) =>
+                    Promise.resolve(
+                        method === 'planAssignment'
+                            ? plan({ changes: [], affected: 0 })
+                            : undefined
+                    )
+                )
+                await renderAndReachApply()
+                await actAndFlush(() => {
+                    fireEvent.click(
+                        screen.getByRole('button', { name: /^apply/i })
+                    )
+                })
+
+                expect(
+                    await screen.findByText(
+                        'The metadata changed while you were reviewing'
+                    )
+                ).toBeInTheDocument()
+                expect(mockWrite).not.toHaveBeenCalled()
+                // The engine is told what the server holds now, before the
+                // plan is recomputed from it.
+                expect(mockClientCall).toHaveBeenCalledWith(
+                    'applyChangeSet',
+                    'organisationUnit',
+                    [
+                        { groupId: 'g1', additions: [], deletions: ['u1'] },
+                        { groupId: 'g2', additions: ['u1'], deletions: [] },
+                    ]
+                )
+                const order = mockClientCall.mock.calls.map((c) => c[0])
+                expect(order.indexOf('applyChangeSet')).toBeLessThan(
+                    order.indexOf('planAssignment')
+                )
+            })
+
+            it('notices an object another admin put into a touched group the plan does not change it in', async () => {
+                // A second object, u2, only gets added to the target. Someone
+                // has since put u2 into g1, which the plan would leave alone,
+                // so the write would create a conflict.
+                const twoObjects = [
+                    { groupId: 'g1', additions: [], deletions: ['u1'] },
+                    { groupId: 'g2', additions: ['u1', 'u2'], deletions: [] },
+                ]
+                mockUseEngineQuery.mockImplementation((method: string) =>
+                    method === 'planAssignment'
+                        ? {
+                              data: plan({ changes: twoObjects, affected: 2 }),
+                              isLoading: false,
+                              error: null,
+                          }
+                        : {
+                              data: { total: 0, offset: 0, items: [] },
+                              isLoading: false,
+                              error: null,
+                          }
+                )
+                serveMembers({ g1: ['u1', 'u2'] })
+                mockClientCall.mockImplementation((method: string) =>
+                    Promise.resolve(
+                        method === 'planAssignment'
+                            ? plan({
+                                  changes: [
+                                      {
+                                          groupId: 'g1',
+                                          additions: [],
+                                          deletions: ['u1', 'u2'],
+                                      },
+                                      {
+                                          groupId: 'g2',
+                                          additions: ['u1', 'u2'],
+                                          deletions: [],
+                                      },
+                                  ],
+                                  affected: 2,
+                              })
+                            : undefined
+                    )
+                )
+                await renderAndReachApply()
+                await actAndFlush(() => {
+                    fireEvent.click(
+                        screen.getByRole('button', { name: /^apply/i })
+                    )
+                })
+
+                expect(mockClientCall).toHaveBeenCalledWith(
+                    'applyChangeSet',
+                    'organisationUnit',
+                    [{ groupId: 'g1', additions: ['u2'], deletions: [] }]
+                )
+                expect(
+                    await screen.findByText(
+                        'The metadata changed while you were reviewing'
+                    )
+                ).toBeInTheDocument()
+                expect(mockWrite).not.toHaveBeenCalled()
+            })
+
+            it('writes nothing when the re-read fails', async () => {
+                mockFetcher.mockResolvedValue({ ok: false, status: 500 })
+                await renderAndReachApply()
+                await actAndFlush(() => {
+                    fireEvent.click(
+                        screen.getByRole('button', { name: /^apply/i })
+                    )
+                })
+                expect(
+                    await screen.findByText('The metadata could not be checked')
+                ).toBeInTheDocument()
+                expect(mockWrite).not.toHaveBeenCalled()
+            })
         })
     })
 })

@@ -61,10 +61,8 @@ export const PreviewStep: React.FC<PreviewStepProps> = ({
     <div>
         {planLoading && <CircularLoader small />}
         {planError && <NoticeBox error>{planError}</NoticeBox>}
-        {/* Task 9 (spec 5.1/5.4): shown only for a plan with
-            at least one group taking the patch route --
-            the common case (every group batched) never sets
-            `checkingFreshness` at all. */}
+        {/* Task 9 (spec 5.1/5.4), finding M1: shown while the
+            touched groups are re-read before any write. */}
         {checkingFreshness && (
             <div className={styles.progressRow}>
                 <CircularLoader small />

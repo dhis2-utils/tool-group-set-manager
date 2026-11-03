@@ -22,6 +22,7 @@ import {
     VIOLATION_STATUSES,
 } from './constants'
 import { PreviewStep } from './PreviewStep'
+import { recheckPlan } from './recheckPlan'
 import { useCatchAllCreation } from './useCatchAllCreation'
 import type {
     PreparedChange,
@@ -34,10 +35,8 @@ import {
 } from '@/components/ChangeSetPreview/ChangeSetPreview'
 import { toCsv } from '@/data/csv'
 import { createFetcher } from '@/data/fetcher'
-import { readGroupMembers } from '@/data/groupMembers'
 import { mergeOutcomes } from '@/data/writeOutcomes'
 import type { BatchOutcome } from '@/data/writes'
-import { takesPatchRoute } from '@/data/writes'
 import type { ChangeSet, GroupChange } from '@/engine/changeSet'
 import { sameChanges } from '@/engine/changeSet'
 import type { ObjectFilter } from '@/engine/queries'
@@ -182,11 +181,10 @@ export const BulkFixDialog = ({
     // previous attempt cannot linger over a fresh one.
     const [applyError, setApplyError] = useState<string | null>(null)
 
-    // Task 9 (spec 5.1/5.4): the pre-write freshness check. `checkingFreshness`
-    // is true only while the patch-route groups are being re-read and the
-    // plan recomputed -- never for the common case where nothing crosses the
-    // patch threshold, which writes straight through with none of this ever
-    // touched. `recheck` holds the previewed count and the recomputed plan
+    // Task 9 (spec 5.1/5.4) and finding M1: the pre-write freshness check,
+    // which every Apply runs. `checkingFreshness` is true while the touched
+    // groups are re-read and, when anything changed, the plan recomputed
+    // (see `recheckPlan`). `recheck` holds the previewed count and the recomputed plan
     // once the two disagree, so the re-confirmation can show both. It does
     // NOT hold the membership that check read: the re-confirmation's own
     // Apply button re-runs the same check (fix round 2, finding 1) rather
@@ -475,24 +473,6 @@ export const BulkFixDialog = ({
             : []),
     ]
 
-    /**
-     * The membership of only the groups this plan will write by JSON Patch,
-     * read fresh -- see `readGroupMembers` for why, and spec 5.1 for why
-     * only those groups. Returns an empty map when nothing crosses the
-     * threshold, which `runFreshnessCheck` has already ruled out before
-     * calling this.
-     */
-    const readPatchRouteGroups = (
-        planChanges: GroupChange[],
-        signal?: AbortSignal
-    ) =>
-        readGroupMembers(
-            fetcher,
-            set.objectType,
-            planChanges.filter((c) => takesPatchRoute(c)).map((c) => c.groupId),
-            signal
-        )
-
     // D5, extended by Task 9: the plan the preview rendered is the plan
     // applied -- `plan.changes` is read once here and never recomputed from
     // `useEngineQuery`'s own copy, so a background requery can never smuggle
@@ -534,73 +514,52 @@ export const BulkFixDialog = ({
             .finally(() => {
                 // The in-flight guard covers check-then-write as one unit,
                 // so it lifts when the write settles -- not when the check
-                // did. Without this a sub-threshold apply would leave it
-                // set forever and Back-then-Apply would silently do
-                // nothing.
+                // did.
                 checkInFlightRef.current = false
             })
     }
 
     /**
-     * The freshness check itself (spec 5.1-5.3), against whichever plan is
-     * the current reference point: the previewed `plan` the first time
-     * through, or -- fix round 2, finding 1 -- the just-recomputed
-     * `recheck.recomputed` when the user re-confirms. Both callers (
-     * `handleApply` and `handleReconfirmApply`) *read* `checkInFlightRef`
-     * before calling this, and this function *sets* it synchronously below,
-     * before its first `await` and before any branch -- so the guard is in
+     * The freshness check itself (finding M1, spec 5.1-5.3), against
+     * whichever plan is the current reference point: the previewed `plan`
+     * the first time through, or -- fix round 2, finding 1 -- the
+     * just-recomputed `recheck.recomputed` when the user re-confirms. Both
+     * callers (`handleApply` and `handleReconfirmApply`) *read*
+     * `checkInFlightRef` before calling this, and this function *sets* it
+     * synchronously below, before its first `await` -- so the guard is in
      * place for the second of two clicks in one tick regardless of which
-     * caller is running, and regardless of whether the plan needs a check
-     * at all.
+     * caller is running.
      *
-     * The property this restores: a JSON Patch is never built from
-     * membership read before an unbounded user pause. The re-confirmation's
-     * Apply button used to write from a map read at the *start* of the
-     * pause the user then took to read the notice; now it calls this again,
-     * so the membership it writes is as fresh as the click that sends it,
-     * not as stale as the click that preceded the pause. If the plan has
-     * changed *again* by the time this resolves, re-confirming once more
-     * with the newer numbers is correct -- it means someone is still
-     * actively editing this set -- not a bug to work around.
+     * Every plan is checked, whatever its size (`recheckPlan` says what is
+     * read): the plan was computed from data loaded when the page opened,
+     * and writing it unchecked silently undoes whatever another admin did
+     * to the same objects since. The re-confirmation's Apply button calls
+     * this again rather than writing what it was shown, so the membership a
+     * write is built from is as fresh as the click that sends it. If the
+     * plan has changed *again* by then, re-confirming once more with the
+     * newer numbers is correct -- someone is still actively editing this
+     * set.
      */
     const runFreshnessCheck = async (referencePlan: AssignmentPlan) => {
         setApplyError(null)
         setCheckError(null)
-        // Before every branch below, including the sub-threshold one that
-        // writes without checking anything. Set only on the check path, two
-        // clicks in one synchronous tick both reached `performWrite` on a
-        // plan that needed no check -- one user intent, two writes, two
-        // History rows. Cleared by the `!client` bail below, by this
-        // function's own `finally`, and when the write settles.
+        // Before the first `await`: two clicks in one synchronous tick must
+        // produce one check and one write. Cleared by the `!client` bail
+        // below, by this function's own `finally`, and when the write
+        // settles.
         checkInFlightRef.current = true
-        // Synchronous by construction (spec 5.1's own scoping rule): whether
-        // any group in this plan takes the patch route is knowable from
-        // the plan already in hand, with no read of anything. Deciding it
-        // here, before `checkingFreshness` is ever touched, is what keeps
-        // the common case (no group crosses the threshold) genuinely inert
-        // -- no field read, no progress message, nothing to race.
-        const needsCheck = referencePlan.changes.some((c) => takesPatchRoute(c))
-        if (!needsCheck) {
-            performWrite(referencePlan.changes)
-            return
-        }
         if (!client) {
-            // Fix round 1, finding 3: the same shape as `handleDownloadCsv`
-            // above (`if (!client || !plan) return`) -- but that read-only
-            // export can bail silently, while this dialog is about to
-            // replace a group's whole collection, so the bail has to be
-            // loud. Writing the stale plan here (the previous behaviour)
-            // would apply decisions the user made against data that was
-            // never re-verified, with no signal that the check never ran.
+            // Fix round 1, finding 3: a plan that cannot be re-checked
+            // against the engine is not written. The bail is loud, since
+            // the alternative is applying decisions the user made against
+            // data that was never re-verified.
             setCheckError(i18n.t('The metadata could not be checked'))
             checkInFlightRef.current = false
             return
         }
-        // Fix round 1, finding 1: set *before* the read starts, not after
-        // it resolves -- the read is the only slow part (1-2s per group),
-        // and Cancel/Back/Apply/the modal's own close affordance all read
-        // this flag. Setting it after the `await` left a real window where
-        // all four were still enabled through the entire read.
+        // Fix round 1, finding 1: set *before* the read starts -- the read
+        // is the only slow part, and Cancel/Back/Apply/the modal's own close
+        // affordance all read this flag.
         setCheckingFreshness(true)
         const generation = ++checkGenerationRef.current
         const isCurrent = () => checkGenerationRef.current === generation
@@ -608,66 +567,45 @@ export const BulkFixDialog = ({
         checkAbortRef.current = abort
         let timer: ReturnType<typeof setTimeout> | undefined
         try {
-            // The deadline covers the whole check, not just the fetch. The
-            // re-read is only the first of three ways this can hang: both
-            // `client.call`s below are worker round-trips with no timeout of
-            // their own, and a terminated or wedged worker never answers, so
-            // an AbortController on the HTTP request alone would leave two
-            // of the three cases exactly as stuck as before.
+            // The deadline covers the whole check, not just the reads: the
+            // engine calls inside `recheckPlan` are worker round-trips with
+            // no timeout of their own, and a wedged worker never answers.
             const deadline = new Promise<never>((_, reject) => {
                 timer = setTimeout(() => {
                     abort.abort()
                     reject(new Error(CHECK_TIMEOUT))
                 }, CHECK_TIMEOUT_MS)
             })
-            const work = (async () => {
-                const completeMembers = await readPatchRouteGroups(
-                    referencePlan.changes,
-                    abort.signal
-                )
-                await client.call(
-                    'setGroupMembers',
-                    set.objectType,
-                    Array.from(completeMembers, ([groupId, memberIds]) => ({
-                        groupId,
-                        memberIds,
-                    }))
-                )
-                const recomputed = await client.call<AssignmentPlan>(
-                    'planAssignment',
-                    set.id,
-                    scope,
-                    populationFilter,
-                    targetGroupId
-                )
-                return { completeMembers, recomputed }
-            })()
+            const work = recheckPlan({
+                fetcher,
+                client,
+                set,
+                scope,
+                populationFilter,
+                targetGroupId,
+                referencePlan,
+                signal: abort.signal,
+            })
             // Once the deadline wins, `work` is still running and will
-            // reject when its aborted fetch does. `Promise.race` stops
-            // listening at that point, so without a handler of its own that
-            // rejection surfaces as an unhandled promise rejection --
-            // noise in the console at best, a failed test run at worst.
-            // This handler only swallows it; the race still sees the
-            // rejection through its own.
+            // reject when its aborted fetch does. Without a handler of its
+            // own that rejection surfaces as an unhandled promise rejection;
+            // the race still sees it through its own handler.
             work.catch(() => undefined)
             const { completeMembers, recomputed } = await Promise.race([
                 work,
                 deadline,
             ])
             // Not what stops a timed-out check from writing -- the
-            // deadline's rejection does that on its own, by making
-            // everything below unreachable for that invocation. This is
-            // for the case the rejection cannot cover: the dialog
-            // unmounting mid-check. The read and both engine calls carry
-            // on regardless, and without this their continuation would
-            // write, and set state, on behalf of a dialog that is no
-            // longer on screen.
+            // deadline's rejection does that. This is for the dialog
+            // unmounting mid-check, whose continuation would otherwise
+            // write on behalf of a dialog that is no longer on screen.
             if (!isCurrent()) {
                 return
             }
             const unchanged =
-                recomputed.affected === referencePlan.affected &&
-                sameChanges(recomputed.changes, referencePlan.changes)
+                recomputed === referencePlan ||
+                (recomputed.affected === referencePlan.affected &&
+                    sameChanges(recomputed.changes, referencePlan.changes))
             if (unchanged) {
                 performWrite(recomputed.changes, completeMembers)
             } else {
@@ -681,10 +619,8 @@ export const BulkFixDialog = ({
                 return
             }
             // Fix round 1, finding 2: the check itself failed -- nothing
-            // was written (nothing above this line ever calls
-            // `performWrite`), so this must never be confused with
-            // `applyError`, which specifically means the opposite: a write
-            // that did happen but could not be confirmed.
+            // was written, so this must never be confused with
+            // `applyError`, which means the opposite.
             setCheckError(e instanceof Error ? e.message : String(e))
         } finally {
             if (timer !== undefined) {
