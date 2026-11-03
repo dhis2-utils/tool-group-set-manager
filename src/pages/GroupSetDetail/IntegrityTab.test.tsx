@@ -107,6 +107,7 @@ jest.mock('@/data/integrity', () => {
 // m1 (final review): lets one test push the engine (missingError) count up
 // to a thousands-scale value without disturbing every other test's fixture.
 let mockMissingErrorOverride: number | null = null
+let mockMissingWarning = 0
 
 const mockClientCall = jest.fn((method: string, ...args: unknown[]) => {
     if (method === 'indexesOf') {
@@ -139,7 +140,7 @@ const mockClientCall = jest.fn((method: string, ...args: unknown[]) => {
                     ok: 2,
                     unassigned: 0,
                     missingError: mockMissingErrorOverride ?? 5,
-                    missingWarning: 0,
+                    missingWarning: mockMissingWarning,
                     conflict: 3,
                 },
                 hasData: true,
@@ -174,6 +175,7 @@ const mockIntegrityState: {
     stale: Set<string>
     isRunning: boolean
     error: string | null
+    timedOut: boolean
 } = {
     available: true,
     checks: [compulsoryCheck, conflictCheck, dataElementCheck],
@@ -192,13 +194,13 @@ const mockIntegrityState: {
     stale: new Set<string>(),
     isRunning: false,
     error: null,
+    timedOut: false,
 }
 jest.mock('@/hooks/useIntegrity', () => ({
     useIntegrity: () => ({
         ...mockIntegrityState,
         run: mockRun,
         markStale: () => undefined,
-        refresh: () => Promise.resolve(undefined),
     }),
 }))
 
@@ -234,6 +236,42 @@ afterEach(() => {
         },
     }
     mockMissingErrorOverride = null
+    mockMissingWarning = 0
+    mockIntegrityState.timedOut = false
+})
+
+// M8: the "missing a compulsory group set" check is about compulsory sets
+// only; on any other set it would compare units missing some other set.
+test('does not show the missing-compulsory check on a set that is not compulsory', async () => {
+    render(<IntegrityTab set={{ ...set, compulsory: false }} scope={scope} />)
+    expect(await screen.findByText(conflictCheck.displayName)).toBeVisible()
+    expect(
+        screen.queryByText(compulsoryCheck.displayName)
+    ).not.toBeInTheDocument()
+})
+
+test('compares the missing-compulsory check with errors only, not warnings', async () => {
+    mockMissingWarning = 7
+    render(<IntegrityTab set={set} scope={scope} />)
+    const engineLines = await screen.findAllByText(
+        /failing the Ownership rule alone/
+    )
+    expect(engineLines[0].textContent).toEqual(expect.stringContaining('5'))
+    expect(engineLines[0].textContent).not.toEqual(
+        expect.stringContaining('12')
+    )
+})
+
+// L4: a run that gave up polling gets its own message, not "try again".
+test('says the server may still be running a check that timed out', async () => {
+    mockIntegrityState.timedOut = true
+    render(<IntegrityTab set={set} scope={scope} />)
+    expect(
+        await screen.findByText(/may still be running the check/)
+    ).toBeInTheDocument()
+    expect(
+        screen.queryByText(/something went wrong reading/i)
+    ).not.toBeInTheDocument()
 })
 
 test('renders the national, in-scope and engine counts for each relevant check', async () => {

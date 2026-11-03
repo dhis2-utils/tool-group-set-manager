@@ -154,14 +154,14 @@ test('flips available to false with a null error on a 403 mid-session', async ()
     await waitFor(() => expect(result.current.checks.length).toBe(3))
 
     mockFetcher.mockImplementation((path: string) => {
-        if (path.startsWith('dataIntegrity/summary')) {
+        if (path.startsWith('dataIntegrity/details')) {
             return Promise.resolve(jsonResponse({}, false, 403))
         }
         return defaultFetcherImpl(path)
     })
 
     await act(async () => {
-        await result.current.refresh()
+        await result.current.run(['org_units_not_in_compulsory_group_sets'])
     })
 
     expect(result.current.available).toBe(false)
@@ -332,13 +332,14 @@ test('run() also starts a DETAILS run for the same checks, not summary only', as
 // than relying on no consumer ever doing that.
 test("run's identity does not change when summaries update", async () => {
     const { result, rerender } = renderHook(() => useIntegrity(), { wrapper })
-    await waitFor(() => expect(result.current.available).toBe(true))
-    await waitFor(() => expect(result.current.checks.length).toBe(3))
-
+    // Captured before the summaries load, so their arrival is the update.
     const runBefore = result.current.run
-    await act(async () => {
-        await result.current.refresh()
-    })
+    await waitFor(() => expect(result.current.available).toBe(true))
+    await waitFor(() =>
+        expect(
+            result.current.summaries.org_units_not_in_compulsory_group_sets
+        ).toBeDefined()
+    )
     rerender()
     expect(result.current.run).toBe(runBefore)
 })
@@ -468,26 +469,36 @@ test('does not become available when the server resolves no checks at all', asyn
 // m2: a transient failure's message must not stick around after a later
 // success.
 
-test('clears a previous error on a later successful refresh', async () => {
+test('clears a previous error on a later run', async () => {
     const { result } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.available).toBe(true))
     await waitFor(() => expect(result.current.checks.length).toBe(3))
+    const names = ['org_units_not_in_compulsory_group_sets']
 
     mockFetcher.mockImplementation((path: string) => {
-        if (path.startsWith('dataIntegrity/summary')) {
+        if (path.startsWith('dataIntegrity/details')) {
             return Promise.reject(new Error('network down'))
         }
         return defaultFetcherImpl(path)
     })
     await act(async () => {
-        await result.current.refresh()
+        await result.current.run(names)
     })
     expect(result.current.error).toBe('network down')
 
     mockFetcher.mockImplementation(defaultFetcherImpl)
-    await act(async () => {
-        await result.current.refresh()
-    })
+    const realSetTimeout = global.setTimeout
+    global.setTimeout = ((fn: () => void) => {
+        fn()
+        return 0
+    }) as unknown as typeof setTimeout
+    try {
+        await act(async () => {
+            await result.current.run(names)
+        })
+    } finally {
+        global.setTimeout = realSetTimeout
+    }
     expect(result.current.error).toBeNull()
 })
 
@@ -639,7 +650,7 @@ test('ignores an overlapping run() call while one is already in flight', async (
 // isRunning, and leave a readable error, after a bounded number of polls
 // rather than none.
 
-test('gives up after finishedTime never advances, clearing isRunning and leaving a readable error', async () => {
+test('gives up after finishedTime never advances, clearing isRunning and reporting a timeout, not an error', async () => {
     const { result } = renderHook(() => useIntegrity(), { wrapper })
     await waitFor(() => expect(result.current.available).toBe(true))
     await waitFor(() => expect(result.current.checks.length).toBe(3))
@@ -704,8 +715,10 @@ test('gives up after finishedTime never advances, clearing isRunning and leaving
         // Bounded: nowhere near "polls forever". A generous upper bound
         // that would only be hit by an unbounded loop.
         expect(getCallCount).toBeLessThan(100)
-        expect(result.current.error).toEqual(expect.any(String))
-        expect(result.current.error).not.toBeNull()
+        // L4: a flag the tab words itself, not an English error message --
+        // the server may still be running the check.
+        expect(result.current.timedOut).toBe(true)
+        expect(result.current.error).toBeNull()
         // The result may still be stale -- a run that never confirmed
         // completion must not be treated as having cleared it.
         expect(

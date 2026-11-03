@@ -194,9 +194,20 @@ export const IntegrityTab = ({ set, scope }: Props) => {
         [baseUrl, apiVersion]
     )
 
+    // M8: checks are matched by object type, and "organisation units
+    // missing a compulsory group set" is about compulsory sets only. On a
+    // set that is not compulsory it lists units missing some *other* set,
+    // and comparing that with this set's own count reads as a disagreement
+    // that means nothing, so it is not shown there at all.
     const relevantChecks = useMemo(
-        () => integrity.checks.filter((c) => c.objectType === set.objectType),
-        [integrity.checks, set.objectType]
+        () =>
+            integrity.checks.filter(
+                (c) =>
+                    c.objectType === set.objectType &&
+                    (c.logical !== 'orgUnitsMissingCompulsory' ||
+                        set.compulsory)
+            ),
+        [integrity.checks, set.objectType, set.compulsory]
     )
     const checkNames = useMemo(
         () => relevantChecks.map((c) => c.name),
@@ -225,19 +236,15 @@ export const IntegrityTab = ({ set, scope }: Props) => {
         }
         switch (logical) {
             case 'orgUnitsMissingCompulsory':
-                return entry.summary.missingError + entry.summary.missingWarning
+                // Only shown on a compulsory set, where a unit in no group
+                // is always an error; a warning is the data dimension case,
+                // which this check does not cover.
+                return entry.summary.missingError
             case 'orgUnitsConflicting':
             case 'dataElementsConflicting':
             case 'indicatorsConflicting':
             case 'categoryOptionsConflicting':
                 return entry.summary.conflict
-            case 'categoryOptionGroupSetsIncomplete': {
-                // No object type (see OBJECT_TYPE_OF in data/integrity.ts),
-                // so it never matches `set.objectType` and `relevantChecks`
-                // never includes it -- this arm exists only so the switch
-                // stays exhaustive.
-                return null
-            }
             default: {
                 const exhaustive: never = logical
                 return exhaustive
@@ -404,6 +411,16 @@ export const IntegrityTab = ({ set, scope }: Props) => {
                     {i18n.t('Run now')}
                 </Button>
             </div>
+            {integrity.timedOut && (
+                <NoticeBox
+                    warning
+                    title={i18n.t('The check is taking a while')}
+                >
+                    {i18n.t(
+                        'DHIS2 has not reported a result yet. The server may still be running the check; click Run now again in a minute to read the result.'
+                    )}
+                </NoticeBox>
+            )}
             {integrity.error !== null && (
                 <NoticeBox error title={i18n.t('DHIS2 integrity error')}>
                     {i18n.t(

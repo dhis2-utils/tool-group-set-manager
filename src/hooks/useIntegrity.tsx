@@ -28,9 +28,14 @@ export interface IntegrityState {
     stale: Set<string>
     isRunning: boolean
     error: string | null
+    /**
+     * The last run gave up polling before DHIS2 reported a result. The
+     * server may still be running the check, so this is not an error, and
+     * the tab says so in its own words.
+     */
+    timedOut: boolean
     run: (names: string[]) => Promise<void>
     markStale: (objectType: ObjectType) => void
-    refresh: () => Promise<void>
 }
 
 const IntegrityContext = createContext<IntegrityState | null>(null)
@@ -114,6 +119,7 @@ export const IntegrityProvider = ({
     const [stale, setStale] = useState<Set<string>>(new Set())
     const [isRunning, setIsRunning] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [timedOut, setTimedOut] = useState(false)
     const checksRef = useRef<ResolvedCheck[]>([])
     // m4 (final review): `run` used to close over `summaries` state
     // directly (to snapshot `before`), so its own identity -- and with it
@@ -248,13 +254,6 @@ export const IntegrityProvider = ({
         summariesRef.current = summaries
     }, [summaries])
 
-    const refresh = useCallback(async () => {
-        if (disabledRef.current) {
-            return
-        }
-        await loadSummaries(checksRef.current)
-    }, [loadSummaries])
-
     const run = useCallback(
         // oxlint-disable-next-line complexity -- predates the lint migration; splitting it is a refactor of its own, not part of adopting the linter
         async (names: string[]) => {
@@ -271,6 +270,7 @@ export const IntegrityProvider = ({
             runInFlightRef.current = true
             setIsRunning(true)
             setError(null)
+            setTimedOut(false)
             try {
                 const before = new Map(
                     names.map((n) => [
@@ -369,14 +369,11 @@ export const IntegrityProvider = ({
                 }
                 /* oxlint-enable no-await-in-loop */
                 if (!advanced && !unmountedRef.current) {
-                    // Diagnostic text, not user-facing as written --
-                    // translate before display, same as engineError and
-                    // historyError in useMembershipWrite.ts. The check(s)
-                    // stay marked stale (if they were) since this run
-                    // never confirmed a fresh result.
-                    setError(
-                        'The run did not report back in time; the result may still arrive.'
-                    )
+                    // L4: a flag, not an English message in `error`: the tab
+                    // says it in its own translated words. The check(s) stay
+                    // marked stale (if they were), since this run never
+                    // confirmed a fresh result.
+                    setTimedOut(true)
                 }
             } catch (e) {
                 if (unmountedRef.current) {
@@ -419,9 +416,9 @@ export const IntegrityProvider = ({
             stale,
             isRunning,
             error,
+            timedOut,
             run,
             markStale,
-            refresh,
         }),
         [
             available,
@@ -430,9 +427,9 @@ export const IntegrityProvider = ({
             stale,
             isRunning,
             error,
+            timedOut,
             run,
             markStale,
-            refresh,
         ]
     )
 
