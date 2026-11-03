@@ -43,7 +43,7 @@ The tool is not on the App Hub. Install it from its GitHub release, or from the 
 
 The tool appears in the list of custom apps and in the apps menu as **Group Set Integrity Tool**.
 
-<!-- VERIFY IN APP: App Management labels "Manual install" and "Upload an app to install" on 2.40 to 2.43, and the zip file name on the release (expected tool-group-set-manager-<version>.zip). -->
+<!-- VERIFY IN APP: App Management labels "Manual install" and "Upload an app to install" on 2.40 to 2.43. -->
 
 ### Install from the tool-box app { #tool-group-set-manager-install-toolbox }
 
@@ -65,7 +65,7 @@ Users who do not have the `ALL` authority can open the tool only when it is in o
 
 The dashboard shows one card for each group set, grouped by object type. Each card counts the objects that break the rules of the set, so you can see which sets need work.
 
-<!-- SCREENSHOT: dashboard.png - the dashboard with the filter bar and a few group set cards, one with conflicts and missing objects -->
+![The dashboard with group set cards](resources/images/tool-group-set-manager/dashboard.png)
 
 1. Open the **Group Set Integrity Tool**. The tool loads the group sets and their members. **Dashboard** opens.
 2. In **Organisation unit**, click the button and choose the organisation unit to work in. The counts for organisation unit group sets now cover this organisation unit and every unit below it.
@@ -116,7 +116,7 @@ For an organisation unit group set, the filter bar has the same **Organisation u
 
 The **Overview** tab shows a matrix of organisation units against the groups of the set. Each row is an organisation unit at the level you choose, and each cell counts the objects in that row's area.
 
-<!-- SCREENSHOT: overview-matrix.png - the Overview tab with the Rows field, the groups panel and the matrix with Missing and Conflict columns -->
+![The Overview tab with the matrix by district](resources/images/tool-group-set-manager/overview-matrix.png)
 
 1. On the **Overview** tab, in **Rows**, choose the organisation unit level to show as rows.
 2. Click a number in the matrix. The **Objects** tab opens, filtered to the objects behind that number.
@@ -137,7 +137,7 @@ For data element, indicator, and category option group sets, the matrix has one 
 
 The **Objects** tab lists the objects of the set, with their status and their group. The list covers the whole current organisation unit, or the area you clicked in the matrix.
 
-<!-- SCREENSHOT: objects-tab.png - the Objects tab with the Status, Level, Group and Search filters, the Bulk fix button, and a row in conflict -->
+![The Objects tab filtered to conflicts](resources/images/tool-group-set-manager/objects-tab.png)
 
 1. On the **Objects** tab, in **Status**, choose **All**, **OK**, **Missing**, or **Conflict**.
 2. For an organisation unit group set, in **Level**, choose a level, or **All levels**.
@@ -217,7 +217,7 @@ DHIS2 creates the group, adds it to the set, and gives it the sharing of another
 
 ### Preview and apply the bulk fix { #tool-group-set-manager-bulk-fix-apply }
 
-<!-- SCREENSHOT: bulk-fix-preview.png - the preview step of the bulk fix with the per-group changes, the Object / Now / After table and the CSV download -->
+![The preview step of a bulk fix](resources/images/tool-group-set-manager/bulk-fix-preview.png)
 
 The preview lists, for each group, how many objects the fix adds and removes. A table shows a sample of objects, with their groups now and after the fix.
 
@@ -261,7 +261,7 @@ The dialog shows **The group set was updated on the server.**, and the tool coun
 
 History lists every membership change made with the tool on this instance, by any user. You can export a change, or revert it.
 
-<!-- SCREENSHOT: history.png - the History page with a few change sets and the Export and Revert buttons -->
+![The History page with a change set](resources/images/tool-group-set-manager/history.png)
 
 The tool works out the revert from the data it loaded. If other people may have changed groups since then, click **Refresh** on the dashboard first.
 
@@ -275,8 +275,6 @@ The tool works out the revert from the data it loaded. If other people may have 
 The dialog shows the result for each group, and History records the revert as a new change. Click **Close**.
 
 The revert skips every object that has moved to another group after the change, and every object whose group has left the set. The preview says how many objects it skips. If every object has moved, the dialog shows **Nothing to revert**.
-
-<!-- VERIFY IN APP: that clicking Refresh on the dashboard before opening History makes the revert preview use the current server state. -->
 
 ## Set up the SQL views for large instances { #tool-group-set-manager-sql-views }
 
@@ -294,7 +292,7 @@ You need the `ALL` or `F_SQLVIEW_PUBLIC_ADD` authority.
 
 The tool shows **SQL view update complete** and loads the data again. The dashboard then shows **Data loaded from the GSI SQL views**.
 
-<!-- SCREENSHOT: settings-sql-views.png - the SQL views section of Settings with the three views and their status tags -->
+![The SQL views section of Settings](resources/images/tool-group-set-manager/settings-sql-views.png)
 
 If a SQL view stops working, the tool loads the data through the metadata API and shows **A GSI SQL view failed to load** on the dashboard. Go to **Settings** and click **Create SQL views** to repair it.
 
