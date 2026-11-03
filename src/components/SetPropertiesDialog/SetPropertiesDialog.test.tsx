@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { SetPropertiesDialog } from './SetPropertiesDialog'
+import { MetadataWriteError } from '@/data/metadataWrites'
 import type { GroupSetMeta } from '@/engine/types'
 import { actAndFlush } from '@/testing/actAndFlush'
 
@@ -10,6 +11,7 @@ jest.mock('@dhis2/app-runtime', () => ({
 
 const mockSetGroupSetProperties = jest.fn()
 jest.mock('@/data/metadataWrites', () => ({
+    ...jest.requireActual('@/data/metadataWrites'),
     setGroupSetProperties: (...args: unknown[]) =>
         mockSetGroupSetProperties(...args),
 }))
@@ -95,7 +97,9 @@ describe('SetPropertiesDialog', () => {
     })
 
     it('reports a failed write rather than letting it vanish', async () => {
-        mockSetGroupSetProperties.mockRejectedValue(new Error('HTTP 409'))
+        mockSetGroupSetProperties.mockRejectedValue(
+            new MetadataWriteError('updateSet', 403)
+        )
         renderDialog()
         toggle(/compulsory/i)
         fireEvent.click(screen.getByRole('button', { name: /save/i }))
@@ -103,7 +107,11 @@ describe('SetPropertiesDialog', () => {
             fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
         })
 
-        expect(await screen.findByText(/HTTP 409/)).toBeInTheDocument()
+        expect(
+            await screen.findByText(
+                'You do not have permission to change this group set.'
+            )
+        ).toBeInTheDocument()
         expect(onApplied).not.toHaveBeenCalled()
     })
 

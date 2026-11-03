@@ -423,9 +423,9 @@ describe('createCatchAllGroup', () => {
             'POST organisationUnitGroupSets/set1abcdefg/organisationUnitGroups/newGroup':
                 () => json({ message: 'Forbidden' }, 403),
         })
-        await expect(createCatchAllGroup(first.fetcher, set)).rejects.toThrow(
-            /newGroup/
-        )
+        await expect(
+            createCatchAllGroup(first.fetcher, set)
+        ).rejects.toMatchObject({ step: 'addToSet', status: 403 })
 
         // Retry: the group the first attempt created is now found by name,
         // so this attempt must not call create again, and only repeats the

@@ -13,6 +13,7 @@ import {
 import React, { useMemo, useState } from 'react'
 import styles from './SetPropertiesDialog.module.css'
 import { createFetcher } from '@/data/fetcher'
+import { setPropertiesErrorMessage } from '@/data/metadataWriteMessages'
 import { setGroupSetProperties } from '@/data/metadataWrites'
 import type { GroupSetMeta } from '@/engine/types'
 import { interpolate } from '@/utils/interpolate'
@@ -119,15 +120,7 @@ export const SetPropertiesDialog = ({ set, onClose, onApplied }: Props) => {
             setStage('edit')
             onApplied()
         } catch (e) {
-            // `setGroupSetProperties` throws untranslated text carrying only
-            // an HTTP status, so it is placed inside one whole translated
-            // sentence rather than shown raw.
-            setError(
-                interpolate(
-                    i18n.t('The group set could not be updated — {message}'),
-                    { message: e instanceof Error ? e.message : String(e) }
-                )
-            )
+            setError(setPropertiesErrorMessage(e))
             setStage('edit')
         } finally {
             setBusy(false)

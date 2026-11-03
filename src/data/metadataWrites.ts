@@ -82,6 +82,79 @@ async function fetchSiblingSharing(
 export const NAME_OWNED_BY_ANOTHER_SET = 'name-owned-by-another-set'
 
 /**
+ * Which step of a metadata write failed. A caller turns this, the status
+ * and `conflicts` into one translated sentence; the error's own `message`
+ * is developer diagnostics only and never shown.
+ */
+export type MetadataWriteStep = 'createGroup' | 'addToSet' | 'updateSet'
+
+/**
+ * A metadata write the server refused (or answered without the id it
+ * should have carried, `status` 0). `conflicts` holds the properties a 409
+ * named as already in use (`name`, `shortName`, `code`), read from the
+ * import report's `errorReports[].errorProperty` -- the only way to tell
+ * the user which of the three to change.
+ */
+export class MetadataWriteError extends Error {
+    readonly step: MetadataWriteStep
+    readonly status: number
+    readonly conflicts: string[]
+
+    constructor(
+        step: MetadataWriteStep,
+        status: number,
+        conflicts: string[] = []
+    ) {
+        super(`${step} failed: HTTP ${status}`)
+        this.name = 'MetadataWriteError'
+        this.step = step
+        this.status = status
+        this.conflicts = conflicts
+    }
+}
+
+/**
+ * Every `errorProperty` named anywhere in an import report. The report's
+ * shape differs across 2.40-2.43 (`response.errorReports` on one,
+ * `response.typeReports[].objectReports[].errorReports` on another), so the
+ * body is walked rather than addressed by path.
+ */
+function conflictingProperties(body: unknown): string[] {
+    const found = new Set<string>()
+    const walk = (node: unknown, depth: number) => {
+        if (depth > 8 || node === null || typeof node !== 'object') {
+            return
+        }
+        if (Array.isArray(node)) {
+            for (const item of node) {
+                walk(item, depth + 1)
+            }
+            return
+        }
+        const record = node as Record<string, unknown>
+        if (typeof record.errorProperty === 'string') {
+            found.add(record.errorProperty)
+        }
+        for (const value of Object.values(record)) {
+            walk(value, depth + 1)
+        }
+    }
+    walk(body, 0)
+    return [...found]
+}
+
+async function readConflicts(response: Response): Promise<string[]> {
+    if (response.status !== 409) {
+        return []
+    }
+    try {
+        return conflictingProperties(await response.json())
+    } catch {
+        return []
+    }
+}
+
+/**
  * The names `createCatchAllGroup` uses when the caller supplies none --
  * exported because the dialog must prefill its editable fields with exactly
  * what the server would otherwise have generated, and a second
@@ -191,9 +264,9 @@ async function findExistingGroup(
  * accepts idempotently (adding an existing member again is a no-op, not
  * an error).
  *
- * Thrown errors carry only an HTTP status and are not user-facing text;
- * see the module doc comment on `setGroupSetProperties` for the same note
- * about translating them before display.
+ * A refused create or add throws `MetadataWriteError`, which carries the
+ * step, the status and any properties a 409 named, so the caller can build
+ * one translated sentence from it.
  */
 export async function createCatchAllGroup(
     fetcher: Fetcher,
@@ -225,9 +298,7 @@ export async function createCatchAllGroup(
         { method: 'POST', headers: { 'Content-Type': 'application/json' } }
     )
     if (!addResponse.ok) {
-        throw new Error(
-            `Failed to add the catch-all group ${id} to the set: HTTP ${addResponse.status}`
-        )
+        throw new MetadataWriteError('addToSet', addResponse.status)
     }
 
     return { id, displayName }
@@ -268,14 +339,16 @@ async function createGroup(
         body: JSON.stringify(body),
     })
     if (!createResponse.ok) {
-        throw new Error(
-            `Failed to create catch-all group: HTTP ${createResponse.status}`
+        throw new MetadataWriteError(
+            'createGroup',
+            createResponse.status,
+            await readConflicts(createResponse)
         )
     }
     const created = (await createResponse.json()) as CreateResponse
     const id = created.response?.uid
     if (!id) {
-        throw new Error('Group create did not return an id')
+        throw new MetadataWriteError('createGroup', 0)
     }
     return id
 }
@@ -293,9 +366,9 @@ async function createGroup(
  * takes as `set`, so a caller holding a `GroupSetMeta` passes it to either
  * function the same way.
  *
- * Thrown errors carry only an HTTP status, not user-facing text; a caller
- * that surfaces `e.message` in a dialog must translate it first rather than
- * display it raw (this project's strings must all go through `i18n.t()`).
+ * A refused patch throws `MetadataWriteError` with step `updateSet`; its
+ * `message` is diagnostics, and a caller builds the translated sentence
+ * from its `status`.
  */
 export async function setGroupSetProperties(
     fetcher: Fetcher,
@@ -315,8 +388,6 @@ export async function setGroupSetProperties(
         body: JSON.stringify(ops),
     })
     if (!response.ok) {
-        throw new Error(
-            `Failed to update group set ${set.id}: HTTP ${response.status}`
-        )
+        throw new MetadataWriteError('updateSet', response.status)
     }
 }

@@ -73,6 +73,14 @@ export interface MembershipWriteResult extends WriteResult {
 }
 
 /**
+ * `engineError` when there was no engine client to tell at all. A
+ * locale-neutral token like `UNPARSEABLE_RESPONSE` in writes.ts, not prose:
+ * `engineError` is diagnostic, and every caller shows its own translated
+ * sentence for it.
+ */
+export const NO_ENGINE_CLIENT = 'no-engine-client'
+
+/**
  * DHIS2 uid rules don't apply here: a change set's `id` is only ever used
  * as a dataStore key (`history-<id>`), never sent as a metadata object id,
  * so it only needs to be unique and URL-safe.
@@ -163,8 +171,7 @@ export function useMembershipWrite(): {
                         engineError = e instanceof Error ? e.message : String(e)
                     }
                 } else {
-                    engineError =
-                        'No engine client is available; reload to see this change reflected.'
+                    engineError = NO_ENGINE_CLIENT
                 }
 
                 await invalidateType(objectType)
