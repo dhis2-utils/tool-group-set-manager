@@ -1,7 +1,7 @@
 {
-    "name": "group-set-integrity-tool",
+    "name": "tool-group-set-manager",
     "version": "1.0.0",
-    "description": "",
+    "description": "Finds and fixes objects that are in more than one group, or missing from a compulsory group, of a DHIS2 group set.",
     "license": "BSD-3-Clause",
     "private": true,
     "packageManager": "pnpm@10.13.1",
