@@ -88,11 +88,15 @@ const mockEngine: {
         call: (method: string, ...args: unknown[]) => Promise<unknown>
     } | null
     status: LoadStatus | null
+    groupSetsLoaded: boolean
+    error: string | null
     reload: (force: boolean) => Promise<void>
 } = {
     groupSets: mockGroupSets,
     client: null,
     status: null,
+    groupSetsLoaded: true,
+    error: null,
     reload: mockReload,
 }
 jest.mock('@/hooks/useEngine', () => ({
@@ -289,6 +293,36 @@ const renderDetail = (
         </MemoryRouter>
     )
 }
+
+// M10: a deep link to a set that is not there must not say "not loaded
+// yet" forever.
+describe('a group set that is not there', () => {
+    afterEach(() => {
+        mockEngine.groupSetsLoaded = true
+        mockEngine.error = null
+    })
+
+    it('shows the load progress while the first load runs', () => {
+        mockEngine.groupSetsLoaded = false
+        renderDetail({}, { initialEntries: ['/sets/nope'] })
+        expect(
+            screen.queryByText('Group set not found')
+        ).not.toBeInTheDocument()
+        expect(screen.getByRole('progressbar')).toBeInTheDocument()
+    })
+
+    it('says it does not exist once loaded, with a way back to the dashboard', () => {
+        renderDetail({}, { initialEntries: ['/sets/nope'] })
+        expect(
+            screen.getByText(
+                'This group set does not exist, or you cannot see it.'
+            )
+        ).toBeInTheDocument()
+        expect(
+            screen.getByRole('link', { name: 'Back to the dashboard' })
+        ).toHaveAttribute('href', '/')
+    })
+})
 
 // Spec 2026-09-15 §4.1: the organisation unit is reachable without leaving
 // the group set you are working in -- that was the review's complaint.
