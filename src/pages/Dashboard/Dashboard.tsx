@@ -114,8 +114,15 @@ const usageSortHelpText = (status: UsageStatus) => {
 }
 
 export const Dashboard = () => {
-    const { client, status, error, sourceKind, nameSource, fellBack } =
-        useEngine()
+    const {
+        client,
+        status,
+        error,
+        sourceKind,
+        nameSource,
+        fellBack,
+        revision,
+    } = useEngine()
     const { rootId, isReady } = useScope()
     const navigate = useNavigate()
     // Manual review 2: these three were plain `useState`, so going into a
@@ -234,7 +241,10 @@ export const Dashboard = () => {
         return () => {
             cancelled = true
         }
-    }, [client, rootId, isReady, status?.phase, status?.type])
+        // `revision` re-reads the summaries after anything changed the
+        // engine's data without moving the load phase: a write, or the
+        // tracker setting arriving after the load.
+    }, [client, rootId, isReady, status?.phase, status?.type, revision])
 
     const shownTypes = OBJECT_TYPES.filter(
         (type) => typeFilter === 'all' || type === typeFilter
@@ -401,6 +411,10 @@ export const Dashboard = () => {
                 const hasLoaded = type in entries
                 const all = entries[type] ?? []
                 const typeError = typeErrors[type]
+                // The type itself failed to load: its sets have no data and
+                // will not get any in this load, so they are shown as
+                // failed, not as still loading.
+                const loadError = status?.errors[type]
                 const shown = [
                     ...(onlyIssues
                         ? all.filter((e) => hasIssues(e) || !e.hasData)
@@ -423,7 +437,10 @@ export const Dashboard = () => {
                 // whole. Split the already-sorted `shown` list at the
                 // boundary (not-yet-loaded entries are always first) so a
                 // one-line explanation can sit above just that group.
-                const notYetLoaded = shown.filter((e) => !e.hasData)
+                const notYetLoaded = shown.filter(
+                    (e) => !e.hasData && !loadError
+                )
+                const failed = shown.filter((e) => !e.hasData && loadError)
                 const loaded = shown.filter((e) => e.hasData)
                 if (!hasLoaded) {
                     return null
@@ -456,6 +473,25 @@ export const Dashboard = () => {
                             >
                                 {typeError}
                             </NoticeBox>
+                        )}
+                        {failed.length > 0 && (
+                            <div className={styles.cards}>
+                                {failed.map((entry) => (
+                                    <GroupSetCard
+                                        key={entry.set.id}
+                                        entry={entry}
+                                        loadError={loadError}
+                                        onOpen={() =>
+                                            navigate(`/sets/${entry.set.id}`)
+                                        }
+                                        onOpenUsage={() =>
+                                            navigate(`/sets/${entry.set.id}`, {
+                                                state: { tab: 'usage' },
+                                            })
+                                        }
+                                    />
+                                ))}
+                            </div>
                         )}
                         {notYetLoaded.length > 0 && (
                             <>

@@ -51,6 +51,7 @@ const baseStatus = {
 }
 let mockStatus: typeof baseStatus & {
     loadedAt: Partial<Record<string, number>>
+    errors: Partial<Record<string, string>>
 } = baseStatus
 
 const cleanSet = (id: string, name: string) => ({
@@ -82,7 +83,9 @@ const notLoadedSet = (id: string, name: string) => ({
         compulsory: false,
         dataDimension: false,
         canWrite: true,
-        groups: [],
+        // A group, so the card is waiting for data rather than reporting
+        // a set with nothing to check.
+        groups: [{ id: `${id}-g`, displayName: 'G', canWrite: true }],
     },
     summary: {
         population: 0,
@@ -133,7 +136,7 @@ const entries = {
                 brokenSet('broken', 'Broken order set', 9),
             ]
         }
-        const sets = [
+        const sets: ReturnType<typeof notLoadedSet>[] = [
             brokenSet('own', 'Ownership', 0),
             cleanSet('clean', 'Clean set'),
         ]
@@ -497,6 +500,27 @@ test('says why the not-yet-loaded group is separate, as visible text', async () 
         expect(screen.getByText('Not loaded set')).toBeInTheDocument()
     )
     expect(screen.getByText(/still loading/i)).toBeInTheDocument()
+})
+
+test('M9b: the sets of a type that failed to load show the failure, not "Loading…"', async () => {
+    mockCallOverrides.notLoadedOrgUnitSet = true
+    mockStatus = {
+        ...baseStatus,
+        errors: { organisationUnit: 'organisationUnits request failed' },
+    }
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Not loaded set')).toBeInTheDocument()
+    )
+    expect(
+        screen.getByText('This group set could not be loaded')
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument()
+    expect(screen.queryByText(/still loading/i)).not.toBeInTheDocument()
 })
 
 // Manual review 2: the Show choice (and the type and sort choices beside

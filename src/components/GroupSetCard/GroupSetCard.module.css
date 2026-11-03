@@ -6,9 +6,27 @@
     gap: var(--spacers-dp8);
 }
 .name {
+    font: inherit;
     font-size: var(--gsi-font-size-xl, 15px);
     font-weight: 500;
     color: var(--colors-grey900);
+    background: none;
+    border: 0;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+    align-self: flex-start;
+}
+.name:hover {
+    text-decoration: underline;
+}
+.name:focus-visible {
+    outline: 2px solid var(--colors-blue600);
+    outline-offset: 2px;
+}
+.failed {
+    font-size: var(--gsi-font-size-sm, 12px);
+    color: var(--colors-red700);
 }
 .badges {
     display: flex;

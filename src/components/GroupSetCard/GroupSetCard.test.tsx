@@ -68,6 +68,7 @@ const renderCard = (
         }
         onOpen?: () => void
         onOpenUsage?: () => void
+        loadError?: string
     } = {}
 ) =>
     render(
@@ -80,6 +81,7 @@ const renderCard = (
             }
             onOpen={overrides.onOpen ?? jest.fn()}
             onOpenUsage={overrides.onOpenUsage ?? jest.fn()}
+            loadError={overrides.loadError}
         />
     )
 
@@ -193,11 +195,51 @@ test('shows a configuration-gap message instead of all-clean stats when a set ha
     expect(screen.queryByText('OK')).not.toBeInTheDocument()
 })
 
-test('can be activated with the Space key', () => {
+test('M12: the set name is a real button that opens the set from the keyboard, once', async () => {
     const onOpen = jest.fn()
     renderCard({ onOpen })
-    fireEvent.keyDown(screen.getByRole('button'), { key: ' ' })
-    expect(onOpen).toHaveBeenCalled()
+    const name = screen.getByRole('button', { name: 'Ownership' })
+    name.focus()
+    await userEvent.keyboard('{Enter}')
+    await userEvent.keyboard(' ')
+    expect(onOpen).toHaveBeenCalledTimes(2)
+})
+
+test('M12: no button is nested inside another control', () => {
+    mockUsage.mockReturnValue(
+        readyUsage({ favourites: 0, views12m: 0, byFavouriteType: [] })
+    )
+    const { container } = renderCard()
+    expect(container.querySelector('[role="button"]')).toBeNull()
+    expect(container.querySelectorAll('button button')).toHaveLength(0)
+})
+
+test('the rest of the card still opens the set on a mouse click', () => {
+    const onOpen = jest.fn()
+    renderCard({ onOpen })
+    fireEvent.click(screen.getByText('Compulsory'))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+})
+
+test('M9b: a set of a type that failed to load says so instead of loading forever', () => {
+    renderCard({
+        entry: { ...entry, hasData: false },
+        loadError: 'organisationUnits request failed',
+    })
+    expect(
+        screen.getByText('This group set could not be loaded')
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Loading/)).not.toBeInTheDocument()
+})
+
+test('M9b: a set with no groups says so even before any data, rather than loading forever', () => {
+    renderCard({
+        entry: { ...entry, hasData: false, set: { ...entry.set, groups: [] } },
+    })
+    expect(
+        screen.getByText('This group set has no groups configured')
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Loading/)).not.toBeInTheDocument()
 })
 
 test('shows the "no group, not required" count only for a set where being in no group is allowed', () => {
@@ -250,20 +292,17 @@ describe('GroupSetCard — usage', () => {
         renderCard({ onOpen, onOpenUsage })
         fireEvent.click(screen.getByRole('button', { name: 'Appears unused' }))
         expect(onOpenUsage).toHaveBeenCalled()
-        // Fix round 2 (Minor promoted): the whole card is itself a button
-        // with its own click handler wired to `onOpen` -- without the
+        // The card has its own (mouse) click handler wired to `onOpen` --
+        // without the
         // tag's own `stopPropagation()`, this click would bubble and open
         // Overview as well as (really, instead of, since it fires second)
         // Usage. Deleting that call must fail this assertion.
         expect(onOpen).not.toHaveBeenCalled()
     })
 
-    // Fix round 2 (Minor promoted): the inner button's keydown used to
-    // bubble to the card's own `activate` handler. Space hit
-    // `e.preventDefault()` there and suppressed the button's own native
-    // activation, landing on Overview instead of Usage; Enter fired
-    // `onOpen` on the bubbled keydown *and* `onOpenUsage` on the resulting
-    // click, with only ordering deciding which "won". `userEvent` (unlike
+    // A keyboard activation of the tag must open Usage and nothing else.
+    // The card used to be a role="button" with its own key handler, which
+    // swallowed or doubled the tag's activation. `userEvent` (unlike
     // `fireEvent.keyDown`) simulates a real browser's click-on-Enter/Space
     // for a native `<button>`, which is what actually exercises the seam.
     it('activates only the Usage tab, not Overview, when "Appears unused" is reached by Space', async () => {
