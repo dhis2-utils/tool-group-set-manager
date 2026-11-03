@@ -10,9 +10,11 @@ const mockCall = jest.fn((_m: string, ...args: unknown[]) =>
     Promise.resolve(`result:${JSON.stringify(args)}`)
 )
 let mockPhase = 'objects'
+let mockRevision = 0
 jest.mock('./useEngine', () => ({
     useEngine: () => ({
         client: { call: mockCall },
+        revision: mockRevision,
         status: {
             phase: mockPhase,
             type: null,
@@ -24,7 +26,7 @@ jest.mock('./useEngine', () => ({
 }))
 
 const Probe = ({ x }: { x: number }) => {
-    const { data, isLoading } = useEngineQuery<string>('indexOf', [
+    const { data, isLoading } = useEngineQuery<string>('levelOf', [
         'organisationUnit',
         x,
     ])
@@ -38,6 +40,7 @@ const Probe = ({ x }: { x: number }) => {
 
 afterEach(() => {
     mockPhase = 'objects'
+    mockRevision = 0
     mockCall.mockClear()
 })
 
@@ -100,7 +103,7 @@ test('refetch re-issues the same call after a failure and clears the error once 
             data: value,
             error,
             refetch,
-        } = useEngineQuery<string>('indexOf', ['organisationUnit', 7])
+        } = useEngineQuery<string>('levelOf', ['organisationUnit', 7])
         return (
             <div>
                 <div data-test="error">{error ?? 'no-error'}</div>
@@ -123,4 +126,12 @@ test('refetch re-issues the same call after a failure and clears the error once 
     )
     expect(screen.getByTestId('error')).toHaveTextContent('no-error')
     expect(mockCall).toHaveBeenCalledTimes(2)
+})
+
+test('M9c: re-asks when the engine revision moves, as after a write', async () => {
+    const { rerender } = render(<Probe x={1} />)
+    await waitFor(() => expect(mockCall).toHaveBeenCalledTimes(1))
+    mockRevision = 1
+    rerender(<Probe x={1} />)
+    await waitFor(() => expect(mockCall).toHaveBeenCalledTimes(2))
 })

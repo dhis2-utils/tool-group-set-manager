@@ -1,4 +1,6 @@
 import { openDB } from 'idb'
+import type { Fetcher } from './sources/DataSource'
+import { fetchJson } from './sources/DataSource'
 import type { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
 import type { ObjectType } from '@/engine/types'
 
@@ -61,13 +63,51 @@ export interface Cache {
 const DB_NAME = 'gsi-cache'
 const STORE = 'types'
 
-export function openCache(serverUrl: string): Cache {
+/**
+ * Whose data a cache entry holds. The same server serves different users
+ * different groups (sharing) and different translated names (locale), so an
+ * entry saved for one must never be read for another in the same browser.
+ */
+export interface CacheIdentity {
+    userId: string
+    /** the user's UI and database locales, as one string */
+    locale: string
+}
+
+interface MeIdentity {
+    id?: string
+    settings?: { keyUiLocale?: string; keyDbLocale?: string }
+}
+
+/**
+ * Reads the current user's id and locales, or null when they cannot be read
+ * -- the caller then keeps nothing across page loads rather than risk
+ * sharing entries between users.
+ */
+export async function cacheIdentity(
+    fetcher: Fetcher
+): Promise<CacheIdentity | null> {
+    try {
+        const me = await fetchJson<MeIdentity>(fetcher, 'me?fields=id,settings')
+        if (!me.id) {
+            return null
+        }
+        const ui = me.settings?.keyUiLocale ?? ''
+        const db = me.settings?.keyDbLocale ?? ''
+        return { userId: me.id, locale: `${ui}/${db}` }
+    } catch {
+        return null
+    }
+}
+
+export function openCache(serverUrl: string, identity: CacheIdentity): Cache {
     const db = openDB(DB_NAME, 1, {
         upgrade(database) {
             database.createObjectStore(STORE)
         },
     })
-    const key = (type: ObjectType) => `${serverUrl}|${type}`
+    const key = (type: ObjectType) =>
+        `${serverUrl}|${identity.userId}|${identity.locale}|${type}`
     return {
         async get(type) {
             try {

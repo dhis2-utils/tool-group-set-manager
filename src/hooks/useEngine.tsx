@@ -9,7 +9,7 @@ import React, {
     useState,
 } from 'react'
 import type { Cache } from '@/data/cache'
-import { openCache } from '@/data/cache'
+import { cacheIdentity, createMemoryCache, openCache } from '@/data/cache'
 import { createFetcher } from '@/data/fetcher'
 import type { LoadStatus } from '@/data/loadAll'
 import { loadAll } from '@/data/loadAll'
@@ -48,6 +48,13 @@ interface EngineContextValue {
      */
     fellBack: boolean
     error: string | null
+    /**
+     * The engine's data revision (`EngineStore.revision`): it moves after
+     * anything changed what a query would answer, whoever caused it -- a
+     * load step, a write's `applyChangeSet`, a late `setConfig`. Views that
+     * hold an engine answer re-ask when it moves.
+     */
+    revision: number
     reload: (force: boolean) => Promise<void>
     /**
      * Drops the one type's cached payload, kept private in `cacheRef`
@@ -99,18 +106,44 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
     )
     const [fellBack, setFellBack] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [revision, setRevision] = useState(0)
 
-    // One IndexedDB connection per base URL, opened lazily on first use
-    // rather than during render (avoiding an extra, unclosable connection
-    // if this component's render is ever invoked more than once for the
-    // same commit) and reused across every reload() call against that URL.
-    const cacheRef = useRef<{ baseUrl: string; cache: Cache } | null>(null)
-    const getCache = useCallback((): Cache => {
+    // One IndexedDB connection per base URL and user, opened lazily on first
+    // use rather than during render (avoiding an extra, unclosable
+    // connection if this component's render is ever invoked more than once
+    // for the same commit) and reused across every reload() call against
+    // that URL. The entries are keyed by the user and their locales as well
+    // as the server: two users of one browser see different groups and
+    // different translated names, and must never be served each other's.
+    const cacheRef = useRef<{ baseUrl: string; cache: Promise<Cache> } | null>(
+        null
+    )
+    const getCache = useCallback((): Promise<Cache> => {
         if (!cacheRef.current || cacheRef.current.baseUrl !== baseUrl) {
-            cacheRef.current = { baseUrl, cache: openCache(baseUrl) }
+            const entry = {
+                baseUrl,
+                cache: cacheIdentity(createFetcher(baseUrl, apiVersion)).then(
+                    (identity) => {
+                        if (identity) {
+                            return openCache(baseUrl, identity)
+                        }
+                        // Without knowing whose data this is, nothing is
+                        // kept across page loads; the next call asks again.
+                        if (cacheRef.current === entry) {
+                            cacheRef.current = null
+                        }
+                        return createMemoryCache()
+                    }
+                ),
+            }
+            cacheRef.current = entry
         }
         return cacheRef.current.cache
-    }, [baseUrl])
+    }, [baseUrl, apiVersion])
+    // Bumped by invalidateType and clearCache. A load that started before
+    // either read its data before the change that prompted it, so it must
+    // not write that data back into the cache.
+    const cacheEpochRef = useRef(0)
 
     const reload = useCallback(
         async (force: boolean) => {
@@ -143,11 +176,18 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
                         return
                     }
                 }
+                const cacheEpoch = cacheEpochRef.current
                 const result = await loadAll({
                     source,
                     fetcher,
-                    cache: getCache(),
+                    cache: await getCache(),
                     engine: client,
+                    // A superseded load stops before its next engine call
+                    // and never writes the cache: what it read is older
+                    // than what the newer load is reading.
+                    isCurrent,
+                    mayCache: () =>
+                        isCurrent() && cacheEpochRef.current === cacheEpoch,
                     onStatus: (s) => {
                         if (isCurrent()) {
                             setStatus(s)
@@ -185,13 +225,15 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
 
     const invalidateType = useCallback(
         async (type: ObjectType) => {
-            await getCache().remove(type)
+            cacheEpochRef.current++
+            await (await getCache()).remove(type)
         },
         [getCache]
     )
 
     const clearCache = useCallback(async () => {
-        await getCache().clear()
+        cacheEpochRef.current++
+        await (await getCache()).clear()
     }, [getCache])
 
     // Create and terminate the worker together, in the same effect: if
@@ -208,7 +250,9 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
     useEffect(() => {
         const created = new EngineClient(createEngineWorker())
         setClient(created)
+        const unsubscribe = created.onRevision(setRevision)
         return () => {
+            unsubscribe()
             // Any load still in flight belongs to a provider that no longer
             // exists. Bumping the generation makes its continuation return
             // at the next isCurrent() check instead of calling loadAll on a
@@ -241,6 +285,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
             nameSource,
             fellBack,
             error,
+            revision,
             reload,
             invalidateType,
             clearCache,
@@ -254,6 +299,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
             nameSource,
             fellBack,
             error,
+            revision,
             reload,
             invalidateType,
             clearCache,

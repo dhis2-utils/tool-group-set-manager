@@ -1,6 +1,6 @@
 import { CACHE_TTL_MS, createMemoryCache } from './cache'
 import type { LoadStatus } from './loadAll'
-import { loadAll } from './loadAll'
+import { LoadSuperseded, loadAll } from './loadAll'
 import type { DataSource } from './sources/DataSource'
 import type { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
 import { EngineStore } from '@/engine/store'
@@ -182,6 +182,51 @@ describe('loadAll', () => {
             'A',
         ])
         expect(statuses[statuses.length - 1].phase).toBe('done')
+    })
+
+    it('M9d: a superseded load makes no further engine call and writes nothing to the cache', async () => {
+        const source = fakeSource()
+        const cache = createMemoryCache()
+        const engine = inlineEngine()
+        let current = true
+        // The newer load starts while this one is reading memberships.
+        const loadMemberships = source.loadMemberships.bind(source)
+        source.loadMemberships = (type, groupIds, onProgress) => {
+            current = false
+            return loadMemberships(type, groupIds, onProgress)
+        }
+        await expect(
+            loadAll({
+                source,
+                fetcher,
+                cache,
+                engine,
+                onStatus: () => {},
+                isCurrent: () => current,
+            })
+        ).rejects.toBeInstanceOf(LoadSuperseded)
+        expect(engine.calls).toEqual(['setGroupSets'])
+        expect(await cache.get('organisationUnit')).toBeUndefined()
+    })
+
+    it('M9d: does not cache what it read when the cache was invalidated during the load', async () => {
+        const cache = createMemoryCache()
+        const engine = inlineEngine()
+        const statuses: LoadStatus[] = []
+        await loadAll({
+            source: fakeSource(),
+            fetcher,
+            cache,
+            engine,
+            onStatus: (s) => statuses.push(s),
+            mayCache: () => false,
+        })
+        // The load still finishes and fills the engine ...
+        expect(statuses[statuses.length - 1].phase).toBe('done')
+        expect(engine.calls).toContain('loadMemberships')
+        // ... but what it read may predate the write, so none of it is kept.
+        expect(await cache.get('organisationUnit')).toBeUndefined()
+        expect(await cache.get('indicator')).toBeUndefined()
     })
 
     it('reuses the cache when group ids and totals match', async () => {

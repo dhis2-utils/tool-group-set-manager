@@ -26,6 +26,8 @@ interface MockStatus {
 interface MockLoadAllDeps {
     engine: { call: (method: string, ...args: unknown[]) => Promise<unknown> }
     onStatus: (s: MockStatus) => void
+    isCurrent?: () => boolean
+    mayCache?: () => boolean
 }
 
 const doneStatus: MockStatus = {
@@ -64,6 +66,13 @@ jest.mock('@/data/sources/selectSource', () => ({
     selectSource: (...args: unknown[]) => mockSelectSource(...args),
 }))
 jest.mock('@/data/cache', () => ({
+    cacheIdentity: () => Promise.resolve({ userId: 'u1', locale: 'en/en' }),
+    createMemoryCache: () => ({
+        get: () => Promise.resolve(undefined),
+        put: () => Promise.resolve(undefined),
+        remove: () => Promise.resolve(undefined),
+        clear: () => Promise.resolve(undefined),
+    }),
     openCache: () => ({
         get: () => Promise.resolve(undefined),
         put: () => Promise.resolve(undefined),
@@ -89,6 +98,13 @@ jest.mock('@/engine/client', () => {
         terminate = jest.fn(() => {
             this.terminated = true
         })
+        revisionListener: ((r: number) => void) | null = null
+        onRevision = jest.fn((listener: (r: number) => void) => {
+            this.revisionListener = listener
+            return () => {
+                this.revisionListener = null
+            }
+        })
         constructor() {
             FakeEngineClient.instances.push(this)
         }
@@ -100,6 +116,7 @@ jest.mock('@/engine/createWorker', () => ({
 }))
 
 interface FakeClientHandle {
+    revisionListener: ((r: number) => void) | null
     terminated: boolean
     call: jest.Mock
     terminate: jest.Mock
@@ -426,4 +443,48 @@ test('an unmount during an in-flight load abandons it rather than driving a term
     // Without the generation bump on unmount, the continuation ran on and
     // called loadAll with a client whose worker had already been terminated.
     expect(mockLoadAll).not.toHaveBeenCalled()
+})
+
+test('M9c: exposes the engine revision the client reports', async () => {
+    const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.status?.phase).toBe('done'))
+    expect(result.current.revision).toBe(0)
+    const client = result.current.client as unknown as FakeClientHandle
+    act(() => {
+        client.revisionListener?.(7)
+    })
+    expect(result.current.revision).toBe(7)
+})
+
+test('M9d: a load learns it was superseded, and a cache invalidation stops it caching', async () => {
+    let first: MockLoadAllDeps | undefined
+    let resolveFirst: (() => void) | undefined
+    mockLoadAll.mockImplementationOnce(async (deps) => {
+        first = deps
+        await new Promise<void>((resolve) => {
+            resolveFirst = resolve
+        })
+        return { groupSets: [] }
+    })
+    const { result } = renderHook(() => useEngine(), { wrapper: Wrapper })
+    await waitFor(() => expect(first).toBeDefined())
+    expect(first?.isCurrent?.()).toBe(true)
+    expect(first?.mayCache?.()).toBe(true)
+
+    // A write lands while the load is reading.
+    await act(async () => {
+        await result.current.invalidateType('organisationUnit')
+    })
+    expect(first?.isCurrent?.()).toBe(true)
+    expect(first?.mayCache?.()).toBe(false)
+
+    // A newer load starts.
+    await act(async () => {
+        await result.current.reload(false)
+    })
+    expect(first?.isCurrent?.()).toBe(false)
+    await act(async () => {
+        resolveFirst?.()
+        await Promise.resolve()
+    })
 })

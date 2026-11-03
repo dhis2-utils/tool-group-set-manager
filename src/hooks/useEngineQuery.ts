@@ -9,7 +9,8 @@ interface EngineQueryState<T> {
     /**
      * Re-issues the same call. Only meaningful after an error -- a
      * successful result is already re-requested by the effect whenever the
-     * engine's load phase or the arguments change, so nothing else needs it.
+     * engine's load phase, its data revision or the arguments change, so
+     * nothing else needs it.
      */
     refetch: () => void
 }
@@ -36,7 +37,7 @@ export function useEngineQuery<T>(
     args: unknown[],
     enabled = true
 ): EngineQueryState<T> {
-    const { client, status } = useEngine()
+    const { client, status, revision } = useEngine()
     const [state, setState] = useState<QueryState<T>>({
         data: undefined,
         isLoading: enabled,
@@ -118,7 +119,9 @@ export function useEngineQuery<T>(
         // `client` is deliberately omitted in favour of `hasClient` -- see
         // the comment on its declaration above. `queryKey` covers both
         // `method` and `argsKey`, which are listed anyway for the linter.
-        // `attempt` is bumped by refetch() and nothing else.
+        // `attempt` is bumped by refetch() and nothing else. `revision`
+        // moves whenever the engine's data changes for any other reason (a
+        // write, a late setConfig), which the load phase does not show.
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- depends on hasClient, not the client object; see the comment on hasClient above
     }, [
         hasClient,
@@ -128,6 +131,7 @@ export function useEngineQuery<T>(
         enabled,
         status?.phase,
         status?.type,
+        revision,
         attempt,
     ])
 

@@ -56,6 +56,46 @@ interface Deps {
     engine: EngineLike
     onStatus: (s: LoadStatus) => void
     forceRefresh?: boolean
+    /**
+     * False once a newer load has started. From then on this load makes no
+     * further engine call (it would interleave with the newer load's) and
+     * writes nothing to the cache (what it read is older than what the
+     * newer load is reading); it rejects with `LoadSuperseded` instead.
+     */
+    isCurrent?: () => boolean
+    /**
+     * False once the cache has been invalidated since this load started (a
+     * write landed while it was reading). The load still finishes, but its
+     * payloads may predate the write, so they are not cached.
+     */
+    mayCache?: () => boolean
+}
+
+/** Thrown by a load that a newer one superseded; see `Deps.isCurrent`. */
+export class LoadSuperseded extends Error {
+    constructor() {
+        super('Superseded by a newer load')
+        this.name = 'LoadSuperseded'
+    }
+}
+
+/**
+ * The engine as this load sees it: every call first checks that the load is
+ * still the current one, so a superseded load stops at its next engine call
+ * rather than writing over the newer load's data.
+ */
+function guardedEngine(deps: Deps): EngineLike {
+    return {
+        call<T>(
+            method: Parameters<EngineLike['call']>[0],
+            ...args: unknown[]
+        ): Promise<T> {
+            if (deps.isCurrent && !deps.isCurrent()) {
+                return Promise.reject(new LoadSuperseded())
+            }
+            return deps.engine.call<T>(method, ...args)
+        },
+    }
 }
 
 function sameIds(a: string[], b: string[]): boolean {
@@ -146,6 +186,11 @@ async function commitOrRollback(
     try {
         await commit()
     } catch (error) {
+        if (error instanceof LoadSuperseded) {
+            // The newer load owns the engine now; dropping the type here
+            // would remove what it has loaded.
+            throw error
+        }
         try {
             await engine.call('dropType', type)
         } catch {
@@ -215,6 +260,7 @@ export async function loadAll(deps: Deps): Promise<{
     fellBack: boolean
 }> {
     const source = withSourceFallback(deps)
+    const engine = guardedEngine(deps)
     const status: LoadStatus = {
         phase: 'groupSets',
         type: null,
@@ -250,7 +296,7 @@ export async function loadAll(deps: Deps): Promise<{
     // does, since evaluate is only ever reached inside or after the loop
     // that follows) or every set would evaluate against stale/no group
     // definitions.
-    await deps.engine.call('setGroupSets', groupSets)
+    await engine.call('setGroupSets', groupSets)
 
     // Org units are the heavy type; load them first so the dashboard can show
     // their numbers while the small types finish.
@@ -272,14 +318,11 @@ export async function loadAll(deps: Deps): Promise<{
                 // themselves can still fail (e.g. a worker crash) between
                 // loadObjects landing and loadMemberships landing;
                 // commitOrRollback is what protects against that.
-                await commitOrRollback(deps.engine, type, async () => {
-                    await deps.engine.call('loadObjects', reused.objects)
-                    await deps.engine.call(
-                        'loadMemberships',
-                        reused.memberships
-                    )
+                await commitOrRollback(engine, type, async () => {
+                    await engine.call('loadObjects', reused.objects)
+                    await engine.call('loadMemberships', reused.memberships)
                     if (reused.names) {
-                        await deps.engine.call('setNames', type, reused.names)
+                        await engine.call('setNames', type, reused.names)
                     }
                 })
                 status.fromCache[type] = true
@@ -319,12 +362,12 @@ export async function loadAll(deps: Deps): Promise<{
             // the worker crashes) between loadObjects landing and
             // loadMemberships landing -- commitOrRollback is what protects
             // against that half.
-            await commitOrRollback(deps.engine, type, async () => {
-                await deps.engine.call('loadObjects', objects)
-                await deps.engine.call('loadMemberships', memberships)
+            await commitOrRollback(engine, type, async () => {
+                await engine.call('loadObjects', objects)
+                await engine.call('loadMemberships', memberships)
             })
             emit({ phase: 'evaluate', type })
-            await deps.engine.call('evaluate')
+            await engine.call('evaluate')
 
             let names = objects.names
             let namesFailed = false
@@ -335,8 +378,11 @@ export async function loadAll(deps: Deps): Promise<{
                         objects.ids,
                         await source.call((s) => s.loadNames(type))
                     )
-                    await deps.engine.call('setNames', type, names)
+                    await engine.call('setNames', type, names)
                 } catch (error) {
+                    if (error instanceof LoadSuperseded) {
+                        throw error
+                    }
                     // Objects, memberships and evaluate already succeeded
                     // above -- the counts are good. Only the names are
                     // missing, so this is recorded as that, not folded
@@ -368,7 +414,10 @@ export async function loadAll(deps: Deps): Promise<{
             // did.
             const savedAt = Date.now()
             status.loadedAt[type] = savedAt
-            if (!namesFailed) {
+            const mayCache =
+                (!deps.isCurrent || deps.isCurrent()) &&
+                (!deps.mayCache || deps.mayCache())
+            if (!namesFailed && mayCache) {
                 const entry: CachedType = {
                     objects,
                     memberships,
@@ -381,6 +430,9 @@ export async function loadAll(deps: Deps): Promise<{
                 await deps.cache.put(type, entry)
             }
         } catch (error) {
+            if (error instanceof LoadSuperseded) {
+                throw error
+            }
             status.errors[type] =
                 error instanceof Error ? error.message : String(error)
             emit({ type })
@@ -389,7 +441,7 @@ export async function loadAll(deps: Deps): Promise<{
     /* oxlint-enable no-await-in-loop */
 
     emit({ phase: 'evaluate', type: null, progress: null })
-    await deps.engine.call('evaluate')
+    await engine.call('evaluate')
     emit({ phase: 'done', type: null, progress: null })
     return {
         groupSets,

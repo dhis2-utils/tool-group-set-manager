@@ -1,5 +1,6 @@
 import type { CachedType } from './cache'
-import { createMemoryCache } from './cache'
+import { cacheIdentity, createMemoryCache } from './cache'
+import type { Fetcher } from './sources/DataSource'
 
 const value: CachedType = {
     objects: {
@@ -56,11 +57,16 @@ describe('IndexedDB-backed cache', () => {
                 }),
         }))
         const { openCache } = await import('./cache')
-        const cache = openCache('http://server')
+        const cache = openCache('http://server', {
+            userId: 'u1',
+            locale: 'fr/en',
+        })
         await cache.remove('indicator')
+        // L8: the user and locale are part of the key, so another user of
+        // the same browser never reads this user's entry.
         expect(deleteFn).toHaveBeenCalledWith(
             'types',
-            'http://server|indicator'
+            'http://server|u1|fr/en|indicator'
         )
         jest.dontMock('idb')
         // Without this, a test added after this one that dynamically
@@ -69,5 +75,32 @@ describe('IndexedDB-backed cache', () => {
         // of this test, so `jest.dontMock` alone leaves the already-mocked
         // instance cached under the un-mocked name.
         jest.resetModules()
+    })
+})
+
+describe('cacheIdentity', () => {
+    const fetcherFor =
+        (response: Response): Fetcher =>
+        () =>
+            Promise.resolve(response)
+
+    it('reads the user id and both locales', async () => {
+        const fetcher = fetcherFor(
+            new Response(
+                JSON.stringify({
+                    id: 'u1',
+                    settings: { keyUiLocale: 'fr', keyDbLocale: 'pt' },
+                })
+            )
+        )
+        expect(await cacheIdentity(fetcher)).toEqual({
+            userId: 'u1',
+            locale: 'fr/pt',
+        })
+    })
+
+    it('gives null when the user cannot be read', async () => {
+        const fetcher = fetcherFor(new Response('', { status: 500 }))
+        expect(await cacheIdentity(fetcher)).toBeNull()
     })
 })
