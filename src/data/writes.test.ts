@@ -25,7 +25,7 @@ describe('writeMemberships', () => {
                 method: init?.method ?? 'GET',
                 body: init?.body ? JSON.parse(init.body as string) : undefined,
             })
-            return Promise.resolve(okStats(2))
+            return Promise.resolve(okStats(3))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a', 'b'], deletions: ['c'] },
@@ -120,22 +120,12 @@ describe('writeMemberships', () => {
         ])
     })
 
-    it('reports a partial failure when the server accepts fewer changes than it was sent', async () => {
-        const fetcher = () =>
+    it('reports a partial failure when the server accepts fewer changes than it was sent and the group cannot be re-read', async () => {
+        const fetcher = (_path: string, init?: RequestInit) =>
             Promise.resolve(
-                new Response(
-                    JSON.stringify({
-                        response: {
-                            stats: {
-                                total: 1,
-                                updated: 1,
-                                deleted: 0,
-                                ignored: 0,
-                            },
-                        },
-                    }),
-                    { status: 200 }
-                )
+                (init?.method ?? 'GET') === 'GET'
+                    ? new Response('unavailable', { status: 503 })
+                    : okStats(1)
             )
         const result = await writeMemberships(
             fetcher,
@@ -152,6 +142,128 @@ describe('writeMemberships', () => {
             { groupId: 'g1', additions: ['a', 'b'], deletions: [] },
         ])
         expect(result.applied).toEqual([])
+    })
+
+    // Finding M2: one dropped id in a 5,000-id batch used to leave all
+    // 5,000 out of History. The group is re-read for exactly the batch's
+    // ids, and what is in place is recorded.
+    it('re-reads a short batch and records the part the server confirms, leaving only the rest for Retry', async () => {
+        const reads: { path: string; init?: RequestInit }[] = []
+        const fetcher = (path: string, init?: RequestInit) => {
+            if ((init?.method ?? 'GET') === 'GET') {
+                reads.push({ path, init })
+                // a and b landed, c (deleted since load) did not; d was
+                // removed, e was not.
+                return Promise.resolve(
+                    json({
+                        organisationUnits: [
+                            { id: 'a' },
+                            { id: 'b' },
+                            { id: 'e' },
+                        ],
+                    })
+                )
+            }
+            return Promise.resolve(okStats(3))
+        }
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            [
+                {
+                    groupId: 'g1',
+                    additions: ['a', 'b', 'c'],
+                    deletions: ['d', 'e'],
+                },
+            ],
+            () => undefined
+        )
+
+        expect(result.applied).toEqual([
+            { groupId: 'g1', additions: ['a', 'b'], deletions: ['d'] },
+        ])
+        expect(result.unaccounted).toEqual([
+            { groupId: 'g1', additions: ['c'], deletions: ['e'] },
+        ])
+        expect(result.outcomes).toEqual([
+            { groupId: 'g1', requested: 5, accepted: 3 },
+        ])
+        expect(reads).toHaveLength(1)
+        expect(decodeURIComponent(reads[0].path)).toBe(
+            'organisationUnitGroups/g1/organisationUnits?fields=id&filter=id:in:[a,b,c,d,e]&paging=false'
+        )
+        expect(reads[0].init?.cache).toBe('no-store')
+    })
+
+    it('records a short batch in full when the re-read finds every change in place', async () => {
+        const fetcher = (_path: string, init?: RequestInit) =>
+            Promise.resolve(
+                (init?.method ?? 'GET') === 'GET'
+                    ? json({ organisationUnits: [{ id: 'a' }] })
+                    : okStats(0)
+            )
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            [{ groupId: 'g1', additions: ['a'], deletions: ['b'] }],
+            () => undefined
+        )
+        expect(result.applied).toEqual([
+            { groupId: 'g1', additions: ['a'], deletions: ['b'] },
+        ])
+        expect(result.unaccounted).toEqual([])
+        expect(result.outcomes).toEqual([
+            { groupId: 'g1', requested: 2, accepted: 2 },
+        ])
+    })
+
+    it('reports each finished change, except the last, with everything confirmed so far', async () => {
+        const fetcher = (_path: string, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body)) as {
+                additions: unknown[]
+            }
+            return Promise.resolve(okStats(body.additions.length))
+        }
+        const settled: GroupChange[][] = []
+        await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            [
+                { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
+                { groupId: 'g2', additions: ['d'], deletions: [] },
+            ],
+            () => undefined,
+            {
+                batchSize: 2,
+                onChangeSettled: (applied) => {
+                    settled.push(applied)
+                },
+            }
+        )
+        expect(settled).toEqual([
+            [
+                { groupId: 'g1', additions: ['a', 'b'], deletions: [] },
+                { groupId: 'g1', additions: ['c'], deletions: [] },
+            ],
+        ])
+    })
+
+    it('carries on writing when the progress callback fails', async () => {
+        const fetcher = () => Promise.resolve(okStats(1))
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            [
+                { groupId: 'g1', additions: ['a'], deletions: [] },
+                { groupId: 'g2', additions: ['b'], deletions: [] },
+            ],
+            () => undefined,
+            {
+                onChangeSettled: () =>
+                    Promise.reject(new Error('dataStore down')),
+            }
+        )
+        expect(result.applied).toHaveLength(2)
     })
 
     it('treats a response with no stats at all as nothing accepted', async () => {
