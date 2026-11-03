@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useId } from 'react'
 import styles from './FilterBar.module.css'
 
 /**
@@ -29,15 +29,27 @@ export const FilterBar = ({
     </div>
 )
 
+/**
+ * The label is a plain span, not the select's own `label` prop (which would
+ * add a second, differently styled label to the row). On its own a span
+ * names nothing, so the field is a fieldset labelled by it: a screen reader
+ * announces "Group set, group" as focus enters the select inside, and
+ * every caller's control is named without the caller doing anything.
+ */
 export const FilterBarField = ({
     label,
     children,
 }: {
     label: string
     children: React.ReactNode
-}) => (
-    <div className={styles.field}>
-        <span className={styles.label}>{label}</span>
-        {children}
-    </div>
-)
+}) => {
+    const labelId = useId()
+    return (
+        <fieldset className={styles.field} aria-labelledby={labelId}>
+            <span id={labelId} className={styles.label}>
+                {label}
+            </span>
+            {children}
+        </fieldset>
+    )
+}
