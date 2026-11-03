@@ -57,6 +57,14 @@ export interface BatchOutcome {
 export const UNPARSEABLE_RESPONSE = 'unparseable-response'
 
 /**
+ * Sentinel `error` for deletions that were deliberately not sent because
+ * the same objects' additions to another group were not confirmed (see
+ * `WriteOptions.holdUnplacedDeletions`). Like `UNPARSEABLE_RESPONSE`,
+ * `outcomeText` turns it into its own translated sentence.
+ */
+export const ADDITION_NOT_CONFIRMED = 'addition-not-confirmed'
+
+/**
  * What `writeMemberships` actually achieved, as distinct from what it was
  * asked to do. `applied` is the truth a ChangeSet should be built from:
  * the batches the server's own stats confirm in full, plus the part of a
@@ -356,6 +364,17 @@ export interface WriteOptions {
      * rejection is ignored: progress reporting must never stop the write.
      */
     onChangeSettled?: (appliedSoFar: GroupChange[]) => Promise<void> | void
+    /**
+     * Sends every addition before any deletion, and does not send the
+     * deletion of an object whose addition elsewhere in the same write was
+     * not confirmed: a move whose addition failed must not still take the
+     * object out of its old group and leave it in none (findings M4, M6).
+     * The held deletions are reported in `unaccounted` with the
+     * `ADDITION_NOT_CONFIRMED` error, so Retry sends them once the
+     * addition has landed. `useMembershipWrite` always sets this; it is
+     * off by default here only so request-order tests read naturally.
+     */
+    holdUnplacedDeletions?: boolean
 }
 
 /**
@@ -533,6 +552,7 @@ export async function writeMemberships(
         batchSize = DEFAULT_BATCH_SIZE,
         completeMembers,
         onChangeSettled,
+        holdUnplacedDeletions = false,
     }: WriteOptions = {}
 ): Promise<WriteResult> {
     // Spec 2026-09-16 section 6.1. DHIS2 re-reads a group's whole collection
@@ -561,7 +581,7 @@ export async function writeMemberships(
         | { kind: 'patch'; change: GroupChange; members: string[] }
         | { kind: 'batch'; batch: GroupChange }
     )
-    const units: Unit[] = changes.flatMap((change): Unit[] => {
+    const unitsOf = (change: GroupChange): Unit[] => {
         const members = patchMembers(change)
         if (members) {
             return [{ kind: 'patch', change, members, last: true }]
@@ -572,8 +592,35 @@ export async function writeMemberships(
             batch,
             last: i === batches.length - 1,
         }))
-    })
+    }
+    // M4/M6: with `holdUnplacedDeletions`, every addition is sent before any
+    // deletion, across all groups, so a deletion can wait on the addition
+    // that moves the same object elsewhere (see `heldDeletions` below). A
+    // patch-route change is never split (its replace is built from one
+    // membership read), so one with deletions goes with the deletions.
+    const units: Unit[] = holdUnplacedDeletions
+        ? [
+              ...changes.flatMap((change) =>
+                  patchMembers(change)
+                      ? change.deletions.length === 0
+                          ? unitsOf(change)
+                          : []
+                      : unitsOf({ ...change, deletions: [] })
+              ),
+              ...changes.flatMap((change) =>
+                  patchMembers(change)
+                      ? change.deletions.length > 0
+                          ? unitsOf(change)
+                          : []
+                      : unitsOf({ ...change, additions: [] })
+              ),
+          ]
+        : changes.flatMap(unitsOf)
     const total = units.length
+    const addedIds = new Set(
+        holdUnplacedDeletions ? changes.flatMap((c) => c.additions) : []
+    )
+    const confirmedAdded = new Set<string>()
 
     const outcomes: BatchOutcome[] = []
     const applied: GroupChange[] = []
@@ -590,9 +637,42 @@ export async function writeMemberships(
         outcomes.push(outcome)
         if (confirmed && sizeOf(confirmed) > 0) {
             applied.push(confirmed)
+            for (const id of confirmed.additions) {
+                confirmedAdded.add(id)
+            }
         }
         if (missing && sizeOf(missing) > 0) {
             unaccounted.push(missing)
+        }
+    }
+
+    // The deletions in `change` of objects this write also adds somewhere
+    // whose addition has not been confirmed (it failed, came back short, or
+    // was itself held). Sending them would leave the object in no group --
+    // the state the tool exists to prevent -- so they are kept back and
+    // reported as unaccounted for Retry instead.
+    const heldDeletions = (change: GroupChange): string[] =>
+        change.deletions.filter(
+            (id) => addedIds.has(id) && !confirmedAdded.has(id)
+        )
+    const holdBack = (change: GroupChange, held: string[]) => {
+        record({
+            outcome: {
+                groupId: change.groupId,
+                requested: held.length,
+                accepted: 0,
+                error: ADDITION_NOT_CONFIRMED,
+            },
+            missing: {
+                groupId: change.groupId,
+                additions: [],
+                deletions: held,
+            },
+        })
+        const heldSet = new Set(held)
+        return {
+            ...change,
+            deletions: change.deletions.filter((id) => !heldSet.has(id)),
         }
     }
 
@@ -600,21 +680,30 @@ export async function writeMemberships(
     /* oxlint-disable no-await-in-loop -- one request at a time: a group's 401/403 skips its later batches, and onProgress counts in order */
     for (const unit of units) {
         if (unit.kind === 'patch') {
-            const { outcome, ok } = await patchChange(
-                fetcher,
-                objectType,
-                unit.change,
-                unit.members
-            )
-            record(
-                ok
-                    ? { outcome, confirmed: unit.change }
-                    : { outcome, missing: unit.change }
-            )
+            const held = heldDeletions(unit.change)
+            const change =
+                held.length > 0 ? holdBack(unit.change, held) : unit.change
+            if (sizeOf(change) > 0) {
+                const { outcome, ok } = await patchChange(
+                    fetcher,
+                    objectType,
+                    change,
+                    unit.members
+                )
+                record(
+                    ok
+                        ? { outcome, confirmed: change }
+                        : { outcome, missing: change }
+                )
+            }
         } else {
-            const { batch } = unit
+            const held = heldDeletions(unit.batch)
+            const batch =
+                held.length > 0 ? holdBack(unit.batch, held) : unit.batch
             const priorFailure = failedGroups.get(batch.groupId)
-            if (priorFailure === undefined) {
+            if (sizeOf(batch) === 0) {
+                // Everything in this batch was held back above.
+            } else if (priorFailure === undefined) {
                 const result = await writeBatch(fetcher, objectType, batch)
                 record(result)
                 if (result.groupError !== undefined) {

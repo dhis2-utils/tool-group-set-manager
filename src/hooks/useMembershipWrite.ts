@@ -275,6 +275,7 @@ export function useMembershipWrite(): {
                     {
                         completeMembers: input.completeMembers,
                         onChangeSettled: history.update,
+                        holdUnplacedDeletions: true,
                     }
                 )
 

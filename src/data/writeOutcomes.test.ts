@@ -1,6 +1,6 @@
 import { aggregateOutcomes, mergeOutcomes, outcomeText } from './writeOutcomes'
 import type { BatchOutcome } from './writes'
-import { UNPARSEABLE_RESPONSE } from './writes'
+import { ADDITION_NOT_CONFIRMED, UNPARSEABLE_RESPONSE } from './writes'
 
 const batch = (
     o: Partial<BatchOutcome> & { groupId: string }
@@ -68,6 +68,20 @@ describe('outcomeText', () => {
         expect(text).toMatch(/could not read/i)
         // The token sentence is the other branch, and must not appear:
         // spliced together, the two would read as one run-on failure.
+        expect(text).not.toMatch(/failed with error/i)
+    })
+
+    it('explains deletions held back because the addition was not confirmed, without splicing the sentinel in', () => {
+        const { tone, text } = textFor([
+            batch({
+                groupId: 'g1',
+                accepted: 0,
+                error: ADDITION_NOT_CONFIRMED,
+            }),
+        ])
+        expect(tone).toBe('error')
+        expect(text).not.toContain(ADDITION_NOT_CONFIRMED)
+        expect(text).toMatch(/not removed from/)
         expect(text).not.toMatch(/failed with error/i)
     })
 

@@ -1,6 +1,6 @@
 import i18n from '@dhis2/d2-i18n'
 import type { BatchOutcome } from './writes'
-import { UNPARSEABLE_RESPONSE } from './writes'
+import { ADDITION_NOT_CONFIRMED, UNPARSEABLE_RESPONSE } from './writes'
 import { interpolate } from '@/utils/interpolate'
 
 /**
@@ -16,10 +16,14 @@ import { interpolate } from '@/utils/interpolate'
 function splitErrors(errors: string[]): {
     tokens: string[]
     anyUnreadable: boolean
+    anyHeld: boolean
 } {
     return {
-        tokens: errors.filter((e) => e !== UNPARSEABLE_RESPONSE),
-        anyUnreadable: errors.some((e) => e === UNPARSEABLE_RESPONSE),
+        tokens: errors.filter(
+            (e) => e !== UNPARSEABLE_RESPONSE && e !== ADDITION_NOT_CONFIRMED
+        ),
+        anyUnreadable: errors.includes(UNPARSEABLE_RESPONSE),
+        anyHeld: errors.includes(ADDITION_NOT_CONFIRMED),
     }
 }
 
@@ -132,7 +136,7 @@ export function outcomeText(
         // message is a locale-neutral token and stays a {placeholder}; the
         // sentinel is not, so it gets its own sentence. A group whose
         // batches failed both ways gets both sentences.
-        const { tokens, anyUnreadable } = splitErrors(errors)
+        const { tokens, anyUnreadable, anyHeld } = splitErrors(errors)
         const sentences: string[] = []
         if (tokens.length > 0) {
             sentences.push(
@@ -149,6 +153,16 @@ export function outcomeText(
                 interpolate(
                     i18n.t(
                         '{name} failed because the server returned a response the app could not read -- the affected objects need to be re-read from the server'
+                    ),
+                    { name: groupName }
+                )
+            )
+        }
+        if (anyHeld) {
+            sentences.push(
+                interpolate(
+                    i18n.t(
+                        'Objects were not removed from {name} because adding them to their new group was not confirmed, so none of them was left without a group -- retry once the addition succeeds'
                     ),
                     { name: groupName }
                 )

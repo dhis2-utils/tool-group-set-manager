@@ -408,7 +408,11 @@ test('passes completeMembers through, and no batch size', async () => {
         'organisationUnit',
         [change],
         expect.any(Function),
-        { completeMembers, onChangeSettled: expect.any(Function) }
+        {
+            completeMembers,
+            onChangeSettled: expect.any(Function),
+            holdUnplacedDeletions: true,
+        }
     )
 })
 
@@ -422,6 +426,7 @@ test('still writes when completeMembers is omitted, passing none through', async
     expect(options).toEqual({
         completeMembers: undefined,
         onChangeSettled: expect.any(Function),
+        holdUnplacedDeletions: true,
     })
     expect(Object.keys(options)).not.toContain('batchSize')
     expect(writeResult.changeSet).toBeDefined()

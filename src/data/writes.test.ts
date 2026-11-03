@@ -1,5 +1,6 @@
 import { ENDPOINTS } from './endpoints'
 import {
+    ADDITION_NOT_CONFIRMED,
     DEFAULT_BATCH_SIZE,
     UNPARSEABLE_RESPONSE,
     takesPatchRoute,
@@ -975,5 +976,125 @@ describe('takesPatchRoute', () => {
     it('honours an explicit batch size, which only tests pass', () => {
         expect(takesPatchRoute(change(3), 2)).toBe(true)
         expect(takesPatchRoute(change(2), 2)).toBe(false)
+    })
+})
+
+describe('writeMemberships with holdUnplacedDeletions', () => {
+    // A move of u1 from g1 to the catch-all c, listed deletions first to
+    // show the writer itself puts the addition first.
+    const move: GroupChange[] = [
+        { groupId: 'g1', additions: [], deletions: ['u1', 'u2'] },
+        { groupId: 'c', additions: ['u1', 'u2'], deletions: [] },
+    ]
+
+    it('sends every addition before any deletion', async () => {
+        const sent: string[] = []
+        const fetcher = (path: string, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body)) as {
+                additions: unknown[]
+                deletions: unknown[]
+            }
+            sent.push(path)
+            return Promise.resolve(
+                okStats(body.additions.length + body.deletions.length)
+            )
+        }
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            move,
+            () => undefined,
+            { holdUnplacedDeletions: true }
+        )
+        expect(sent).toEqual([
+            'organisationUnitGroups/c/organisationUnits',
+            'organisationUnitGroups/g1/organisationUnits',
+        ])
+        expect(result.applied).toEqual([
+            { groupId: 'c', additions: ['u1', 'u2'], deletions: [] },
+            { groupId: 'g1', additions: [], deletions: ['u1', 'u2'] },
+        ])
+        expect(result.unaccounted).toEqual([])
+    })
+
+    it('does not remove an object from its old group when its addition failed, and leaves that deletion for Retry', async () => {
+        const sent: string[] = []
+        const fetcher = (path: string) => {
+            sent.push(path)
+            return Promise.resolve(
+                path.includes('/c/') ? json({}, 409) : okStats(2)
+            )
+        }
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            move,
+            () => undefined,
+            { holdUnplacedDeletions: true }
+        )
+        // Nothing was sent to g1: both objects would have ended up in no group.
+        expect(sent).toEqual(['organisationUnitGroups/c/organisationUnits'])
+        expect(result.applied).toEqual([])
+        expect(result.unaccounted).toEqual([
+            { groupId: 'c', additions: ['u1', 'u2'], deletions: [] },
+            { groupId: 'g1', additions: [], deletions: ['u1', 'u2'] },
+        ])
+        expect(result.outcomes).toContainEqual({
+            groupId: 'g1',
+            requested: 2,
+            accepted: 0,
+            error: ADDITION_NOT_CONFIRMED,
+        })
+    })
+
+    it('removes only the objects whose addition the server confirmed', async () => {
+        const sent: { path: string; body: unknown }[] = []
+        const fetcher = (path: string, init?: RequestInit) => {
+            if ((init?.method ?? 'GET') === 'GET') {
+                // The re-read after a short batch: only u1 landed in c.
+                return Promise.resolve(
+                    json({ organisationUnits: [{ id: 'u1' }] })
+                )
+            }
+            sent.push({ path, body: JSON.parse(String(init?.body)) })
+            return Promise.resolve(okStats(1))
+        }
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            move,
+            () => undefined,
+            { holdUnplacedDeletions: true }
+        )
+        expect(sent[1]).toEqual({
+            path: 'organisationUnitGroups/g1/organisationUnits',
+            body: { additions: [], deletions: [{ id: 'u1' }] },
+        })
+        expect(result.applied).toEqual([
+            { groupId: 'c', additions: ['u1'], deletions: [] },
+            { groupId: 'g1', additions: [], deletions: ['u1'] },
+        ])
+        expect(result.unaccounted).toEqual([
+            { groupId: 'c', additions: ['u2'], deletions: [] },
+            { groupId: 'g1', additions: [], deletions: ['u2'] },
+        ])
+    })
+
+    it('still sends a deletion of an object the write adds nowhere', async () => {
+        const fetcher = (path: string) =>
+            Promise.resolve(path.includes('/c/') ? json({}, 500) : okStats(1))
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            [
+                { groupId: 'c', additions: ['u1'], deletions: [] },
+                { groupId: 'g1', additions: [], deletions: ['other'] },
+            ],
+            () => undefined,
+            { holdUnplacedDeletions: true }
+        )
+        expect(result.applied).toEqual([
+            { groupId: 'g1', additions: [], deletions: ['other'] },
+        ])
     })
 })
