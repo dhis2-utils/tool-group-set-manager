@@ -21,9 +21,12 @@
 .segButton:disabled {
     cursor: default;
 }
-/* A group the user cannot write: hatched and greyed, so that it reads as
-   unavailable without hovering for the tooltip. */
-.segButton[data-read-only='true'] {
+/* A group the user cannot write: hatched and crossed out, so that it reads
+   as unavailable without hovering for the tooltip. A read-only group the
+   object is in keeps its selected or conflict colours, dimmed. The reason
+   is stated once above the table (ObjectsTab), not per row: the rows of
+   the virtualised table have a fixed height. */
+.segButton[data-read-only='true'][data-state='none'] {
     color: var(--colors-grey500);
     background: repeating-linear-gradient(
         135deg,
@@ -34,16 +37,9 @@
     );
     text-decoration: line-through;
 }
-.segWrap {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--spacers-dp8);
-    flex-wrap: wrap;
-}
-/* Why the whole row cannot be changed, in text rather than a tooltip. */
-.reason {
-    font-size: var(--gsi-font-size-sm, 12px);
-    color: var(--colors-grey700);
+.segButton[data-read-only='true'][data-state='selected'],
+.segButton[data-read-only='true'][data-state='conflict'] {
+    opacity: 0.6;
 }
 .segButton[data-state='selected'] {
     background: var(--colors-blue600);

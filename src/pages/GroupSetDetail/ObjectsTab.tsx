@@ -7,6 +7,7 @@ import {
 } from '@dhis2/ui'
 import React, { useEffect, useRef, useState } from 'react'
 import styles from './GroupSetDetail.module.css'
+import { SEGMENTED_MAX } from '@/components/MembershipControl/MembershipControl'
 import { ObjectsTable } from '@/components/ObjectsTable/ObjectsTable'
 import type { ObjectFilter } from '@/engine/queries'
 import type { ScopeRef } from '@/engine/store'
@@ -266,9 +267,13 @@ export const ObjectsTab = ({
             </div>
             {!bulkFixAllowed && (
                 <p className={styles.bulkFixNote}>
-                    {i18n.t(
-                        'Bulk fix needs edit access to every group in this set. Some groups are read-only for you, so you can only fix objects one at a time.'
-                    )}
+                    {set.groups.length <= SEGMENTED_MAX
+                        ? i18n.t(
+                              'Some groups in this set are read-only for you. They are crossed out, and you cannot move objects into or out of them. Bulk fix needs edit access to every group, so you can only fix objects one at a time.'
+                          )
+                        : i18n.t(
+                              'Some groups in this set are read-only for you. They are marked read-only in the list, and you cannot move objects into or out of them. Bulk fix needs edit access to every group, so you can only fix objects one at a time.'
+                          )}
                 </p>
             )}
             <ObjectsTable

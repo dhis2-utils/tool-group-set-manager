@@ -27,7 +27,8 @@ interface Props {
     onChange: (groupIndex: number) => void
 }
 
-const SEGMENTED_MAX = 5
+/** Up to this many groups the control is a row of buttons, above it a dropdown. */
+export const SEGMENTED_MAX = 5
 
 // One complete, translatable sentence with a placeholder, filled in
 // afterwards -- not two translated fragments joined around the group name in
@@ -57,43 +58,38 @@ export const MembershipControl = ({
     const isConflict = current.length > 1
     if (groups.length <= SEGMENTED_MAX) {
         return (
-            <span className={styles.segWrap}>
-                {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- role=group gives the segmented control group semantics without a fieldset's border and legend layout */}
-                <span className={styles.seg} role="group">
-                    {groups.map((g, i) => {
-                        const state = current.includes(i)
-                            ? isConflict
-                                ? 'conflict'
-                                : 'selected'
-                            : 'none'
-                        const optionDisabled = disabled || !g.canWrite
-                        const title =
-                            disabled && disabledReason
-                                ? disabledReason
-                                : !g.canWrite
-                                  ? readOnlyTargetLabel(g.displayName)
-                                  : isConflict
-                                    ? keepLabel(g.displayName)
-                                    : g.displayName
-                        return (
-                            <button
-                                key={g.id}
-                                type="button"
-                                className={styles.segButton}
-                                data-state={state}
-                                data-read-only={!g.canWrite}
-                                disabled={optionDisabled}
-                                title={title}
-                                onClick={() => onChange(i)}
-                            >
-                                {g.displayName}
-                            </button>
-                        )
-                    })}
-                </span>
-                {disabled && disabledReason && (
-                    <span className={styles.reason}>{disabledReason}</span>
-                )}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- role=group gives the segmented control group semantics without a fieldset's border and legend layout
+            <span className={styles.seg} role="group">
+                {groups.map((g, i) => {
+                    const state = current.includes(i)
+                        ? isConflict
+                            ? 'conflict'
+                            : 'selected'
+                        : 'none'
+                    const optionDisabled = disabled || !g.canWrite
+                    const title =
+                        disabled && disabledReason
+                            ? disabledReason
+                            : !g.canWrite
+                              ? readOnlyTargetLabel(g.displayName)
+                              : isConflict
+                                ? keepLabel(g.displayName)
+                                : g.displayName
+                    return (
+                        <button
+                            key={g.id}
+                            type="button"
+                            className={styles.segButton}
+                            data-state={state}
+                            data-read-only={!g.canWrite}
+                            disabled={optionDisabled}
+                            title={title}
+                            onClick={() => onChange(i)}
+                        >
+                            {g.displayName}
+                        </button>
+                    )
+                })}
             </span>
         )
     }
@@ -163,9 +159,6 @@ export const MembershipControl = ({
                     )
                 })}
             </SingleSelect>
-            {disabled && disabledReason && (
-                <span className={styles.reason}>{disabledReason}</span>
-            )}
             {conflictGroupNames.length > 0 && (
                 <span
                     className={styles.conflictNames}
