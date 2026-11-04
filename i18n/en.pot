@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-11-04T10:10:44.381Z\n"
-"PO-Revision-Date: 2026-11-04T10:10:44.381Z\n"
+"POT-Creation-Date: 2026-11-04T10:11:07.555Z\n"
+"PO-Revision-Date: 2026-11-04T10:11:07.556Z\n"
 
 msgid "Move to catch-all group"
 msgstr "Move to catch-all group"
@@ -1206,6 +1206,13 @@ msgstr "Choose catch-all group"
 msgid "The configured catch-all group no longer exists in this set."
 msgstr "The configured catch-all group no longer exists in this set."
 
+msgid ""
+"You cannot change the catch-all group because you cannot edit this group "
+"set."
+msgstr ""
+"You cannot change the catch-all group because you cannot edit this group "
+"set."
+
 msgid "Clear the catch-all group of {name}"
 msgstr "Clear the catch-all group of {name}"
 
@@ -1221,6 +1228,9 @@ msgstr "Tracker data"
 msgid "Include tracker data elements when checking data element group sets"
 msgstr "Include tracker data elements when checking data element group sets"
 
+msgid "Only a superuser can change this setting, because it applies to every user."
+msgstr "Only a superuser can change this setting, because it applies to every user."
+
 msgid "Could not save the tracker data setting"
 msgstr "Could not save the tracker data setting"
 
@@ -1229,6 +1239,23 @@ msgstr "Cache"
 
 msgid "Clear cache"
 msgstr "Clear cache"
+
+msgid "These settings apply to every user"
+msgstr "These settings apply to every user"
+
+msgid ""
+"The settings on this page apply to every user of the tool, so only a "
+"superuser with the ALL authority can change them."
+msgstr ""
+"The settings on this page apply to every user of the tool, so only a "
+"superuser with the ALL authority can change them."
+
+msgid ""
+"You can still choose the catch-all group of a group set that you can edit, "
+"and clear the cache in this browser."
+msgstr ""
+"You can still choose the catch-all group of a group set that you can edit, "
+"and clear the cache in this browser."
 
 msgid "SQL views"
 msgstr "SQL views"
@@ -1289,6 +1316,13 @@ msgstr ""
 
 msgid "Could not load user groups"
 msgstr "Could not load user groups"
+
+msgid ""
+"Only a superuser can change who can read the SQL views, because the choice "
+"applies to every user."
+msgstr ""
+"Only a superuser can change who can read the SQL views, because the choice "
+"applies to every user."
 
 msgid "Save and apply to the SQL views"
 msgstr "Save and apply to the SQL views"

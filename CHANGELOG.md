@@ -45,6 +45,14 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Only a superuser (`ALL`) can change the settings that apply to every user:
+  the tracker data setting and who can read the SQL views. The catch-all group
+  of a group set can be changed by a user who can edit that set, or by a
+  superuser; other users see the current choice and why they cannot change it.
+  Before, any user of the tool could change all of them, and a catch-all group
+  chosen by a read-only user was suggested to everyone in the bulk fix. Every
+  user can still clear the cache, and creating and repairing the SQL views
+  still needs `ALL` or `F_SQLVIEW_PUBLIC_ADD`.
 - The count and matrix column for objects in no group of a set that allows
   it is named **No group** (was **No group (not required)**).
 - The user guide explains what **Compulsory** and **Data dimension** mean for

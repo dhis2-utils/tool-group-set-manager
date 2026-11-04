@@ -92,6 +92,16 @@ jest.mock('@/hooks/useGsiConfig', () => ({
     useGsiConfig: () => mockGsiConfig,
 }))
 
+// Settings changes need ALL (or, for a catch-all group, write access to
+// the set). Every test runs as a superuser unless it says otherwise.
+const mockUserScope: { isLoading: boolean; authorities: Set<string> } = {
+    isLoading: false,
+    authorities: new Set(['ALL']),
+}
+jest.mock('@/hooks/useUserScope', () => ({
+    useUserScope: () => mockUserScope,
+}))
+
 const mockCheckSqlViews = jest.fn()
 const mockSqlViewAuthorities = jest.fn()
 const mockCreateOrRepairSqlViews = jest.fn()
@@ -204,6 +214,9 @@ beforeEach(() => {
         catchAllGroup: {},
         includeTracker: false,
     }
+    mockUserScope.isLoading = false
+    mockUserScope.authorities = new Set(['ALL'])
+    mockEngine.groupSets = mockGroupSets
 })
 
 /**
@@ -958,5 +971,172 @@ describe('SQL view sharing', () => {
             await screen.findByText(/the sharing setting was saved/i)
         ).toBeInTheDocument()
         expect(mockReload).toHaveBeenCalledWith(true)
+    })
+})
+
+describe('who can change the settings', () => {
+    const readOnlySet = {
+        ...mockGroupSets[0],
+        id: 'ro',
+        displayName: 'Read-only set',
+        canWrite: false,
+    }
+    const asUser = (authorities: string[]) => {
+        mockUserScope.authorities = new Set(authorities)
+    }
+
+    it('tells a user without ALL that the settings apply to everyone', async () => {
+        asUser(['F_SQLVIEW_PUBLIC_ADD'])
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        renderSettings({ canManage: true })
+        expect(
+            await screen.findByText('These settings apply to every user')
+        ).toBeInTheDocument()
+    })
+
+    it('shows no such notice to a superuser', async () => {
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        renderSettings({ canManage: true })
+        await screen.findByText('GSI org unit hierarchy')
+        expect(
+            screen.queryByText('These settings apply to every user')
+        ).not.toBeInTheDocument()
+    })
+
+    it('lets a user without ALL choose the catch-all group of a set they can edit', async () => {
+        asUser([])
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        renderSettings({ canManage: false })
+        const placeholder = await screen.findByText('Choose catch-all group')
+        await actAndFlush(() => {
+            fireEvent.click(placeholder)
+        })
+        await actAndFlush(() => {
+            fireEvent.click(screen.getByText('Group two'))
+        })
+        await waitFor(() =>
+            expect(mockSetCatchAllGroup).toHaveBeenCalledWith('own', 'g2')
+        )
+    })
+
+    it('shows the catch-all group of a set the user cannot edit read-only, and says why', async () => {
+        asUser([])
+        mockEngine.groupSets = [readOnlySet]
+        mockGsiConfig.config = {
+            catchAllGroup: { ro: 'g1' },
+            includeTracker: false,
+        }
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        renderSettings({ canManage: false })
+        expect(
+            await screen.findByText(
+                'You cannot change the catch-all group because you cannot edit this group set.'
+            )
+        ).toBeInTheDocument()
+        expect(screen.getByText('Group one')).toBeInTheDocument()
+        expect(
+            screen.queryByRole('button', { name: /clear the catch-all group/i })
+        ).not.toBeInTheDocument()
+        await actAndFlush(() => {
+            fireEvent.click(screen.getByText('Group one'))
+        })
+        expect(screen.queryByText('Group two')).not.toBeInTheDocument()
+        expect(mockSetCatchAllGroup).not.toHaveBeenCalled()
+    })
+
+    it('lets a superuser choose the catch-all group of a set they cannot edit', async () => {
+        mockEngine.groupSets = [readOnlySet]
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        renderSettings({ canManage: true })
+        await screen.findByText('Choose catch-all group')
+        expect(
+            screen.queryByText(
+                'You cannot change the catch-all group because you cannot edit this group set.'
+            )
+        ).not.toBeInTheDocument()
+        await actAndFlush(() => {
+            fireEvent.click(screen.getByText('Choose catch-all group'))
+        })
+        await actAndFlush(() => {
+            fireEvent.click(screen.getByText('Group two'))
+        })
+        await waitFor(() =>
+            expect(mockSetCatchAllGroup).toHaveBeenCalledWith('ro', 'g2')
+        )
+    })
+
+    it('keeps the tracker toggle read-only for a user without ALL, and says why', async () => {
+        asUser(['F_PERFORM_MAINTENANCE'])
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        renderSettings({ canManage: false })
+        const checkbox = await screen.findByLabelText(
+            /include tracker data elements/i
+        )
+        expect(checkbox).toBeDisabled()
+        expect(
+            screen.getByText(
+                'Only a superuser can change this setting, because it applies to every user.'
+            )
+        ).toBeInTheDocument()
+        await actAndFlush(() => {
+            fireEvent.click(checkbox)
+        })
+        expect(mockSetIncludeTracker).not.toHaveBeenCalled()
+    })
+
+    it('keeps the tracker toggle closed while the authorities are loading', async () => {
+        mockUserScope.isLoading = true
+        mockUserScope.authorities = new Set()
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        renderSettings({ canManage: true })
+        expect(
+            await screen.findByLabelText(/include tracker data elements/i)
+        ).toBeDisabled()
+        expect(
+            screen.queryByText('These settings apply to every user')
+        ).not.toBeInTheDocument()
+    })
+
+    it('shows a SQL view creator without ALL the sharing choice but not the save', async () => {
+        asUser(['F_SQLVIEW_PUBLIC_ADD'])
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        renderSettings({ canManage: true })
+        expect(
+            await screen.findByLabelText('Only the members of one user group')
+        ).toBeDisabled()
+        expect(screen.getByLabelText('Every logged-in user')).toBeChecked()
+        expect(
+            screen.getByText(
+                'Only a superuser can change who can read the SQL views, because the choice applies to every user.'
+            )
+        ).toBeInTheDocument()
+        expect(
+            screen.queryByRole('button', {
+                name: 'Save and apply to the SQL views',
+            })
+        ).not.toBeInTheDocument()
+    })
+
+    it('still offers a SQL view creator without ALL to create the views', async () => {
+        asUser(['F_SQLVIEW_PUBLIC_ADD'])
+        mockCheckSqlViews.mockResolvedValue(ALL_MISSING)
+        renderSettings({ canManage: true })
+        expect(
+            await screen.findByRole('button', { name: 'Create SQL views' })
+        ).toBeInTheDocument()
+    })
+
+    it('leaves clearing the cache to every user', async () => {
+        asUser([])
+        mockCheckSqlViews.mockResolvedValue(ALL_USABLE)
+        renderSettings({ canManage: false })
+        const button = await screen.findByRole('button', {
+            name: /clear cache/i,
+        })
+        expect(button).toBeEnabled()
+        await actAndFlush(() => {
+            fireEvent.click(button)
+        })
+        expect(mockClearCache).toHaveBeenCalledTimes(1)
     })
 })

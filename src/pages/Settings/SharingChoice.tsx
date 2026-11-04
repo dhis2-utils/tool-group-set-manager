@@ -58,17 +58,20 @@ const sameChoice = (a: SqlViewSharing, b: SqlViewSharing) =>
 /**
  * M6: who may read the SQL views' rows. Shown only to a user who can
  * create SQL views; the choice is saved, and applied to the views that
- * exist, by `onApply`.
+ * exist, by `onApply`. The saved choice applies to every user, so a user
+ * without ALL sees it `readOnly`: the current choice, and no save.
  */
 export const SharingChoice = ({
     fetcher,
     current,
     busy,
+    readOnly,
     onApply,
 }: {
     fetcher: Fetcher
     current: SqlViewSharing
     busy: boolean
+    readOnly: boolean
     onApply: (choice: SqlViewSharing) => void
 }) => {
     const [kind, setKind] = useState<SqlViewSharing['kind']>(current.kind)
@@ -98,6 +101,7 @@ export const SharingChoice = ({
                 value="public"
                 label={i18n.t('Every logged-in user')}
                 checked={kind === 'public'}
+                disabled={readOnly}
                 onChange={() => setKind('public')}
             />
             <p className={styles.note}>
@@ -110,6 +114,7 @@ export const SharingChoice = ({
                 value="userGroup"
                 label={i18n.t('Only the members of one user group')}
                 checked={kind === 'userGroup'}
+                disabled={readOnly}
                 onChange={() => setKind('userGroup')}
             />
             <p className={styles.note}>
@@ -125,6 +130,7 @@ export const SharingChoice = ({
                         label={i18n.t('User group')}
                         loading={groups.status === 'loading'}
                         placeholder={i18n.t('Choose a user group')}
+                        disabled={readOnly}
                         // Only a value that is one of the options: @dhis2/ui
                         // shows an unknown one as its raw id.
                         selected={known && groupId ? groupId : ''}
@@ -159,16 +165,24 @@ export const SharingChoice = ({
                     {groups.message}
                 </NoticeBox>
             )}
-            <div className={styles.actions}>
-                <Button
-                    small
-                    disabled={!canApply || busy}
-                    loading={busy}
-                    onClick={() => choice && onApply(choice)}
-                >
-                    {i18n.t('Save and apply to the SQL views')}
-                </Button>
-            </div>
+            {readOnly ? (
+                <p className={styles.note}>
+                    {i18n.t(
+                        'Only a superuser can change who can read the SQL views, because the choice applies to every user.'
+                    )}
+                </p>
+            ) : (
+                <div className={styles.actions}>
+                    <Button
+                        small
+                        disabled={!canApply || busy}
+                        loading={busy}
+                        onClick={() => choice && onApply(choice)}
+                    >
+                        {i18n.t('Save and apply to the SQL views')}
+                    </Button>
+                </div>
+            )}
         </FieldSet>
     )
 }

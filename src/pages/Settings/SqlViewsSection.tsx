@@ -5,6 +5,7 @@ import styles from './Settings.module.css'
 import { SharingChoice } from './SharingChoice'
 import { createdSummary, failedDetail, repairedSummary } from './sqlViewText'
 import type { AdminSection } from './useAdminSection'
+import { useIsSuperuser } from './useIsSuperuser'
 import type { Fetcher } from '@/data/sources/DataSource'
 import type {
     SqlViewAuthorities,
@@ -239,6 +240,10 @@ export const SqlViewsSection = ({
     onViewsChanged: () => Promise<void>
 }) => {
     const actions = useSqlViewActions(fetcher, sqlViews, onViewsChanged)
+    // Creating and repairing views is gated on the F_SQLVIEW_* authorities;
+    // the sharing choice is also a setting every user is subject to, so
+    // changing it takes ALL.
+    const isSuperuser = useIsSuperuser()
 
     if (sqlViews.checkError) {
         return <CheckFailed sqlViews={sqlViews} />
@@ -275,6 +280,7 @@ export const SqlViewsSection = ({
                     fetcher={fetcher}
                     current={state.sharing}
                     busy={sqlViews.busy}
+                    readOnly={isSuperuser !== true}
                     onApply={actions.applySharingChoice}
                 />
             )}

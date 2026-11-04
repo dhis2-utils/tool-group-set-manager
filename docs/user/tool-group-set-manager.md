@@ -25,6 +25,8 @@ What you can do in the tool depends on your authorities and on the sharing of ea
 | Open the **DHIS2 integrity** tab            | `ALL` or `F_PERFORM_MAINTENANCE`                                              |
 | Create or repair the SQL views              | `ALL` or `F_SQLVIEW_PUBLIC_ADD`                                               |
 | Remove the usage SQL view                   | `ALL` or `F_SQLVIEW_DELETE`                                                   |
+| Choose the catch-all group of a set         | Metadata write sharing on the group set, or `ALL`                             |
+| Change the other settings                   | `ALL` (clearing the cache needs nothing)                                      |
 | Record changes in History and save settings | Read and write access to the `group-set-integrity` namespace in the dataStore |
 
 Write access to a group or a group set needs both metadata write sharing on it and the authority to add objects of its type. The authorities are (from the DHIS2 schemas, checked on 2.42):
@@ -391,6 +393,8 @@ If the tool cannot repair a view, the message says why:
 
 You can share the SQL views with every logged-in user, or only with the members of one user group. The choice applies to the three `GSI_` views and to the usage SQL view.
 
+You need the `ALL` authority. A user with only `F_SQLVIEW_PUBLIC_ADD` sees the current choice, but cannot change it.
+
 > **Warning**
 >
 > If you choose one user group, users outside the group load their data through the slower metadata API, and they see no usage figures.
@@ -417,6 +421,21 @@ The usage view is shared in the same way as the other SQL views.
 
 The settings in this section apply to every user of the tool on the instance. The tool stores them in the dataStore.
 
+Because the settings apply to everyone, the tool lets only some users change them:
+
+| Setting                           | Who can change it                                                  |
+| --------------------------------- | ------------------------------------------------------------------ |
+| The catch-all group of a set      | A user with metadata write sharing on the group set, or with `ALL` |
+| **Include tracker data elements** | A user with `ALL`                                                  |
+| **Who can read the SQL views**    | A user with `ALL`                                                  |
+| **Clear cache**                   | Every user, because it affects only their own browser              |
+
+Other users see the current settings, and the tool says why they cannot change them. A user without `ALL` sees **These settings apply to every user** at the top of **Settings**.
+
+> **Note**
+>
+> The restriction is in the tool, not on the server. Every user who can record changes in History can also write to the `group-set-integrity` namespace in the dataStore through the API, and so can still change a setting there.
+
 ### Choose a catch-all group for a set { #tool-group-set-manager-catch-all }
 
 The catch-all group of a set is the group that **Move to catch-all group** suggests in a bulk fix. For why a set needs one, see [Catch-all groups](#tool-group-set-manager-catch-all-groups).
@@ -427,11 +446,13 @@ The catch-all group of a set is the group that **Move to catch-all group** sugge
 
 The tool saves the choice at once. To remove it, click **Clear**.
 
+If you cannot edit the group set and do not have `ALL`, the tool shows the current choice and **You cannot change the catch-all group because you cannot edit this group set.**
+
 If the group that you chose was deleted or has left the set, the tool shows **The configured catch-all group no longer exists in this set.** next to **Clear**. Choose another group, or click **Clear**.
 
 ### Include tracker data elements { #tool-group-set-manager-tracker }
 
-By default, the tool checks only aggregate data elements in data element group sets. To check tracker data elements as well:
+By default, the tool checks only aggregate data elements in data element group sets. You need the `ALL` authority to change this. To check tracker data elements as well:
 
 1. In the navigation bar, click **Settings**.
 2. Under **Tracker data**, choose **Include tracker data elements when checking data element group sets**.

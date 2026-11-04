@@ -7,6 +7,7 @@ import {
 } from '@dhis2/ui'
 import React, { useId, useState } from 'react'
 import styles from './Settings.module.css'
+import { useIsSuperuser } from './useIsSuperuser'
 import type { GroupSetMeta } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useGsiConfig } from '@/hooks/useGsiConfig'
@@ -16,9 +17,15 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 const CatchAllRow = ({
     set,
+    canEdit,
+    showReason,
     onError,
 }: {
     set: GroupSetMeta
+    /** the user can write the set, or has ALL */
+    canEdit: boolean
+    /** say why the row is read-only: not while authorities are loading */
+    showReason: boolean
     onError: (message: string | null) => void
 }) => {
     const { config, isLoaded, setCatchAllGroup, clearCatchAllGroup } =
@@ -43,8 +50,11 @@ const CatchAllRow = ({
                     dense
                     placeholder={i18n.t('Choose catch-all group')}
                     selected={configured && !stale ? configured : ''}
-                    disabled={!isLoaded}
+                    disabled={!(isLoaded && canEdit)}
                     onChange={({ selected }: { selected: string }) => {
+                        if (!canEdit) {
+                            return
+                        }
                         onError(null)
                         setCatchAllGroup(set.id, selected).catch((e: unknown) =>
                             onError(errorText(e))
@@ -70,7 +80,14 @@ const CatchAllRow = ({
             {/* A select cannot unset itself: @dhis2/ui's SingleSelect has no
                 empty option once a value is chosen. Shown only when there is
                 something to clear. */}
-            {configured && (
+            {!canEdit && showReason && (
+                <span className={styles.note}>
+                    {i18n.t(
+                        'You cannot change the catch-all group because you cannot edit this group set.'
+                    )}
+                </span>
+            )}
+            {configured && canEdit && (
                 <Button
                     small
                     secondary
@@ -95,12 +112,23 @@ const CatchAllRow = ({
 
 export const CatchAllSection = () => {
     const { groupSets } = useEngine()
+    // The catch-all group applies to every user: it is what the bulk fix
+    // suggests to all of them. So only a user who can edit the set itself
+    // (or a superuser) may choose it; every group of the set stays on
+    // offer, since the choice is not about this user's own write access.
+    const isSuperuser = useIsSuperuser()
     // I3: a failed save is reported, never dropped.
     const [error, setError] = useState<string | null>(null)
     return (
         <>
             {groupSets.map((set) => (
-                <CatchAllRow key={set.id} set={set} onError={setError} />
+                <CatchAllRow
+                    key={set.id}
+                    set={set}
+                    canEdit={set.canWrite || isSuperuser === true}
+                    showReason={isSuperuser !== null}
+                    onError={setError}
+                />
             ))}
             {error && (
                 <NoticeBox

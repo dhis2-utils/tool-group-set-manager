@@ -1,5 +1,6 @@
 import { useConfig } from '@dhis2/app-runtime'
 import i18n from '@dhis2/d2-i18n'
+import { NoticeBox } from '@dhis2/ui'
 import React, { useMemo } from 'react'
 import { CatchAllSection } from './CatchAllSection'
 import { CacheSection, TrackerSection } from './GeneralSection'
@@ -9,12 +10,34 @@ import { SqlViewsSection } from './SqlViewsSection'
 import type { UsageState } from './UsageSection'
 import { UsageSection } from './UsageSection'
 import { useAdminSection } from './useAdminSection'
+import { useIsSuperuser } from './useIsSuperuser'
 import { createFetcher } from '@/data/fetcher'
 import { checkSqlViews, sqlViewAuthorities } from '@/data/sources/sqlViewAdmin'
 import { loadSqlViewSharing } from '@/data/sources/sqlViewSharing'
 import { checkUsageView } from '@/data/sources/usageAdmin'
 import { useEngine } from '@/hooks/useEngine'
 import { useUsageRefresh } from '@/hooks/useUsage'
+
+/**
+ * For a user without `ALL`: why most of this page is read-only. The
+ * settings live in a dataStore namespace and apply to every user, so a
+ * read-only user's choice would reach everyone (the catch-all group they
+ * chose was then suggested to others in the bulk fix).
+ */
+const SharedSettingsNotice = () => (
+    <NoticeBox title={i18n.t('These settings apply to every user')}>
+        <p className={styles.note}>
+            {i18n.t(
+                'The settings on this page apply to every user of the tool, so only a superuser with the ALL authority can change them.'
+            )}
+        </p>
+        <p className={styles.note}>
+            {i18n.t(
+                'You can still choose the catch-all group of a group set that you can edit, and clear the cache in this browser.'
+            )}
+        </p>
+    </NoticeBox>
+)
 
 export const Settings = () => {
     const { baseUrl, apiVersion } = useConfig() as {
@@ -30,6 +53,7 @@ export const Settings = () => {
     // tells the readers that do (Dashboard, GroupSetCard, UsageTab) that the
     // view just changed.
     const refreshUsageReaders = useUsageRefresh()
+    const isSuperuser = useIsSuperuser()
 
     // Each section reads the sharing choice itself: its checks judge every
     // view against it (M7), and the two sections load independently.
@@ -54,6 +78,7 @@ export const Settings = () => {
 
     return (
         <div className={styles.page}>
+            {isSuperuser === false && <SharedSettingsNotice />}
             <div className={styles.section}>
                 <h2 className={styles.heading}>{i18n.t('SQL views')}</h2>
                 <SqlViewsSection
