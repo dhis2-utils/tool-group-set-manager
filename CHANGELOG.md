@@ -49,6 +49,14 @@ the project uses [Semantic Versioning](https://semver.org/).
   it is named **No group** (was **No group (not required)**).
 - The user guide explains what **Compulsory** and **Data dimension** mean for
   analytics, and why a data dimension usually needs a catch-all group.
+- Bulk fix and the History revert of a membership change need write access
+  to every group of the set. Before, they skipped the objects that involved a
+  read-only group, which could leave a set half fixed. Reverting a property
+  change needs write access to the group set.
+- A group that is read-only for you is hatched and crossed out in the
+  membership control, and a row that cannot be changed says why in text.
+- The bulk fix preview offers no **Apply** when nothing needs a change, and
+  says **Nothing to apply**. The button is now **Apply**, without an ellipsis.
 - History offers **Revert** only for changes made in the last 24 hours. Older
   changes stay listed and can still be exported.
 - Every bulk fix and every revert checks the groups that it changes on the
@@ -76,6 +84,17 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A catch-all group created in a bulk fix copied the sharing of another
+  group of the set, including its owner, and could be read-only for the
+  person who created it. It now gets the sharing of the group set, and DHIS2
+  makes the creator its owner.
+- **Create group** in the bulk fix is offered only to users with the authority
+  to add groups of that type and write access to the group set.
+- The bulk fix preview showed the ids, not the names, of skipped objects
+  beyond the first rows.
+- **Nothing to revert** named only one of the reasons an object is skipped.
+- The **Group name** and **Short name** fields in the bulk fix dialog were too
+  narrow for a generated name.
 - The group list in the objects table is wide enough to read when no
   group is selected.
 - A failed or short addition no longer leaves an object in no group. The

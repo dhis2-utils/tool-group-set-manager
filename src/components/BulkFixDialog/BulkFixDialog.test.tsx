@@ -82,6 +82,9 @@ jest.mock('@/hooks/useEngine', () => ({
 
 const mockWrite = jest.fn()
 let mockIsWriting = false
+jest.mock('@/hooks/useUserScope', () => ({
+    useUserScope: () => ({ hasAuthority: () => true }),
+}))
 jest.mock('@/hooks/useMembershipWrite', () => ({
     useMembershipWrite: () => ({
         write: (...args: unknown[]) => mockWrite(...args),
@@ -1557,7 +1560,7 @@ describe('BulkFixDialog apply step', () => {
     // Fix round 1, M1: an empty plan produces no batches (writeMemberships
     // never calls onProgress for one either) -- the panel must say so
     // explicitly rather than rendering nothing.
-    it('shows an explicit notice when there is nothing to apply (M1)', async () => {
+    it('says there is nothing to apply, and offers no Apply, when the plan is empty (M1)', async () => {
         mockUseEngineQuery.mockImplementation((method: string) => {
             if (method === 'planAssignment') {
                 return {
@@ -1595,10 +1598,9 @@ describe('BulkFixDialog apply step', () => {
             expect(screen.getByText('Beta')).toBeInTheDocument()
         )
         fireEvent.click(screen.getByRole('button', { name: /next/i }))
-        await actAndFlush(() => {
-            fireEvent.click(screen.getByRole('button', { name: /^apply/i }))
-        })
-        expect(await screen.findByText(/nothing to apply/i)).toBeInTheDocument()
+        expect(screen.getByText('Nothing to apply')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled()
+        expect(mockWrite).not.toHaveBeenCalled()
     })
 
     it('cannot be dismissed mid-write in a way that loses the result (D4)', async () => {
@@ -1685,7 +1687,7 @@ describe('BulkFixDialog apply step', () => {
         ]
 
         // Extracted from `goToApply` above: render, choose the (preselected)
-        // target, and click Next through to the preview, where the "Apply…"
+        // target, and click Next through to the preview, where the "Apply"
         // button lives. Deliberately does not touch `mockUseEngineQuery` or
         // `mockClientCall` -- every test in this block (including this
         // block's own `beforeEach`) owns those, and a helper that reset them
@@ -2178,7 +2180,7 @@ describe('BulkFixDialog apply step', () => {
             })
             // Back at the preview step with the recalculated plan: the
             // re-confirmation notice and its own buttons are gone, the
-            // ordinary preview buttons (Back / Apply…) are back, and the
+            // ordinary preview buttons (Back / Apply) are back, and the
             // count shown is the recomputed one (44), never the stale
             // preview (45) -- and critically, nothing was written just by
             // looking at it.
@@ -2189,7 +2191,7 @@ describe('BulkFixDialog apply step', () => {
             ).not.toBeInTheDocument()
             expect(screen.getByText('44 objects')).toBeInTheDocument()
             expect(
-                screen.getByRole('button', { name: 'Apply…' })
+                screen.getByRole('button', { name: 'Apply' })
             ).toBeInTheDocument()
             expect(mockWrite).not.toHaveBeenCalled()
         })

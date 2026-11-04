@@ -205,7 +205,7 @@ const PreviewPanel = ({
             {plan.affected === 0 ? (
                 <NoticeBox title={i18n.t('Nothing to revert')}>
                     {i18n.t(
-                        'Every object this change touched has since been reassigned by hand, so reverting it now would not change anything'
+                        'No object can be reverted. Each one has moved to another group since this change, or its group has left the set, or a group involved is read-only for you.'
                     )}
                 </NoticeBox>
             ) : (

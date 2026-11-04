@@ -121,11 +121,19 @@ export const History = () => {
     // accusing -- and F1: loading having failed outright must say so rather
     // than silently behaving like "still loading".
     const groupSetState = (cs: ChangeSet): GroupSetState => {
-        const present = groupSets.some((gs) => gs.id === cs.groupSetId)
+        const set = groupSets.find((gs) => gs.id === cs.groupSetId)
+        const present = set !== undefined
         return {
             exists: groupSetsLoaded && present,
             missing: groupSetsLoaded && !present,
             loadFailed: !groupSetsLoaded && Boolean(groupSetsError),
+            // A property revert writes the group set; a membership revert
+            // is a bulk write, and like a bulk fix needs every group.
+            readOnly:
+                set !== undefined &&
+                (isPropertiesChange(cs)
+                    ? !set.canWrite
+                    : !set.groups.every((g) => g.canWrite)),
         }
     }
 

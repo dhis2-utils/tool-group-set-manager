@@ -55,6 +55,13 @@ export const PreviewStep: React.FC<PreviewStepProps> = ({
     <div>
         {planLoading && <CircularLoader small />}
         {planError && <NoticeBox error>{planError}</NoticeBox>}
+        {plan && plan.affected === 0 && !planLoading && (
+            <NoticeBox title={i18n.t('Nothing to apply')}>
+                {i18n.t(
+                    'No object that matches the filter needs a change. Go back and choose another action or group.'
+                )}
+            </NoticeBox>
+        )}
         {/* Task 9 (spec 5.1/5.4), finding M1: shown while the
             touched groups are re-read before any write. */}
         {checkingFreshness && (

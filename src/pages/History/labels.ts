@@ -104,3 +104,11 @@ export const notRecordedLabel = () =>
     i18n.t(
         'The revert was applied but could not itself be recorded in History, so it cannot in turn be reverted from here'
     )
+
+export const readOnlyGroupSetLabel = () =>
+    i18n.t('Cannot be reverted, because you cannot edit this group set')
+
+export const readOnlyGroupsLabel = () =>
+    i18n.t(
+        'Cannot be reverted, because some groups in this set are read-only for you'
+    )

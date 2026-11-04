@@ -18,17 +18,27 @@ What you can do in the tool depends on your authorities and on the sharing of ea
 | ------------------------------------------- | ----------------------------------------------------------------------------- |
 | Open the tool                               | The app (`M_toolgroupsetmanager`) in one of your user roles, or `ALL`         |
 | See a group set and its groups              | Metadata read sharing on the group set and its groups                         |
-| Fix the membership of an object             | Metadata write sharing on every group that the fix changes                    |
-| Change the properties of a group set        | Metadata write sharing on the group set                                       |
-| Create a catch-all group in a bulk fix      | The authority to add groups of that type, and write sharing on the group set  |
+| Fix the membership of an object             | Write access to every group that the fix changes                              |
+| Bulk fix, or revert a change from History   | Write access to every group in the set                                        |
+| Change the properties of a group set        | Write access to the group set                                                 |
+| Create a catch-all group in a bulk fix      | The authority to add groups of that type, and write access to the group set   |
 | Open the **DHIS2 integrity** tab            | `ALL` or `F_PERFORM_MAINTENANCE`                                              |
 | Create or repair the SQL views              | `ALL` or `F_SQLVIEW_PUBLIC_ADD`                                               |
 | Remove the usage SQL view                   | `ALL` or `F_SQLVIEW_DELETE`                                                   |
 | Record changes in History and save settings | Read and write access to the `group-set-integrity` namespace in the dataStore |
 
-<!-- VERIFY IN APP: the exact authority needed to create a group of each type (for example the organisation unit group add authority) for the catch-all group. The app does not check it before it tries; it reports "Could not create the group" on failure. -->
+Write access to a group or a group set needs both metadata write sharing on it and the authority to add objects of its type. The authorities are (from the DHIS2 schemas, checked on 2.42):
 
-If a group is read-only for you, the tool shows it, and a fix leaves the objects that involve that group as they are.
+| Type              | Groups                                                                        | Group sets                                                                            |
+| ----------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Organisation unit | `F_ORGUNITGROUP_PUBLIC_ADD` or `F_ORGUNITGROUP_PRIVATE_ADD`                   | `F_ORGUNITGROUPSET_PUBLIC_ADD` or `F_ORGUNITGROUPSET_PRIVATE_ADD`                     |
+| Data element      | `F_DATAELEMENTGROUP_PUBLIC_ADD` or `F_DATAELEMENTGROUP_PRIVATE_ADD`           | `F_DATAELEMENTGROUPSET_PUBLIC_ADD` or `F_DATAELEMENTGROUPSET_PRIVATE_ADD`             |
+| Indicator         | `F_INDICATORGROUP_PUBLIC_ADD` or `F_INDICATORGROUP_PRIVATE_ADD`               | `F_INDICATORGROUPSET_PUBLIC_ADD` or `F_INDICATORGROUPSET_PRIVATE_ADD`                 |
+| Category option   | `F_CATEGORY_OPTION_GROUP_PUBLIC_ADD` or `F_CATEGORY_OPTION_GROUP_PRIVATE_ADD` | `F_CATEGORY_OPTION_GROUP_SET_PUBLIC_ADD` or `F_CATEGORY_OPTION_GROUP_SET_PRIVATE_ADD` |
+
+The organisation units that are assigned to you do not limit which organisation units you can move between groups.
+
+If a group is read-only for you, the tool shows it hatched and crossed out, and you cannot move an object into or out of it. Bulk fix and revert need write access to every group of the set, so that a fix never leaves a set half done.
 
 ## Install the tool { #tool-group-set-manager-install }
 
@@ -82,7 +92,7 @@ A group set that is a data dimension is included in analytics. Users can choose 
 If the groups of a data dimension are wrong, **the numbers in analytics are wrong**, and nothing in the analytics apps shows it:
 
 - The data of an object in **no group** is left out when users break the data down by the groups of the set. The groups add up to less than the total.
-- The data of an object in **more than one group** is counted under only one of them, and you cannot choose which one.
+- The data of an object in **more than one group** is counted under only one of them. Which one is not fixed: the same object can show up under either group, for example after the next analytics table generation.
 
 A data dimension that nobody uses for analysis still costs something. It adds to the time that analytics table generation takes, and it adds one more dimension to the lists in the analytics apps, which distracts users. The **Usage** tab shows how many saved favourites use the set, so that you can find data dimensions that nothing uses and turn **Data dimension** off. See [Check how the group set is used](#tool-group-set-manager-usage) and [Change the properties of a group set](#tool-group-set-manager-properties).
 
@@ -235,6 +245,8 @@ For an object in conflict, the column shows the groups that the object is in. Ch
 
 A bulk fix moves every object that matches the current filter of the **Objects** tab to one group. It shows a preview before it writes anything, and records the change in History so that you can revert it.
 
+Bulk fix needs write access to every group of the set. If a group is read-only for you, **Bulk fix…** is disabled, and the tab says why. You can still fix objects one at a time.
+
 The bulk fix has two actions:
 
 - **Move to catch-all group** moves only the objects that are missing or in conflict to one group, for example a group named "Other/unknown". Objects that are already in one group are not changed.
@@ -255,12 +267,12 @@ The bulk fix has two actions:
 
 For **Move to catch-all group**, the tool suggests the catch-all group from Settings. If there is none, it suggests a group whose name contains "other" or "unknown".
 
-If the set has no such group, you can create one in the dialog:
+If the set has no such group, you can create one in the dialog. This needs the authority to add groups of that type and write access to the group set. Without them, the dialog says so and does not offer the form:
 
 1. In **Group name** and **Short name**, enter the names of the new group. The short name can have at most 50 characters.
 2. Click **Create group**.
 
-DHIS2 creates the group, adds it to the set, and gives it the sharing of another group in the set. The tool chooses it as the catch-all group. This creates metadata on the server, and the tool does not record it in History.
+DHIS2 creates the group, adds it to the set, and gives it the sharing of the group set, with you as the owner. The tool chooses it as the catch-all group. This creates metadata on the server, and the tool does not record it in History.
 
 If another group already uses the name, the short name, or the code, the dialog says which one. Choose other names and try again.
 
@@ -270,14 +282,14 @@ If another group already uses the name, the short name, or the code, the dialog 
 
 The preview lists, for each group, how many objects the fix adds and removes. A table shows a sample of objects, with their groups now and after the fix.
 
-1. Read the preview. If a group involved is read-only for you, the preview says how many objects the fix skips.
+1. Read the preview. If no object needs a change, the preview shows **Nothing to apply**, and **Apply** is disabled.
 2. To see every object that the fix changes, click **Download full list as CSV**. In the file, a value that starts with `=`, `+`, `-`, `@`, a tab, or a carriage return starts with a single quote, so that a spreadsheet does not run it as a formula.
 3. Optional: in **Note for History (optional)**, enter why you made the change.
-4. Click **Apply…**.
+4. Click **Apply**.
 
 The tool writes the changes in batches and shows how many batches it has applied. A fix of tens of thousands of objects can take several minutes. Keep the dialog open until it finishes.
 
-Before it writes anything, the tool shows **Checking the metadata is up to date…** and reads the groups that the fix changes again from the server. If someone changed them after the preview, the tool updates the plan and shows **The metadata changed while you were reviewing**, with the number of changes before and now. Click **Review changes** to see the new plan, or click the **Apply** button that shows the new number of changes. If the check takes too long, the tool shows **Checking the metadata took too long** and writes nothing. Click **Apply…** again.
+Before it writes anything, the tool shows **Checking the metadata is up to date…** and reads the groups that the fix changes again from the server. If someone changed them after the preview, the tool updates the plan and shows **The metadata changed while you were reviewing**, with the number of changes before and now. Click **Review changes** to see the new plan, or click the **Apply** button that shows the new number of changes. If the check takes too long, the tool shows **Checking the metadata took too long** and writes nothing. Click **Apply** again.
 
 When the fix finishes, the dialog shows the result for each group. Click **Close**.
 
@@ -311,7 +323,7 @@ The dialog shows **The group set was updated on the server.**, and the tool coun
 
 ## Revert a change from History { #tool-group-set-manager-revert }
 
-History lists every membership change and every change to the properties of a group set made with the tool on this instance, by any user. You can export any change. You can revert a change for 24 hours after it was made.
+History lists every membership change and every change to the properties of a group set made with the tool on this instance, by any user. You can export any change. You can revert a change for 24 hours after it was made. A revert of a membership change needs write access to every group of the set, and a revert of a property change needs write access to the group set.
 
 ![The History page with a change set](resources/images/tool-group-set-manager/history.png)
 
@@ -326,7 +338,7 @@ The dialog shows the result for each group, and History records the revert as a 
 
 Before it writes anything, the tool checks the objects that the revert changes again on the server. If someone changed them after you opened the page, the tool updates the revert and shows it again. Check it, and click **Revert** again.
 
-The revert skips every object that has moved to another group after the change, and every object whose group has left the set. The preview says how many objects it skips. If every object has moved, the dialog shows **Nothing to revert**.
+The revert skips every object that has moved to another group after the change, and every object whose group has left the set. The preview says how many objects it skips. If no object can be reverted, the dialog shows **Nothing to revert**.
 
 A revert of a property change puts back the old value of **Compulsory** or **Data dimension**. If someone changed the property again after the change, the revert leaves it as it is.
 
@@ -340,6 +352,8 @@ When a change cannot be reverted, History shows the reason in place of the **Rev
 - **This group set no longer exists, so this change cannot be reverted from here**
 - **Group set information could not be loaded, so this change cannot be reverted from here**
 - **Nothing was confirmed before this change stopped, so there is nothing to revert**
+- **Cannot be reverted, because some groups in this set are read-only for you**
+- **Cannot be reverted, because you cannot edit this group set**
 
 **Export** downloads a CSV file with one row for each object that the change touched. For a property change, the file has one row for each property, in the columns `property`, `oldValue`, and `newValue`. Values that a spreadsheet could run as a formula start with a single quote.
 

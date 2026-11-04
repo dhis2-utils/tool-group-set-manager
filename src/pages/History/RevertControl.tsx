@@ -6,6 +6,8 @@ import {
     groupSetsLoadFailedLabel,
     missingGroupSetLabel,
     nothingConfirmedLabel,
+    readOnlyGroupSetLabel,
+    readOnlyGroupsLabel,
     revertWindowClosedLabel,
 } from './labels'
 import { canStillRevert } from '@/data/revertWindow'
@@ -19,6 +21,12 @@ export interface GroupSetState {
     missing: boolean
     /** Loading group sets failed, so nothing is known either way. */
     loadFailed: boolean
+    /**
+     * The user cannot write what the revert would change: the group set,
+     * for a property change, or any one of its groups, for a membership
+     * change.
+     */
+    readOnly: boolean
 }
 
 /** Why a row cannot be reverted, or undefined when it can (or it is too early to say). */
@@ -38,6 +46,11 @@ function blockedReason(
     }
     if (groupSet.loadFailed) {
         return groupSetsLoadFailedLabel()
+    }
+    if (groupSet.readOnly) {
+        return isPropertiesChange(changeSet)
+            ? readOnlyGroupSetLabel()
+            : readOnlyGroupsLabel()
     }
     return undefined
 }

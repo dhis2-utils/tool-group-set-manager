@@ -72,16 +72,14 @@ function scriptedFetcher(script: Record<string, () => Response>) {
 }
 
 describe('createCatchAllGroup', () => {
-    it('creates a set-specific group, copies sibling sharing, and adds it to the set', async () => {
+    it('creates a set-specific group, copies the sharing of the set without its owner, and adds it to the set', async () => {
         const set = buildSet()
         const displayName = 'Other/unknown Ownership'
         const { fetcher, calls } = scriptedFetcher({
             [`GET ${lookupPath(displayName)}`]: () =>
                 json({ organisationUnitGroups: [] }),
-            'GET organisationUnitGroupSets/set1abcdefg?fields=code': () =>
-                json({ code: 'OWN' }),
-            'GET organisationUnitGroups/g1?fields=sharing': () =>
-                json({ sharing }),
+            'GET organisationUnitGroupSets/set1abcdefg?fields=code,sharing':
+                () => json({ code: 'OWN', sharing }),
             'POST organisationUnitGroups': () =>
                 json({ response: { uid: 'newGroup' } }, 201),
             'POST organisationUnitGroupSets/set1abcdefg/organisationUnitGroups/newGroup':
@@ -104,13 +102,7 @@ describe('createCatchAllGroup', () => {
                 body: undefined,
             },
             {
-                path: 'organisationUnitGroupSets/set1abcdefg?fields=code',
-                method: 'GET',
-                contentType: null,
-                body: undefined,
-            },
-            {
-                path: 'organisationUnitGroups/g1?fields=sharing',
+                path: 'organisationUnitGroupSets/set1abcdefg?fields=code,sharing',
                 method: 'GET',
                 contentType: null,
                 body: undefined,
@@ -123,7 +115,13 @@ describe('createCatchAllGroup', () => {
                     name: displayName,
                     shortName: displayName,
                     code: 'OWN_OTHER',
-                    sharing,
+                    // The set's sharing without its owner: DHIS2 makes the
+                    // creator the owner, so the creator can write the group.
+                    sharing: {
+                        public: 'rwrw----',
+                        users: {},
+                        userGroups: { g1: 'r-------' },
+                    },
                 },
             },
             {
@@ -147,10 +145,8 @@ describe('createCatchAllGroup', () => {
         const { fetcher, calls } = scriptedFetcher({
             [`GET ${lookupPath(displayName)}`]: () =>
                 json({ organisationUnitGroups: [] }),
-            'GET organisationUnitGroupSets/set1abcdefg?fields=code': () =>
-                json({}),
-            'GET organisationUnitGroups/g1?fields=sharing': () =>
-                json({ sharing }),
+            'GET organisationUnitGroupSets/set1abcdefg?fields=code,sharing':
+                () => json({ sharing }),
             'POST organisationUnitGroups': () =>
                 json({ response: { uid: 'newGroup' } }, 201),
             'POST organisationUnitGroupSets/set1abcdefg/organisationUnitGroups/newGroup':
@@ -187,10 +183,8 @@ describe('createCatchAllGroup', () => {
         const { fetcher, calls } = scriptedFetcher({
             [`GET ${lookupPath(displayName)}`]: () =>
                 json({ organisationUnitGroups: [] }),
-            [`GET organisationUnitGroupSets/${set.id}?fields=code`]: () =>
-                json({}),
-            'GET organisationUnitGroups/g1?fields=sharing': () =>
-                json({ sharing }),
+            [`GET organisationUnitGroupSets/${set.id}?fields=code,sharing`]:
+                () => json({ sharing }),
             'POST organisationUnitGroups': () =>
                 json({ response: { uid: 'newGroup' } }, 201),
             [`POST organisationUnitGroupSets/${set.id}/organisationUnitGroups/newGroup`]:
@@ -213,10 +207,8 @@ describe('createCatchAllGroup', () => {
         const { fetcher, calls } = scriptedFetcher({
             [`GET ${lookupPath(displayName)}`]: () =>
                 json({ organisationUnitGroups: [] }),
-            'GET organisationUnitGroupSets/set1abcdefg?fields=code': () =>
-                json({}), // no code field
-            'GET organisationUnitGroups/g1?fields=sharing': () =>
-                json({ sharing }),
+            'GET organisationUnitGroupSets/set1abcdefg?fields=code,sharing':
+                () => json({ sharing }), // no code field
             'POST organisationUnitGroups': () =>
                 json({ response: { uid: 'newGroup' } }, 201),
             'POST organisationUnitGroupSets/set1abcdefg/organisationUnitGroups/newGroup':
@@ -231,14 +223,14 @@ describe('createCatchAllGroup', () => {
         expect(createCall?.body).not.toHaveProperty('code')
     })
 
-    it('produces exact, restrictive default sharing for a set with no existing groups, without throwing', async () => {
+    it('sends no sharing when the set has none, so DHIS2 applies its default and makes the creator the owner', async () => {
         const set = buildSet({ groups: [] })
         const displayName = 'Other/unknown Ownership'
         const { fetcher, calls } = scriptedFetcher({
             [`GET ${lookupPath(displayName)}`]: () =>
                 json({ organisationUnitGroups: [] }),
-            'GET organisationUnitGroupSets/set1abcdefg?fields=code': () =>
-                json({ code: 'OWN' }),
+            'GET organisationUnitGroupSets/set1abcdefg?fields=code,sharing':
+                () => json({ code: 'OWN' }),
             'POST organisationUnitGroups': () =>
                 json({ response: { uid: 'newGroup' } }, 201),
             'POST organisationUnitGroupSets/set1abcdefg/organisationUnitGroups/newGroup':
@@ -251,16 +243,34 @@ describe('createCatchAllGroup', () => {
         const createCall = calls.find(
             (c) => c.path === 'organisationUnitGroups' && c.method === 'POST'
         )
-        // M1: rw------ (owner metadata read/write only), never rwrw---- --
-        // that would grant every user metadata AND data write on a group
-        // this app created.
+        expect(createCall?.body).not.toHaveProperty('sharing')
+    })
+
+    it('never copies the owner of the set into the new group', async () => {
+        const set = buildSet()
+        const displayName = 'Other/unknown Ownership'
+        const { fetcher, calls } = scriptedFetcher({
+            [`GET ${lookupPath(displayName)}`]: () =>
+                json({ organisationUnitGroups: [] }),
+            'GET organisationUnitGroupSets/set1abcdefg?fields=code,sharing':
+                () =>
+                    json({
+                        sharing: { owner: 'someoneElse', public: 'r-------' },
+                    }),
+            'POST organisationUnitGroups': () =>
+                json({ response: { uid: 'newGroup' } }, 201),
+            'POST organisationUnitGroupSets/set1abcdefg/organisationUnitGroups/newGroup':
+                () => json({}, 200),
+        })
+
+        await createCatchAllGroup(fetcher, set)
+
+        const createCall = calls.find(
+            (c) => c.path === 'organisationUnitGroups' && c.method === 'POST'
+        )
         expect(
             (createCall?.body as { sharing: unknown } | undefined)?.sharing
-        ).toEqual({
-            public: 'rw------',
-            users: {},
-            userGroups: {},
-        })
+        ).toEqual({ public: 'r-------' })
     })
 
     it('throws when the create request fails', async () => {
@@ -269,10 +279,8 @@ describe('createCatchAllGroup', () => {
         const { fetcher } = scriptedFetcher({
             [`GET ${lookupPath(displayName)}`]: () =>
                 json({ organisationUnitGroups: [] }),
-            'GET organisationUnitGroupSets/set1abcdefg?fields=code': () =>
-                json({}),
-            'GET organisationUnitGroups/g1?fields=sharing': () =>
-                json({ sharing }),
+            'GET organisationUnitGroupSets/set1abcdefg?fields=code,sharing':
+                () => json({ sharing }),
             'POST organisationUnitGroups': () => json({}, 500),
         })
         await expect(createCatchAllGroup(fetcher, set)).rejects.toThrow()
@@ -284,10 +292,8 @@ describe('createCatchAllGroup', () => {
         const { fetcher, calls } = scriptedFetcher({
             [`GET ${lookupPath('Unclassified facilities')}`]: () =>
                 json({ organisationUnitGroups: [] }),
-            'GET organisationUnitGroupSets/set1abcdefg?fields=code': () =>
-                json({ code: 'OWN' }),
-            'GET organisationUnitGroups/g1?fields=sharing': () =>
-                json({ sharing }),
+            'GET organisationUnitGroupSets/set1abcdefg?fields=code,sharing':
+                () => json({ code: 'OWN', sharing }),
             'POST organisationUnitGroups': () =>
                 json({ response: { uid: 'newGroup' } }, 201),
             'POST organisationUnitGroupSets/set1abcdefg/organisationUnitGroups/newGroup':
@@ -414,10 +420,8 @@ describe('createCatchAllGroup', () => {
         const first = scriptedFetcher({
             [`GET ${lookupPath(displayName)}`]: () =>
                 json({ organisationUnitGroups: [] }),
-            'GET organisationUnitGroupSets/set1abcdefg?fields=code': () =>
-                json({}),
-            'GET organisationUnitGroups/g1?fields=sharing': () =>
-                json({ sharing }),
+            'GET organisationUnitGroupSets/set1abcdefg?fields=code,sharing':
+                () => json({ sharing }),
             'POST organisationUnitGroups': () =>
                 json({ response: { uid: 'newGroup' } }, 201),
             'POST organisationUnitGroupSets/set1abcdefg/organisationUnitGroups/newGroup':

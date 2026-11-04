@@ -24,6 +24,7 @@ let base: {
     onTargetChange: jest.Mock
     targetGroups: { id: string; displayName: string }[]
     showCreateOffer: boolean
+    canCreateGroup: boolean
     catchAll: typeof catchAll
 }
 
@@ -49,6 +50,7 @@ beforeEach(() => {
         onTargetChange: jest.fn(),
         targetGroups: [{ id: 'g1', displayName: 'Group one' }],
         showCreateOffer: false,
+        canCreateGroup: true,
         catchAll,
     }
 })
@@ -79,4 +81,14 @@ test('shows the create error as its own notice', () => {
         />
     )
     expect(screen.getByText('Could not create the group')).toBeInTheDocument()
+})
+
+test('explains, instead of offering the form, when the user cannot create a group', () => {
+    render(<ActionStep {...base} showCreateOffer canCreateGroup={false} />)
+    expect(
+        screen.queryByRole('button', { name: 'Create group' })
+    ).not.toBeInTheDocument()
+    expect(
+        screen.getByText(/Creating one needs the authority to add groups/)
+    ).toBeInTheDocument()
 })

@@ -261,7 +261,7 @@ def test_bulk_move_and_revert(ctx):
     preview = content.locator("li", has_text=gamma.name).filter(has_text="+")
     expect(preview).to_have_text(re.compile(rf"\+{PARENT_ROW_MISSING} / -0"))
     ui.input_field(root, "Note for History (optional)").fill(note)
-    root.get_by_role("button", name="Apply…").click()
+    root.get_by_role("button", name="Apply", exact=True).click()
     expect(root.get_by_text(f"{ui.APPLIED_PREFIX} {gamma.name}")).to_be_visible(timeout=ui.WRITE_MS)
     ui.modal_actions(root).get_by_role("button", name="Close", exact=True).click()
 

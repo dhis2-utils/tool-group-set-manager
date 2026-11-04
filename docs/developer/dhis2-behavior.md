@@ -150,6 +150,18 @@ The endpoints behave the same on 2.40.12 and 2.43.1:
 
 The app shows the integrity results only to a user with `ALL` or `F_PERFORM_MAINTENANCE` (from `GET /api/me?fields=authorities`). A 403 from either endpoint has the same effect as a missing authority.
 
+## Write access and authorities
+
+Measured on 2.42.7.1 with restricted test users on the Sierra Leone database.
+
+- `access.write` on a group or group set, as the API reports it, always matched the result of a write: 403 `E1006` when false, 200 when true. The app can trust it.
+- Write access needs both write sharing and the type's add authority (`F_ORGUNITGROUP_PUBLIC_ADD` or `_PRIVATE_ADD`, and the matching names for the other types; `GET /api/schemas/<type>?fields=authorities` lists them). On the Sierra Leone database every group and group set is public `rw------`, so there the authority alone decides.
+- A sharing object with no `owner` makes the object writable by anyone with the authority, whatever `public` says (`checkOwner`). Several indicator group sets on the seed have no owner.
+- A `PUT /api/sharing` or a sharing object sent without `owner` erases the owner.
+- A group created with a sharing object that has no `owner` gets the creator as its owner. A copied `owner` is kept as it is: a catch-all group created with another group's sharing (owner someone else, public `r-------`) was read-only for its own creator. `createGroup` in `src/data/metadataWrites.ts` therefore sends the group set's sharing without `owner`.
+- Moving an organisation unit between groups does not depend on the user's own organisation units: a user assigned only to Bo added a Kenema facility to a writable group (200).
+- Without the add authority, creating a group fails with 403 and nothing is created.
+
 ## SQL views
 
 These facts apply to the `GSI_*` views that the app creates (see [Data and storage](data-and-storage.md)).

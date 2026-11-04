@@ -21,6 +21,8 @@ export interface ActionStepProps {
     onTargetChange: (id: string) => void
     targetGroups: { id: string; displayName: string }[]
     showCreateOffer: boolean
+    /** False when the user lacks the add authority for this group type or edit access to the set. */
+    canCreateGroup: boolean
     catchAll: CatchAllCreation
 }
 
@@ -32,6 +34,7 @@ export const ActionStep: React.FC<ActionStepProps> = ({
     onTargetChange,
     targetGroups,
     showCreateOffer,
+    canCreateGroup,
     catchAll,
 }) => {
     const targetOptions = targetGroups.map((g) => (
@@ -67,7 +70,14 @@ export const ActionStep: React.FC<ActionStepProps> = ({
                     {targetOptions}
                 </SingleSelectField>
             </div>
-            {showCreateOffer && (
+            {showCreateOffer && !canCreateGroup && (
+                <p className={styles.createNote}>
+                    {i18n.t(
+                        'This set has no catch-all group. Creating one needs the authority to add groups of this type and edit access to the group set, which you do not have. Choose another group, or ask an administrator to create one.'
+                    )}
+                </p>
+            )}
+            {showCreateOffer && canCreateGroup && (
                 <div className={styles.createCatchAll}>
                     {/* Spec 5.2: the user names the group rather
                     than accepting a generated name they

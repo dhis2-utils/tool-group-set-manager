@@ -21,6 +21,30 @@
 .segButton:disabled {
     cursor: default;
 }
+/* A group the user cannot write: hatched and greyed, so that it reads as
+   unavailable without hovering for the tooltip. */
+.segButton[data-read-only='true'] {
+    color: var(--colors-grey500);
+    background: repeating-linear-gradient(
+        135deg,
+        var(--colors-grey100),
+        var(--colors-grey100) 4px,
+        var(--colors-grey200) 4px,
+        var(--colors-grey200) 8px
+    );
+    text-decoration: line-through;
+}
+.segWrap {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacers-dp8);
+    flex-wrap: wrap;
+}
+/* Why the whole row cannot be changed, in text rather than a tooltip. */
+.reason {
+    font-size: var(--gsi-font-size-sm, 12px);
+    color: var(--colors-grey700);
+}
 .segButton[data-state='selected'] {
     background: var(--colors-blue600);
     color: var(--colors-white);

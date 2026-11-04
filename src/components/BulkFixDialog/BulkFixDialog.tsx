@@ -13,6 +13,7 @@ import { ActionStep } from './ActionStep'
 import { ApplyStep } from './ApplyStep'
 import type { Action, Step } from './constants'
 import {
+    GROUP_ADD_AUTHORITY,
     CATCH_ALL_NAME_PATTERN,
     CHECK_TIMEOUT,
     CHECK_TIMEOUT_MS,
@@ -47,6 +48,7 @@ import { useEngineQuery } from '@/hooks/useEngineQuery'
 import { useGsiConfig } from '@/hooks/useGsiConfig'
 import type { MembershipWriteResult } from '@/hooks/useMembershipWrite'
 import { useMembershipWrite } from '@/hooks/useMembershipWrite'
+import { useUserScope } from '@/hooks/useUserScope'
 import { interpolate } from '@/utils/interpolate'
 
 interface Props {
@@ -368,17 +370,24 @@ export const BulkFixDialog = ({
         return [...changed, ...unchanged].slice(0, SAMPLE_SIZE)
     }, [sampleResult, plan, set.groups])
 
+    // The names of the skipped objects, looked up by id: they are not
+    // necessarily among the first rows of the sample, and a name missing
+    // from it showed as a raw id.
+    const skippedIds = plan?.skippedSample ?? []
+    const { data: skippedResult } = useEngineQuery<ObjectsResult>(
+        'objectsFor',
+        [set.id, scope, { ids: skippedIds }, 0, skippedIds.length],
+        previewEnabled && skippedIds.length > 0
+    )
     const skippedSample = useMemo(() => {
-        if (!plan) {
-            return []
-        }
-        return plan.skippedSample.map((id) => ({
+        const nameById = new Map(
+            (skippedResult?.items ?? []).map((r) => [r.id, r.displayName])
+        )
+        return (plan?.skippedSample ?? []).map((id) => ({
             id,
-            displayName:
-                sampleResult?.items.find((r) => r.id === id)?.displayName ??
-                null,
+            displayName: nameById.get(id) ?? null,
         }))
-    }, [plan, sampleResult])
+    }, [plan, skippedResult])
 
     const previewObjects: ChangeSetPreviewObjects = {
         total: sampleResult?.total ?? 0,
@@ -695,6 +704,12 @@ export const BulkFixDialog = ({
             })
     }
 
+    const { hasAuthority } = useUserScope()
+    const addAuthority = GROUP_ADD_AUTHORITY[set.objectType]
+    const canCreateGroup =
+        set.canWrite &&
+        (hasAuthority(`${addAuthority}_PUBLIC_ADD`) ||
+            hasAuthority(`${addAuthority}_PRIVATE_ADD`))
     const showCreateOffer =
         configLoaded &&
         action === 'moveToCatchAll' &&
@@ -722,6 +737,7 @@ export const BulkFixDialog = ({
                         onTargetChange={handleTargetChange}
                         targetGroups={allGroups}
                         showCreateOffer={showCreateOffer}
+                        canCreateGroup={canCreateGroup}
                         catchAll={catchAll}
                     />
                 )}
@@ -814,14 +830,18 @@ export const BulkFixDialog = ({
                     {step === 'preview' && !recheck && (
                         <Button
                             primary
-                            disabled={!plan || checkingFreshness}
+                            disabled={
+                                !plan ||
+                                plan.affected === 0 ||
+                                checkingFreshness
+                            }
                             onClick={handleApply}
                         >
-                            {i18n.t('Apply…')}
+                            {i18n.t('Apply')}
                         </Button>
                     )}
                     {/* Task 9 (spec 5.3), fix round 2 finding 1: replaces
-                        Back/Apply… while the recomputed plan disagrees with
+                        Back/Apply while the recomputed plan disagrees with
                         the preview -- "Review changes" carries the recomputed
                         plan back into the preview above (`planOverride`), and
                         "Apply {n} changes" re-runs the freshness check

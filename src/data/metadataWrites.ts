@@ -14,25 +14,8 @@ const CATCH_ALL_CODE_SUFFIX = '_OTHER'
 /** DHIS2's sharing object shape, copied wholesale rather than modelled field by field. */
 type Sharing = Record<string, unknown>
 
-// Used only when the set has no existing group to copy sharing from (spec:
-// "a set with no existing groups producing a group with sensible default
-// sharing rather than throwing"). `rw------`: metadata read+write for the
-// owner only, and nothing -- neither metadata nor data -- for anyone else,
-// matching the Maintenance app's own default for a new object. (An earlier
-// version of this used `rwrw----`, which is metadata *and data* read+write
-// for every user; that granted public write on a group this app created and
-// was wrong, not merely permissive.)
-const DEFAULT_SHARING: Sharing = {
-    public: 'rw------',
-    users: {},
-    userGroups: {},
-}
-
-interface GroupSetCodeResponse {
+interface GroupSetCodeAndSharing {
     code?: string
-}
-
-interface GroupSharingResponse {
     sharing?: Sharing
 }
 
@@ -46,28 +29,35 @@ type ListResponse = Record<
     { id: string; groupSets?: { id: string }[] }[] | undefined
 >
 
-async function fetchGroupSetCode(
+async function fetchGroupSetCodeAndSharing(
     fetcher: Fetcher,
     groupSetsEndpoint: string,
     setId: string
-): Promise<string | undefined> {
-    const body = await fetchJson<GroupSetCodeResponse>(
+): Promise<GroupSetCodeAndSharing> {
+    return await fetchJson<GroupSetCodeAndSharing>(
         fetcher,
-        `${groupSetsEndpoint}/${setId}?fields=code`
+        `${groupSetsEndpoint}/${setId}?fields=code,sharing`
     )
-    return body.code
 }
 
-async function fetchSiblingSharing(
-    fetcher: Fetcher,
-    groupsEndpoint: string,
-    siblingGroupId: string
-): Promise<Sharing> {
-    const body = await fetchJson<GroupSharingResponse>(
-        fetcher,
-        `${groupsEndpoint}/${siblingGroupId}?fields=sharing`
-    )
-    return body.sharing ?? DEFAULT_SHARING
+/**
+ * The sharing a new catch-all group gets: the group set's own sharing,
+ * without its owner. Whoever can see or edit the set can see or edit its
+ * catch-all group. The owner is left out so that DHIS2 makes the creator
+ * the owner: a copied owner can leave the creator unable to write the group
+ * they just created (seen live on 2.42, where the copied sharing was
+ * `r-------` with someone else as owner). Undefined when the set has no
+ * sharing to copy, and DHIS2 then applies its own default for a new object.
+ */
+export function catchAllSharing(
+    setSharing: Sharing | undefined
+): Sharing | undefined {
+    if (!setSharing) {
+        return undefined
+    }
+    const rest = { ...setSharing }
+    delete rest.owner
+    return rest
 }
 
 /**
@@ -310,24 +300,21 @@ async function createGroup(
     names: { set: GroupSetMeta; displayName: string; shortName: string }
 ): Promise<string> {
     const { set, displayName, shortName } = names
-    const sibling = set.groups[0]
     // Fetched only when actually creating: a reused group (found by
-    // findExistingGroup) needs neither, since it already has both.
-    const codePromise = fetchGroupSetCode(fetcher, endpoint.groupSets, set.id)
-    const sharingPromise = sibling
-        ? fetchSiblingSharing(fetcher, endpoint.groups, sibling.id)
-        : Promise.resolve(DEFAULT_SHARING)
-    // Promise.all surfaces only the first rejection; without these, a
-    // failure of the *other* promise would additionally log as an
-    // unhandled rejection when both reject.
-    codePromise.catch(() => undefined)
-    sharingPromise.catch(() => undefined)
-    const [code, sharing] = await Promise.all([codePromise, sharingPromise])
+    // findExistingGroup) already has both.
+    const { code, sharing: setSharing } = await fetchGroupSetCodeAndSharing(
+        fetcher,
+        endpoint.groupSets,
+        set.id
+    )
+    const sharing = catchAllSharing(setSharing)
 
     const body: Record<string, unknown> = {
         name: displayName,
         shortName,
-        sharing,
+    }
+    if (sharing) {
+        body.sharing = sharing
     }
     if (code) {
         body.code = `${code}${CATCH_ALL_CODE_SUFFIX}`

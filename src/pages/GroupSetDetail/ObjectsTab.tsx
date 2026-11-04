@@ -68,6 +68,10 @@ export const ObjectsTab = ({
     levels,
     onBulkFix,
 }: Props) => {
+    // A bulk fix needs write access to every group of the set. Skipping the
+    // objects that involve a read-only group would leave the set half fixed
+    // in a way the person applying it cannot finish.
+    const bulkFixAllowed = set.groups.every((g) => g.canWrite)
     // The input's own displayed value -- always the pending keystroke,
     // never delayed by the debounce below (spec: "the pending value is
     // what the input shows"). Seeded once from `filter.text` and from then
@@ -256,10 +260,17 @@ export const ObjectsTab = ({
                         {i18n.t('Clear area filter')}
                     </button>
                 )}
-                <Button small onClick={onBulkFix}>
+                <Button small disabled={!bulkFixAllowed} onClick={onBulkFix}>
                     {i18n.t('Bulk fix…')}
                 </Button>
             </div>
+            {!bulkFixAllowed && (
+                <p className={styles.bulkFixNote}>
+                    {i18n.t(
+                        'Bulk fix needs edit access to every group in this set. Some groups are read-only for you, so you can only fix objects one at a time.'
+                    )}
+                </p>
+            )}
             <ObjectsTable
                 key={loadedAt ?? 'initial'}
                 set={set}
