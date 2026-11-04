@@ -56,6 +56,8 @@ const server = ({
     statuses?: Record<string, number>
 }) => {
     const calls: Call[] = []
+    // What a POST to /api/sharing set, answered back on the read-back.
+    let sharingWritten: Record<string, unknown> | undefined
     const fetcher = (path: string, init?: RequestInit) => {
         const method = init?.method ?? 'GET'
         calls.push({
@@ -69,6 +71,35 @@ const server = ({
         }
         if (path.startsWith('sqlViews?')) {
             return Promise.resolve(respond(200, { sqlViews: views }))
+        }
+        if (key.startsWith('GET sharing?')) {
+            return Promise.resolve(
+                respond(200, { object: { publicAccess: 'r-------' } })
+            )
+        }
+        if (key.startsWith('POST sharing?')) {
+            sharingWritten = (
+                JSON.parse(String(init?.body)) as {
+                    object: Record<string, unknown>
+                }
+            ).object
+            return Promise.resolve(respond(200))
+        }
+        if (path.endsWith('?fields=sharing')) {
+            const w = sharingWritten as {
+                publicAccess?: string
+                userGroupAccesses?: { id: string; access: string }[]
+            }
+            return Promise.resolve(
+                respond(200, {
+                    sharing: {
+                        public: w?.publicAccess,
+                        userGroups: Object.fromEntries(
+                            (w?.userGroupAccesses ?? []).map((g) => [g.id, g])
+                        ),
+                    },
+                })
+            )
         }
         if (path.includes('/data.csv')) {
             return Promise.resolve(respond(probe))
@@ -322,6 +353,9 @@ describe('createOrRepairSqlViews', () => {
         expect(result.repaired).toEqual([ORGUNITS])
         expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
             `PATCH sqlViews/id-${ORGUNITS}`,
+            `GET sharing?type=sqlView&id=id-${ORGUNITS}`,
+            `POST sharing?type=sqlView&id=id-${ORGUNITS}`,
+            `GET sqlViews/id-${ORGUNITS}?fields=sharing`,
             `POST sqlViews/id-${ORGUNITS}/execute`,
         ])
         expect(calls[0].body).toEqual([
@@ -330,8 +364,8 @@ describe('createOrRepairSqlViews', () => {
                 path: '/sqlQuery',
                 value: defOf(ORGUNITS).sqlQuery,
             },
-            { op: 'replace', path: '/sharing/public', value: 'r-r-----' },
         ])
+        expect(calls[2].body).toEqual({ object: { publicAccess: 'r-r-----' } })
     })
 
     it('re-executes an unreadable view whose metadata is right, without patching it', async () => {
@@ -353,7 +387,9 @@ describe('createOrRepairSqlViews', () => {
         )
         const { calls, fetcher } = server({
             views,
-            statuses: { [`PATCH sqlViews/id-${ORGUNITS}`]: 403 },
+            statuses: {
+                [`GET sharing?type=sqlView&id=id-${ORGUNITS}`]: 403,
+            },
         })
         const result = await createOrRepairSqlViews(fetcher, checks, PUBLIC)
         expect(result.failed).toEqual([

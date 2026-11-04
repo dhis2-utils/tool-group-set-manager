@@ -29,7 +29,7 @@ What you can do in the tool depends on your authorities and on the sharing of ea
 | Change the other settings                   | `ALL` (clearing the cache needs nothing)                                      |
 | Record changes in History and save settings | Read and write access to the `group-set-integrity` namespace in the dataStore |
 
-Write access to a group or a group set needs both metadata write sharing on it and the authority to add objects of its type. The authorities are (from the DHIS2 schemas, checked on 2.42):
+Write access to a group or a group set needs both metadata write sharing on it and the authority to add objects of its type. The authorities are the same on 2.40 to 2.43:
 
 | Type              | Groups                                                                        | Group sets                                                                            |
 | ----------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |

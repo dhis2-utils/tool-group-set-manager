@@ -86,7 +86,9 @@ If anything differs, the app corrects the engine, recomputes the plan, and asks 
 
 Reading every member of every group of a set before every write is too slow on a large instance. On EMIS (2.41.10), reading all the members of a whole set took 4 to 11 seconds: up to 9.7 seconds for a set of 6 groups and up to 10.8 seconds for a set of 4 groups. This is why the app reads by id, and reads in full only the groups that take the patch route.
 
-The app also uses JSON Patch to set `compulsory` and `dataDimension` on a group set (`setGroupSetProperties` in `src/data/metadataWrites.ts`), which works the same way on 2.40.12 and 2.43.1. It also patches `/sharing/public`, and `/sharing/userGroups` with `add`, on a SQL view, so that it does not replace the view's user sharing. On 2.42.7, an `add` patch on `/sharing/userGroups` worked. Use `add`, not `replace`, for a property that the object does not have yet: `replace` needs the path to exist.
+The app also uses JSON Patch to set `compulsory` and `dataDimension` on a group set (`setGroupSetProperties` in `src/data/metadataWrites.ts`), which works the same way on 2.40.12 and 2.43.1. Use `add`, not `replace`, for a property that the object does not have yet: `replace` needs the path to exist.
+
+**Do not change sharing with a JSON patch.** On 2.40.12, a patch of `/sharing/public` or `/sharing/userGroups` on a SQL view or a group answers 200 with no error reports, and changes nothing. It works on 2.41.10, 2.42.7 and 2.43.2. The app sets a SQL view's sharing through `/api/sharing?type=sqlView&id=<id>` instead (`applySharing` in `src/data/sources/sqlViewSharing.ts`): it reads the object, changes `publicAccess` and `userGroupAccesses`, writes the whole object back, so the owner and the user accesses stay, and reads the view's sharing back to confirm the change. On 2.43 this endpoint keeps the existing owner even when the object names another `user`.
 
 ### Do not write membership through the metadata import
 
@@ -152,7 +154,7 @@ The app shows the integrity results only to a user with `ALL` or `F_PERFORM_MAIN
 
 ## Write access and authorities
 
-Measured on 2.42.7.1 with restricted test users on the Sierra Leone database.
+Measured with restricted test users on 2.40.12, 2.41.10, 2.42.7 and 2.43.2 (Sierra Leone and Laos databases), except where a line names one version.
 
 - `access.write` on a group or group set, as the API reports it, always matched the result of a write: 403 `E1006` when false, 200 when true. The app can trust it.
 - Write access needs both write sharing and the type's add authority (`F_ORGUNITGROUP_PUBLIC_ADD` or `_PRIVATE_ADD`, and the matching names for the other types; `GET /api/schemas/<type>?fields=authorities` lists them). On the Sierra Leone database every group and group set is public `rw------`, so there the authority alone decides.
@@ -186,9 +188,13 @@ The usage view (`GSI_GROUPSET_USAGE`) depends on these database facts, which are
 
 ## Groups the user cannot read
 
-Measured on 2.42.7.1 only. `GET /api/organisationUnitGroupSets/<id>?fields=organisationUnitGroups[id,displayName,access]`, as a user who cannot read one of the groups, still lists that group, with `access.read: false` and no `displayName`. Reading the group directly returns 404 (`E1005`). The app assumes the other three types (`dataElementGroupSets`, `indicatorGroupSets`, `categoryOptionGroupSets`) behave the same; that is not measured.
+Measured for all four types on 2.40.12, 2.41.10, 2.42.7 and 2.43.2, on the Sierra Leone and Laos databases. `GET /api/<type>GroupSets/<id>?fields=<type>Groups[id,displayName,access]`, as a user who cannot read one of the groups, still lists that group, with `access.read: false`. Whether `displayName` comes with it varies by version and type, so the app does not rely on it. `<type>Groups::size` counts it too. A group set the user cannot read is not listed at all.
 
-The app cannot check such a set: the objects in the hidden group would count as in no group. `loadType` in `src/data/groupSets.ts` returns it as a restricted set, which never reaches the engine, the membership load or the cache key. The dashboard shows it as a card with no counts, and its page explains why. A set whose own `access.read` is `false` is skipped; the server is expected not to list it at all, which is not measured either.
+Reading the hidden group directly by id returns 404 (`E1005`) on 2.41 to 2.43, but 200 with the full object on 2.40.12. The app never reads a group that way.
+
+A group with no `owner` in its sharing is readable by every user, whatever `public` says, so `access.read` stays `true` for it (see [Write access and authorities](#write-access-and-authorities)). On the Sierra Leone databases, the indicator groups that belong to a set have no owner.
+
+The app cannot check such a set: the objects in the hidden group would count as in no group. `loadType` in `src/data/groupSets.ts` returns it as a restricted set, which never reaches the engine, the membership load or the cache key. The dashboard shows it as a card with no counts, and its page explains why. A set whose own `access.read` is `false` is skipped as a safeguard; the server does not list it.
 
 The API returns a set's groups in collection order, which is not stable between requests. The app sorts each set's groups by `displayName` (`localeCompare`, then id).
 

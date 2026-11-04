@@ -1,5 +1,6 @@
 import type { AdminSqlViewRow, RepairTarget } from './sqlViewSharing'
 import {
+    applySharing,
     loadSqlViewSharing,
     repairExistingView,
     repairPatch,
@@ -7,7 +8,6 @@ import {
     saveSqlViewSharing,
     sharingBody,
     sharingMatches,
-    sharingPatch,
 } from './sqlViewSharing'
 
 const respond = (status: number, body: unknown = {}) =>
@@ -81,26 +81,93 @@ describe('sharingMatches', () => {
     })
 })
 
-describe('sharingBody and sharingPatch', () => {
+describe('sharingBody', () => {
     it('shares with one group and nobody else', () => {
         expect(sharingBody(GROUP)).toEqual({
             public: '--------',
             userGroups: { ug1: { id: 'ug1', access: 'r-r-----' } },
         })
-        expect(sharingPatch(GROUP)).toEqual([
-            { op: 'replace', path: '/sharing/public', value: '--------' },
-            {
-                op: 'add',
-                path: '/sharing/userGroups',
-                value: { ug1: { id: 'ug1', access: 'r-r-----' } },
-            },
-        ])
+    })
+})
+
+/**
+ * A fetcher for `/api/sharing`: answers the read with `object`, records the
+ * write, and answers the read-back with `after` (by default what the write
+ * asked for, as a server that applies it would).
+ */
+function sharingServer(
+    object: Record<string, unknown>,
+    after?: Record<string, unknown>
+) {
+    const calls: string[] = []
+    let written: Record<string, unknown> | undefined
+    const fetcher = (path: string, init?: RequestInit) => {
+        const key = `${init?.method ?? 'GET'} ${path}`
+        calls.push(key)
+        if (key === 'GET sharing?type=sqlView&id=v1') {
+            return Promise.resolve(respond(200, { object }))
+        }
+        if (key === 'POST sharing?type=sqlView&id=v1') {
+            written = (
+                JSON.parse(init?.body as string) as {
+                    object: Record<string, unknown>
+                }
+            ).object
+            return Promise.resolve(respond(200))
+        }
+        if (key === 'GET sqlViews/v1?fields=sharing') {
+            const w = written as {
+                publicAccess: string
+                userGroupAccesses?: { id: string; access: string }[]
+            }
+            const applied = {
+                public: w.publicAccess,
+                userGroups: Object.fromEntries(
+                    (w.userGroupAccesses ?? []).map((g) => [g.id, g])
+                ),
+            }
+            return Promise.resolve(respond(200, { sharing: after ?? applied }))
+        }
+        return Promise.resolve(respond(200))
+    }
+    return { calls, fetcher, written: () => written }
+}
+
+describe('applySharing', () => {
+    const existing = {
+        id: 'v1',
+        publicAccess: 'rwr-----',
+        user: { id: 'owner1' },
+        userAccesses: [{ id: 'u1', access: 'rw------' }],
+        userGroupAccesses: [{ id: 'old', access: 'r-r-----' }],
+    }
+
+    it('shares with exactly the chosen group, and keeps the owner and the user accesses', async () => {
+        const server = sharingServer(existing)
+        await applySharing(server.fetcher, 'v1', GROUP)
+        expect(server.written()).toEqual({
+            ...existing,
+            publicAccess: '--------',
+            userGroupAccesses: [{ id: 'ug1', access: 'r-r-----' }],
+        })
     })
 
-    it('public touches only the public string', () => {
-        expect(sharingPatch(PUBLIC)).toEqual([
-            { op: 'replace', path: '/sharing/public', value: 'r-r-----' },
-        ])
+    it('public mode changes only the public string', async () => {
+        const server = sharingServer(existing)
+        await applySharing(server.fetcher, 'v1', PUBLIC)
+        expect(server.written()).toEqual({
+            ...existing,
+            publicAccess: 'r-r-----',
+        })
+    })
+
+    // Measured on 2.40.12: a JSON patch of /sharing answers 200 and changes
+    // nothing. A write the server ignores must not pass for done.
+    it('reports a write the server accepted but did not apply', async () => {
+        const server = sharingServer(existing, { public: 'rwr-----' })
+        await expect(
+            applySharing(server.fetcher, 'v1', GROUP)
+        ).rejects.toMatchObject({ reason: 'conflicting' })
     })
 })
 
@@ -132,7 +199,7 @@ describe('repairPatch', () => {
     it('is empty for a view that already matches', () => {
         expect(repairPatch(view({}), target)).toEqual({
             definition: [],
-            sharing: [],
+            sharingDiffers: false,
         })
     })
 
@@ -175,14 +242,25 @@ describe('repairExistingView', () => {
         return { calls, fetcher }
     }
 
-    it('patches what differs, then executes', async () => {
+    it('patches the definition, then executes', async () => {
         const { calls, fetcher } = recorder({})
+        await repairExistingView(fetcher, view({ sqlQuery: 'x' }), target)
+        expect(calls).toEqual(['PATCH sqlViews/v1', 'POST sqlViews/v1/execute'])
+    })
+
+    it('sets sharing that differs through /api/sharing, then executes', async () => {
+        const server = sharingServer({ publicAccess: 'r-------' })
         await repairExistingView(
-            fetcher,
+            server.fetcher,
             view({ sharing: { public: 'r-------' } }),
             target
         )
-        expect(calls).toEqual(['PATCH sqlViews/v1', 'POST sqlViews/v1/execute'])
+        expect(server.calls).toEqual([
+            'GET sharing?type=sqlView&id=v1',
+            'POST sharing?type=sqlView&id=v1',
+            'GET sqlViews/v1?fields=sharing',
+            'POST sqlViews/v1/execute',
+        ])
     })
 
     it('does not execute a query, which has no database view', async () => {

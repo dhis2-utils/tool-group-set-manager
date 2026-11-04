@@ -96,6 +96,10 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- On 2.40, **Who can read the SQL views** saved the choice but did not change
+  the sharing of the views: DHIS2 2.40 accepts the change and ignores it.
+  The app now sets the sharing in a way every supported version applies, and
+  reads it back to confirm.
 - A catch-all group created in a bulk fix copied the sharing of another
   group of the set, including its owner, and could be read-only for the
   person who created it. It now gets the sharing of the group set, and DHIS2

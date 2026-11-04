@@ -1,4 +1,5 @@
 import type { Fetcher } from './DataSource'
+import { fetchJson } from './DataSource'
 import { USABLE_SQL_VIEW_TYPES } from './sqlViewSource'
 import { NAMESPACE } from '@/data/datastore'
 
@@ -148,29 +149,6 @@ export interface JsonPatchOp {
 }
 
 /**
- * JSON-patch operations that put a view's sharing back to the choice. Never
- * the `/api/sharing` endpoint, whose POST replaces user accesses too. Public
- * mode touches only the public string. Group mode sets the user groups to
- * exactly the chosen one: that is the whole of who may read the rows.
- * `add` rather than `replace` on `/sharing/userGroups`, because `replace`
- * needs the path to exist.
- */
-export function sharingPatch(sharing: SqlViewSharing): JsonPatchOp[] {
-    const body = sharingBody(sharing)
-    const ops: JsonPatchOp[] = [
-        { op: 'replace', path: '/sharing/public', value: body.public },
-    ]
-    if (body.userGroups) {
-        ops.push({
-            op: 'add',
-            path: '/sharing/userGroups',
-            value: body.userGroups,
-        })
-    }
-    return ops
-}
-
-/**
  * Whitespace and a trailing semicolon are not differences anyone made on
  * purpose, and the server may normalise either.
  */
@@ -276,6 +254,85 @@ export async function patchView(
     }
 }
 
+/** The `object` of the `/api/sharing` endpoint, kept whole except what is changed. */
+interface LegacySharingObject {
+    publicAccess?: string
+    userGroupAccesses?: { id: string; access: string }[]
+    [field: string]: unknown
+}
+
+/**
+ * Puts a view's sharing back to the choice, through `/api/sharing`, read
+ * then written back whole: the owner and the user accesses stay as they
+ * are. Public mode changes only the public string. Group mode sets the user
+ * groups to exactly the chosen one: that is the whole of who may read the
+ * rows.
+ *
+ * Not a JSON patch of `/sharing`: on 2.40.12 that answers 200 and changes
+ * nothing (it works from 2.41). The result is read back, so a server that
+ * ignores the change is reported rather than shown as done.
+ */
+export async function applySharing(
+    fetcher: Fetcher,
+    id: string,
+    sharing: SqlViewSharing
+): Promise<void> {
+    const path = `sharing?type=sqlView&id=${id}`
+    const current = await fetcher(path)
+    if (current.status === 403) {
+        throw new SqlViewActionError(
+            'forbidden',
+            `Not allowed to read the sharing of SQL view ${id}: HTTP 403`
+        )
+    }
+    if (!current.ok) {
+        throw new SqlViewActionError(
+            'other',
+            `Failed to read the sharing of SQL view ${id}: HTTP ${current.status}`
+        )
+    }
+    const { object } = (await current.json()) as {
+        object: LegacySharingObject
+    }
+    const body = sharingBody(sharing)
+    const next: LegacySharingObject = { ...object, publicAccess: body.public }
+    if (body.userGroups) {
+        next.userGroupAccesses = Object.entries(body.userGroups).map(
+            ([groupId, entry]) => ({
+                id: groupId,
+                access: entry.access ?? SQL_VIEW_READ_ACCESS,
+            })
+        )
+    }
+    const written = await fetcher(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ object: next }),
+    })
+    if (written.status === 403) {
+        throw new SqlViewActionError(
+            'forbidden',
+            `Not allowed to change the sharing of SQL view ${id}: HTTP 403`
+        )
+    }
+    if (!written.ok) {
+        throw new SqlViewActionError(
+            'conflicting',
+            `Failed to change the sharing of SQL view ${id}: HTTP ${written.status}`
+        )
+    }
+    const after = await fetchJson<{ sharing?: ServerSharing }>(
+        fetcher,
+        `sqlViews/${id}?fields=sharing`
+    )
+    if (!sharingMatches(sharing, after.sharing)) {
+        throw new SqlViewActionError(
+            'conflicting',
+            `The server accepted the sharing of SQL view ${id} but did not change it`
+        )
+    }
+}
+
 /**
  * The database view does not exist until this succeeds; a second execute on
  * an already-executed view is a safe no-op server-side. `afterPatch` marks
@@ -352,15 +409,14 @@ function typeAfterRepair(view: AdminSqlViewRow, target: RepairTarget): string {
 }
 
 /**
- * The patch that sets an existing view back to the app's definition and the
- * chosen sharing, split so a caller can tell a definition change (after
- * which a failing execute means the view cannot be fixed) from a sharing
- * change. Both lists are empty when nothing differs.
+ * The patch that sets an existing view back to the app's definition, and
+ * whether its sharing differs from the choice. A definition change is told
+ * apart because a failing execute after one means the view cannot be fixed.
  */
 export function repairPatch(
     view: AdminSqlViewRow,
     target: RepairTarget
-): { definition: JsonPatchOp[]; sharing: JsonPatchOp[] } {
+): { definition: JsonPatchOp[]; sharingDiffers: boolean } {
     const definition: JsonPatchOp[] = []
     if (!typeUsable(view.type)) {
         definition.push({
@@ -378,9 +434,7 @@ export function repairPatch(
     }
     return {
         definition,
-        sharing: sharingMatches(target.sharing, view.sharing)
-            ? []
-            : sharingPatch(target.sharing),
+        sharingDiffers: !sharingMatches(target.sharing, view.sharing),
     }
 }
 
@@ -396,9 +450,11 @@ export async function repairExistingView(
     target: RepairTarget
 ): Promise<void> {
     const patch = repairPatch(view, target)
-    const ops = [...patch.definition, ...patch.sharing]
-    if (ops.length > 0) {
-        await patchView(fetcher, view.id, ops)
+    if (patch.definition.length > 0) {
+        await patchView(fetcher, view.id, patch.definition)
+    }
+    if (patch.sharingDiffers) {
+        await applySharing(fetcher, view.id, target.sharing)
     }
     if (typeAfterRepair(view, target) !== 'QUERY') {
         await executeView(fetcher, view.id, patch.definition.length > 0)

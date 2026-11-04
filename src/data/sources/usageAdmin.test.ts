@@ -217,7 +217,15 @@ describe('installUsageView', () => {
             sqlQuery: 'select 1',
             sharing: { public: 'r-------' },
         }
-        const { calls, bodies, fetcher } = recorder()
+        const { calls, bodies, fetcher } = recorder((key) => {
+            if (key === 'GET sharing?type=sqlView&id=v1') {
+                return respond(200, { object: { publicAccess: 'r-------' } })
+            }
+            if (key === 'GET sqlViews/v1?fields=sharing') {
+                return respond(200, { sharing: { public: 'r-r-----' } })
+            }
+            return undefined
+        })
         const result = await installUsageView(
             fetcher,
             { id: 'v1', status: 'needsRepair', usable: false, view },
@@ -227,6 +235,9 @@ describe('installUsageView', () => {
         // A materialised view becomes a QUERY, which has nothing to execute.
         expect(calls).toEqual([
             'PATCH sqlViews/v1',
+            'GET sharing?type=sqlView&id=v1',
+            'POST sharing?type=sqlView&id=v1',
+            'GET sqlViews/v1?fields=sharing',
             'GET sqlViews/v1?fields=access[data[read]]',
             'GET sqlViews/v1/data.json?pageSize=1',
         ])
@@ -237,13 +248,13 @@ describe('installUsageView', () => {
                 path: '/sqlQuery',
                 value: USAGE_SQL_CANDIDATES[0].sqlQuery,
             },
-            { op: 'replace', path: '/sharing/public', value: 'r-r-----' },
         ])
+        expect(bodies[1]).toEqual({ object: { publicAccess: 'r-r-----' } })
     })
 
     it('reports an existing view another administrator owns as forbidden', async () => {
         const { fetcher } = recorder((key) =>
-            key === 'PATCH sqlViews/v1' ? respond(403) : undefined
+            key === 'GET sharing?type=sqlView&id=v1' ? respond(403) : undefined
         )
         const result = await installUsageView(
             fetcher,
