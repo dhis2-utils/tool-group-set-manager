@@ -1,4 +1,4 @@
-import { ObjectType } from '@/engine/types'
+import type { ObjectType } from '@/engine/types'
 
 export const USAGE_SQL_VIEW_CODE = 'GSI_GROUPSET_USAGE'
 export const USAGE_SQL_VIEW_NAME = 'GSI group set usage'
@@ -14,22 +14,22 @@ export type UsageGroupSetType =
  * line lists: `eventchart` and `eventreport` are legacy projections of the
  * same rows (measured on 2.40.12, 2.41.10, 2.42.6 and 2.43.1 -- every one of
  * their uids is present in `eventvisualization`, and their bridge rows add
- * up to its own; `2026-09-plan6-usage-tables.md` §2 and §2b), so reading
+ * up to its own; see docs/developer/dhis2-behavior.md), so reading
  * them as well would double-count every event favourite.
  */
 export type FavouriteType = 'visualization' | 'map' | 'eventVisualization'
 
-const GROUP_SET_TYPES: UsageGroupSetType[] = [
+const GROUP_SET_TYPES: ReadonlySet<string> = new Set<UsageGroupSetType>([
     'orgUnitGroupSet',
     'dataElementGroupSet',
     'categoryOptionGroupSet',
-]
+])
 
-const FAVOURITE_TYPES: FavouriteType[] = [
+const FAVOURITE_TYPES: ReadonlySet<string> = new Set<FavouriteType>([
     'visualization',
     'map',
     'eventVisualization',
-]
+])
 
 export interface UsageSqlCandidate {
     /** identifies which body took, for Settings to report */
@@ -42,7 +42,7 @@ export interface UsageSqlCandidate {
  * Each body is tried in turn until one both creates and executes, and the
  * variant that took is reported in Settings. There is one entry because one
  * body was measured to work on 2.40, 2.41, 2.42 and 2.43 -- see
- * `docs/superpowers/notes/2026-09-plan6-usage-tables.md`. A variant is added
+ * docs/developer/dhis2-behavior.md. A variant is added
  * only when a live server actually rejects the one above it.
  *
  * On the body itself:
@@ -61,8 +61,7 @@ export interface UsageSqlCandidate {
  *   a national instance's `datastatisticsevent`, which runs to millions of
  *   rows a year and is read on every dashboard load. `timestamp > now() -
  *   interval '12 months'` is sargable and returns the identical result (see
- *   `docs/superpowers/notes/2026-09-plan6-usage-tables.md`'s fix-round-2
- *   addendum).
+ *   docs/developer/dhis2-behavior.md).
  */
 export const USAGE_SQL_CANDIDATES: UsageSqlCandidate[] = [
     {
@@ -173,12 +172,12 @@ export function parseUsageListGrid(body: UsageListGrid): UsageRow[] {
     return body.listGrid.rows.map((row) => {
         const groupSetType = String(at(row, 'groupset_type'))
         const favouriteType = String(at(row, 'favourite_type'))
-        if (!GROUP_SET_TYPES.includes(groupSetType as UsageGroupSetType)) {
+        if (!GROUP_SET_TYPES.has(groupSetType)) {
             throw new Error(
                 `The group set usage SQL view returned an unknown group set type ${groupSetType}`
             )
         }
-        if (!FAVOURITE_TYPES.includes(favouriteType as FavouriteType)) {
+        if (!FAVOURITE_TYPES.has(favouriteType)) {
             throw new Error(
                 `The group set usage SQL view returned an unknown favourite type ${favouriteType}`
             )
@@ -240,12 +239,12 @@ export function usageByGroupSet(rows: UsageRow[]): Map<string, SetUsage> {
  * there is no `indicatorgroupsetdimension` table on any supported version
  * (measured on 2.43.1).
  */
-const USAGE_OBJECT_TYPES: ReadonlyArray<ObjectType> = [
+const USAGE_OBJECT_TYPES: ReadonlySet<ObjectType> = new Set<ObjectType>([
     'organisationUnit',
     'dataElement',
     'categoryOption',
-]
+])
 
 export function usageApplies(objectType: ObjectType): boolean {
-    return USAGE_OBJECT_TYPES.includes(objectType)
+    return USAGE_OBJECT_TYPES.has(objectType)
 }

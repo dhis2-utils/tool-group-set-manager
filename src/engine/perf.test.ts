@@ -1,5 +1,6 @@
 import { EngineStore } from './store'
-import { GroupSetMeta, Status } from './types'
+import type { GroupSetMeta } from './types'
+import { Status } from './types'
 
 /** 300K org units: 1 root, 40 states, 800 LGAs, 20K wards, ~279K schools. */
 function synthetic() {

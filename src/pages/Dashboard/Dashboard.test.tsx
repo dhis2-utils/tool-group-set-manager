@@ -49,8 +49,18 @@ const baseStatus = {
     namesErrors: {},
     loadedAt: {},
 }
+// Sets the user can see but not check (a group is not shared with them).
+let mockRestrictedSets: {
+    id: string
+    displayName: string
+    objectType: string
+    hiddenGroups: number
+    totalGroups: number
+}[] = []
+
 let mockStatus: typeof baseStatus & {
     loadedAt: Partial<Record<string, number>>
+    errors: Partial<Record<string, string>>
 } = baseStatus
 
 const cleanSet = (id: string, name: string) => ({
@@ -82,7 +92,9 @@ const notLoadedSet = (id: string, name: string) => ({
         compulsory: false,
         dataDimension: false,
         canWrite: true,
-        groups: [],
+        // A group, so the card is waiting for data rather than reporting
+        // a set with nothing to check.
+        groups: [{ id: `${id}-g`, displayName: 'G', canWrite: true }],
     },
     summary: {
         population: 0,
@@ -133,7 +145,7 @@ const entries = {
                 brokenSet('broken', 'Broken order set', 9),
             ]
         }
-        const sets = [
+        const sets: ReturnType<typeof notLoadedSet>[] = [
             brokenSet('own', 'Ownership', 0),
             cleanSet('clean', 'Clean set'),
         ]
@@ -175,21 +187,21 @@ const entries = {
 jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => ({
         client: {
-            call: async (
-                _m: string,
-                scope: { objectType: keyof typeof entries }
-            ) => {
+            call: (_m: string, scope: { objectType: keyof typeof entries }) => {
                 if (
                     scope.objectType === 'dataElement' &&
                     mockCallOverrides.dataElementError
                 ) {
-                    throw new Error(mockCallOverrides.dataElementError)
+                    return Promise.reject(
+                        new Error(mockCallOverrides.dataElementError)
+                    )
                 }
-                return entries[scope.objectType]
+                return Promise.resolve(entries[scope.objectType])
             },
         },
         status: mockStatus,
         groupSets: [],
+        restrictedSets: mockRestrictedSets,
         get sourceKind() {
             return mockCallOverrides.sourceKind
         },
@@ -200,7 +212,7 @@ jest.mock('@/hooks/useEngine', () => ({
             return mockCallOverrides.fellBack
         },
         error: null,
-        reload: async () => undefined,
+        reload: () => Promise.resolve(undefined),
     }),
 }))
 // R6: Dashboard renders GroupSetCard, which depends on @/hooks/useUsage --
@@ -254,13 +266,95 @@ afterEach(() => {
     mockCallOverrides.nameSource = 'metadata'
     mockUsage.mockReturnValue(defaultUsageState)
     mockStatus = baseStatus
+    mockRestrictedSets = []
+})
+
+describe('a set with groups the user cannot see', () => {
+    const restricted = (hiddenGroups: number, totalGroups: number) => ({
+        id: 'secret',
+        displayName: 'Secret set',
+        objectType: 'organisationUnit',
+        hiddenGroups,
+        totalGroups,
+    })
+
+    it('is shown as a card with no counts, under its type, even with only issues shown', async () => {
+        mockRestrictedSets = [restricted(2, 5)]
+        render(
+            <MemoryRouter>
+                <Dashboard />
+            </MemoryRouter>
+        )
+        const card = await screen.findByTestId('restricted-group-set-card')
+        expect(within(card).getByText('Secret set')).toBeInTheDocument()
+        expect(
+            within(card).getByText(
+                'You cannot see 2 of the 5 groups in this set, so the tool cannot check it. Ask an administrator to share all the groups with you.'
+            )
+        ).toBeInTheDocument()
+        expect(within(card).queryByText('Conflicts')).not.toBeInTheDocument()
+        expect(within(card).queryByRole('button')).not.toBeInTheDocument()
+        // "Only sets with issues" is the default; the card is still there,
+        // and it does not count as a hidden set.
+        expect(
+            screen.queryByText('1 set without issues hidden')
+        ).toBeInTheDocument()
+    })
+
+    it('uses the singular sentence for one hidden group', async () => {
+        mockRestrictedSets = [restricted(1, 3)]
+        render(
+            <MemoryRouter>
+                <Dashboard />
+            </MemoryRouter>
+        )
+        expect(
+            await screen.findByText(
+                'You cannot see 1 of the 3 groups in this set, so the tool cannot check it. Ask an administrator to share all the groups with you.'
+            )
+        ).toBeInTheDocument()
+    })
+
+    it('is not shown when another type is selected', async () => {
+        mockRestrictedSets = [restricted(1, 3)]
+        sessionStorage.setItem(
+            'gsi.dashboard.typeFilter',
+            JSON.stringify('indicator')
+        )
+        render(
+            <MemoryRouter>
+                <Dashboard />
+            </MemoryRouter>
+        )
+        await screen.findByText('No group sets of this type')
+        expect(
+            screen.queryByTestId('restricted-group-set-card')
+        ).not.toBeInTheDocument()
+    })
+
+    it('replaces "no group sets of this type" when it is the only set of its type', async () => {
+        mockRestrictedSets = [{ ...restricted(1, 3), objectType: 'indicator' }]
+        sessionStorage.setItem(
+            'gsi.dashboard.typeFilter',
+            JSON.stringify('indicator')
+        )
+        render(
+            <MemoryRouter>
+                <Dashboard />
+            </MemoryRouter>
+        )
+        await screen.findByTestId('restricted-group-set-card')
+        expect(
+            screen.queryByText('No group sets of this type')
+        ).not.toBeInTheDocument()
+    })
 })
 
 // Spec 8a: with GSI_ORGUNIT_NAMES removed, the views still serve the
 // hierarchy and the memberships while names come from the metadata API --
 // and names are the one part of the load a user can see the difference in,
 // so the label has to say so rather than claim one source for everything.
-it('says names came from the metadata API when only the names view is gone', async () => {
+test('says names came from the metadata API when only the names view is gone', async () => {
     mockCallOverrides.sourceKind = 'sqlView'
     mockCallOverrides.nameSource = 'metadata'
     render(
@@ -278,7 +372,7 @@ it('says names came from the metadata API when only the names view is gone', asy
     ).toBeInTheDocument()
 })
 
-it('names the views alone when all three are serving', async () => {
+test('names the views alone when all three are serving', async () => {
     mockCallOverrides.sourceKind = 'sqlView'
     mockCallOverrides.nameSource = 'sqlView'
     render(
@@ -294,7 +388,7 @@ it('names the views alone when all three are serving', async () => {
     ).toBeInTheDocument()
 })
 
-it('shows the SQL view repair notice after a real fallback', async () => {
+test('shows the SQL view repair notice after a real fallback', async () => {
     mockCallOverrides.fellBack = true
     render(
         <MemoryRouter>
@@ -307,7 +401,7 @@ it('shows the SQL view repair notice after a real fallback', async () => {
     expect(screen.getByText(/settings/i)).toBeInTheDocument()
 })
 
-it('stays silent on a metadata-only server that never fell back', async () => {
+test('stays silent on a metadata-only server that never fell back', async () => {
     // sourceKind is 'metadata' here too (the mock's baseline), which is
     // exactly the case the nudge must not trigger on -- a server that
     // never had SQL views to begin with, distinguished only by fellBack.
@@ -327,7 +421,7 @@ it('stays silent on a metadata-only server that never fell back', async () => {
 // count to carry the caveat -- the dashboard cards show a favourites count
 // with none anywhere on the page until this fix. One line for the whole
 // page, not one per card.
-it('shows the indicative-counts caveat once usage data is ready, and not before', async () => {
+test('shows the indicative-counts caveat once usage data is ready, and not before', async () => {
     mockUsage.mockReturnValue({
         status: 'ready',
         error: null,
@@ -345,7 +439,7 @@ it('shows the indicative-counts caveat once usage data is ready, and not before'
     expect(screen.getByText(/Usage counts are indicative/)).toBeInTheDocument()
 })
 
-it('shows no indicative-counts caveat when there is no usage data to caveat', async () => {
+test('shows no indicative-counts caveat when there is no usage data to caveat', async () => {
     mockUsage.mockReturnValue({
         status: 'absent',
         error: null,
@@ -365,7 +459,7 @@ it('shows no indicative-counts caveat when there is no usage data to caveat', as
     ).not.toBeInTheDocument()
 })
 
-it('lists sets with issues and hides clean ones by default', async () => {
+test('lists sets with issues and hides clean ones by default', async () => {
     render(
         <MemoryRouter>
             <Dashboard />
@@ -378,7 +472,7 @@ it('lists sets with issues and hides clean ones by default', async () => {
     expect(screen.getByText('1 set without issues hidden')).toBeInTheDocument()
 })
 
-it('pluralises the hidden-sets count for more than one clean set', async () => {
+test('pluralises the hidden-sets count for more than one clean set', async () => {
     mockCallOverrides.extraCleanOrgUnitSet = true
     render(
         <MemoryRouter>
@@ -395,7 +489,7 @@ it('pluralises the hidden-sets count for more than one clean set', async () => {
 // Minor 8 (fix round 1): the hidden-sets count is another count the
 // dashboard renders, so it must format with the same thousands separator
 // as the stat tiles rather than being a straggler.
-it('formats the hidden-sets count with a thousands separator', async () => {
+test('formats the hidden-sets count with a thousands separator', async () => {
     mockCallOverrides.manyCleanOrgUnitSets = true
     render(
         <MemoryRouter>
@@ -412,7 +506,7 @@ it('formats the hidden-sets count with a thousands separator', async () => {
     )
 })
 
-it('surfaces a per-type engine failure instead of silently hiding the section', async () => {
+test('surfaces a per-type engine failure instead of silently hiding the section', async () => {
     mockCallOverrides.dataElementError = 'Unknown organisationUnit root id xyz'
     render(
         <MemoryRouter>
@@ -429,7 +523,7 @@ it('surfaces a per-type engine failure instead of silently hiding the section', 
     ).toBeInTheDocument()
 })
 
-it('sorts cards worst first, keeping API order among equals (spec 5.1)', async () => {
+test('sorts cards worst first, keeping API order among equals (spec 5.1)', async () => {
     mockCallOverrides.worseOrgUnitSets = true
     render(
         <MemoryRouter>
@@ -459,7 +553,7 @@ it('sorts cards worst first, keeping API order among equals (spec 5.1)', async (
 // number can change under a user with no explanation otherwise (the load
 // that hasn't finished yet is exactly the carried-forward "detail page
 // shows no indication a reload is running" sibling item).
-it('sorts a set with no data yet into its own group, not mixed in among the clean ones', async () => {
+test('sorts a set with no data yet into its own group, not mixed in among the clean ones', async () => {
     mockCallOverrides.worseOrgUnitSets = true
     mockCallOverrides.notLoadedOrgUnitSet = true
     render(
@@ -470,23 +564,23 @@ it('sorts a set with no data yet into its own group, not mixed in among the clea
     await waitFor(() =>
         expect(screen.getByText('Not loaded set')).toBeInTheDocument()
     )
-    const names = screen
+    const firstName = screen
         .getAllByRole('button')
         .map((b) => b.textContent ?? '')
-        .filter((t) => t.includes('set') || t.includes('Ownership'))
+        .find((t) => t.includes('set') || t.includes('Ownership'))
     // "Clean set" is filtered out entirely by the default "only sets with
     // issues" view -- it has no issues and hasData is true. "Not loaded
     // set" has no issues either, but shows anyway (the filter always shows
     // !hasData entries); it must not have landed among the (invisible,
     // filtered-out) clean sets by sort order -- it belongs ahead of every
     // loaded set, worst-first-sorted or not.
-    expect(names[0]).toContain('Not loaded set')
+    expect(firstName).toContain('Not loaded set')
 })
 
 // Minor 9 (fix round 1): the "own group" from the test above must reach
 // the user as a visible label, not only as a code comment -- the card's
 // "Loading…" text alone does not say why the set is sorted where it is.
-it('says why the not-yet-loaded group is separate, as visible text', async () => {
+test('says why the not-yet-loaded group is separate, as visible text', async () => {
     mockCallOverrides.worseOrgUnitSets = true
     mockCallOverrides.notLoadedOrgUnitSet = true
     render(
@@ -500,11 +594,32 @@ it('says why the not-yet-loaded group is separate, as visible text', async () =>
     expect(screen.getByText(/still loading/i)).toBeInTheDocument()
 })
 
+test('M9b: the sets of a type that failed to load show the failure, not "Loading…"', async () => {
+    mockCallOverrides.notLoadedOrgUnitSet = true
+    mockStatus = {
+        ...baseStatus,
+        errors: { organisationUnit: 'organisationUnits request failed' },
+    }
+    render(
+        <MemoryRouter>
+            <Dashboard />
+        </MemoryRouter>
+    )
+    await waitFor(() =>
+        expect(screen.getByText('Not loaded set')).toBeInTheDocument()
+    )
+    expect(
+        screen.getByText('This group set could not be loaded')
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument()
+    expect(screen.queryByText(/still loading/i)).not.toBeInTheDocument()
+})
+
 // Manual review 2: the Show choice (and the type and sort choices beside
 // it) lived only in component state, so opening a group set and coming back
 // reset the dashboard to "Only sets with issues" every time. Leaving the
 // page is an unmount; the choice has to come back on the next mount.
-it('keeps the Show choice across leaving and returning to the dashboard', async () => {
+test('keeps the Show choice across leaving and returning to the dashboard', async () => {
     const first = render(
         <MemoryRouter>
             <Dashboard />
@@ -532,7 +647,7 @@ it('keeps the Show choice across leaving and returning to the dashboard', async 
     expect(screen.queryByText('Only sets with issues')).not.toBeInTheDocument()
 })
 
-it('filters the sections by object type (spec 5.1)', async () => {
+test('filters the sections by object type (spec 5.1)', async () => {
     mockCallOverrides.dataElementSets = true
     render(
         <MemoryRouter>
@@ -557,7 +672,7 @@ it('filters the sections by object type (spec 5.1)', async () => {
     expect(screen.getByText('Element set')).toBeInTheDocument()
 })
 
-it('says a type has no group sets instead of leaving the content area blank', async () => {
+test('says a type has no group sets instead of leaving the content area blank', async () => {
     // `entries.indicator` is `[]` by default in this mock (see `entries`
     // above) -- an object type the engine reports as having settled with
     // no group sets at all, the same shape as the Laos and EHR databases
@@ -594,7 +709,7 @@ it('says a type has no group sets instead of leaving the content area blank', as
     ).toBeInTheDocument()
 })
 
-it('says which data source served the numbers (spec 8a)', async () => {
+test('says which data source served the numbers (spec 8a)', async () => {
     render(
         <MemoryRouter>
             <Dashboard />
@@ -613,7 +728,7 @@ it('says which data source served the numbers (spec 8a)', async () => {
 // substring: the source-kind note elsewhere on the page ("Data loaded from
 // the metadata API") also contains "Data" and would otherwise be picked up
 // as a sixth, unwanted match.
-it('renders its filter fields in the fixed order', () => {
+test('renders its filter fields in the fixed order', () => {
     render(
         <MemoryRouter>
             <Dashboard />
@@ -639,7 +754,7 @@ it('renders its filter fields in the fixed order', () => {
 // twice (once from FilterBarField's span, once from @dhis2-ui/field's own
 // Label, which is what reintroduced a second, differently-sized label
 // typography into the row last round).
-it('gives every field one label, not a second one from its own library control', () => {
+test('gives every field one label, not a second one from its own library control', () => {
     render(
         <MemoryRouter>
             <Dashboard />
@@ -659,7 +774,7 @@ it('gives every field one label, not a second one from its own library control',
 // is the only thing setting its height) and every SingleSelectField
 // carries `dense`. A `small` or `large` Button, or a non-dense select,
 // would silently reopen the two-height row this fix closes.
-it('keeps one height convention across the bar: no button size prop, every select dense', () => {
+test('keeps one height convention across the bar: no button size prop, every select dense', () => {
     render(
         <MemoryRouter>
             <Dashboard />
@@ -686,7 +801,7 @@ it('keeps one height convention across the bar: no button size prop, every selec
 // baseline default happens to be. Assertions are unchanged from before
 // Task 7: the help text is shown and the option carries the `disabled`
 // class.
-it('disables the not-yet-available usage sort, with help text explaining why', async () => {
+test('disables the not-yet-available usage sort, with help text explaining why', async () => {
     mockUsage.mockReturnValue({
         status: 'absent',
         error: null,
@@ -702,7 +817,7 @@ it('disables the not-yet-available usage sort, with help text explaining why', a
         expect(screen.getByText('Ownership')).toBeInTheDocument()
     )
     expect(
-        screen.getByText('Usage data is not installed on this instance')
+        screen.getByText('Usage data is not available to you')
     ).toBeInTheDocument()
 
     // The option list isn't mounted until the field is opened (matching
@@ -719,7 +834,7 @@ it('disables the not-yet-available usage sort, with help text explaining why', a
 // Task 7: once a usage view is installed and read, the option stops being
 // disabled and the field's helpText disappears -- the flip side of the
 // "absent" case just above.
-it('enables the usage sort, with no help text, once usage data is ready', async () => {
+test('enables the usage sort, with no help text, once usage data is ready', async () => {
     mockUsage.mockReturnValue({
         status: 'ready',
         error: null,
@@ -735,7 +850,7 @@ it('enables the usage sort, with no help text, once usage data is ready', async 
         expect(screen.getByText('Ownership')).toBeInTheDocument()
     )
     expect(
-        screen.queryByText('Usage data is not installed on this instance')
+        screen.queryByText('Usage data is not available to you')
     ).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByText('Issues'))
@@ -750,7 +865,7 @@ it('enables the usage sort, with no help text, once usage data is ready', async 
 // specific ('absent'/'error') wording -- and a transient state should not
 // explain itself at all, so neither string appears while the option stays
 // disabled.
-it('shows no help text for the usage sort while usage is still loading, but keeps the option disabled', async () => {
+test('shows no help text for the usage sort while usage is still loading, but keeps the option disabled', async () => {
     mockUsage.mockReturnValue({
         status: 'loading',
         error: null,
@@ -766,7 +881,7 @@ it('shows no help text for the usage sort while usage is still loading, but keep
         expect(screen.getByText('Ownership')).toBeInTheDocument()
     )
     expect(
-        screen.queryByText('Usage data is not installed on this instance')
+        screen.queryByText('Usage data is not available to you')
     ).not.toBeInTheDocument()
     expect(
         screen.queryByText('Usage data could not be read on this instance')
@@ -784,7 +899,7 @@ it('shows no help text for the usage sort while usage is still loading, but keep
 // Settings shows this case as "Usable" and the Usage tab says "could not
 // be read", so the dashboard must not tell the user to install a view
 // that is already there.
-it('shows the "could not be read" wording for an unreadable usage view, never the "not installed" wording', async () => {
+test('shows the "could not be read" wording for an unreadable usage view, never the "not installed" wording', async () => {
     mockUsage.mockReturnValue({
         status: 'error',
         error: 'HTTP 500',
@@ -803,7 +918,7 @@ it('shows the "could not be read" wording for an unreadable usage view, never th
         screen.getByText('Usage data could not be read on this instance')
     ).toBeInTheDocument()
     expect(
-        screen.queryByText('Usage data is not installed on this instance')
+        screen.queryByText('Usage data is not available to you')
     ).not.toBeInTheDocument()
 
     await userEvent.click(screen.getByText('Issues'))
@@ -819,7 +934,7 @@ it('shows the "could not be read" wording for an unreadable usage view, never th
 // used first)" as selected while the list had already silently fallen
 // back to worst-first -- the field and the actual order disagreeing about
 // which sort was in effect.
-it('returns the sort field to Issues if usage stops being ready after the usage sort was chosen', async () => {
+test('returns the sort field to Issues if usage stops being ready after the usage sort was chosen', async () => {
     mockUsage.mockReturnValue({
         status: 'ready',
         error: null,
@@ -862,7 +977,7 @@ it('returns the sort field to Issues if usage stops being ready after the usage 
 // Task 7 / spec 3.5 amendment: the option only answers one question --
 // which sets nothing references any more -- so it sorts least-used-first,
 // and its label says so rather than making the user try it.
-it('sorts the least used set first when the usage sort is chosen', async () => {
+test('sorts the least used set first when the usage sort is chosen', async () => {
     mockCallOverrides.usageSortSets = true
     const usageById: Record<
         string,
@@ -909,7 +1024,7 @@ it('sorts the least used set first when the usage sort is chosen', async () => {
 // Task 7: choosing the usage sort must not change the default -- a user
 // arriving to triage errors still sees the worst set first until they
 // deliberately pick "Usage (least used first)".
-it('keeps worst-first as the default order', async () => {
+test('keeps worst-first as the default order', async () => {
     mockCallOverrides.usageDefaultOrderSets = true
     mockUsage.mockReturnValue({
         status: 'ready',

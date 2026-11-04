@@ -1,9 +1,10 @@
 /// <reference lib="webworker" />
-import { EngineRequest, EngineResponse } from './protocol'
+import type { EngineRequest, EngineResponse } from './protocol'
 import { EngineStore } from './store'
 
 const store = new EngineStore()
 
+// oxlint-disable-next-line unicorn/prefer-add-event-listener -- this module is the worker's only message handler
 self.onmessage = (event: MessageEvent<EngineRequest>) => {
     // The id is read inside the try along with everything else: a malformed
     // message (e.g. one that fails structured clone validation, or is
@@ -24,7 +25,7 @@ self.onmessage = (event: MessageEvent<EngineRequest>) => {
             throw new Error(`Unknown engine method ${method}`)
         }
         const result = fn.apply(store, args)
-        response = { id, ok: true, result }
+        response = { id, ok: true, result, revision: store.revision }
     } catch (error) {
         if (id === undefined) {
             throw error
@@ -33,7 +34,9 @@ self.onmessage = (event: MessageEvent<EngineRequest>) => {
             id,
             ok: false,
             error: error instanceof Error ? error.message : String(error),
+            revision: store.revision,
         }
     }
+    // oxlint-disable-next-line unicorn/require-post-message-target-origin -- a worker's postMessage goes to its owner and takes no target origin
     self.postMessage(response)
 }

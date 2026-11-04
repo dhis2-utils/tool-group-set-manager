@@ -2,7 +2,7 @@ import i18n from '@dhis2/d2-i18n'
 import { SingleSelect, SingleSelectOption } from '@dhis2/ui'
 import React from 'react'
 import styles from './MembershipControl.module.css'
-import { GroupMeta } from '@/engine/types'
+import type { GroupMeta } from '@/engine/types'
 import { interpolate } from '@/utils/interpolate'
 
 interface Props {
@@ -27,7 +27,8 @@ interface Props {
     onChange: (groupIndex: number) => void
 }
 
-const SEGMENTED_MAX = 5
+/** Up to this many groups the control is a row of buttons, above it a dropdown. */
+export const SEGMENTED_MAX = 5
 
 // One complete, translatable sentence with a placeholder, filled in
 // afterwards -- not two translated fragments joined around the group name in
@@ -57,6 +58,7 @@ export const MembershipControl = ({
     const isConflict = current.length > 1
     if (groups.length <= SEGMENTED_MAX) {
         return (
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- role=group gives the segmented control group semantics without a fieldset's border and legend layout
             <span className={styles.seg} role="group">
                 {groups.map((g, i) => {
                     const state = current.includes(i)
@@ -79,6 +81,7 @@ export const MembershipControl = ({
                             type="button"
                             className={styles.segButton}
                             data-state={state}
+                            data-read-only={!g.canWrite}
                             disabled={optionDisabled}
                             title={title}
                             onClick={() => onChange(i)}
@@ -109,6 +112,7 @@ export const MembershipControl = ({
             title={disabled && disabledReason ? disabledReason : undefined}
         >
             <SingleSelect
+                className={styles.select}
                 dense
                 disabled={disabled}
                 selected={selected}

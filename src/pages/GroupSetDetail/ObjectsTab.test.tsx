@@ -15,6 +15,7 @@ const mockObjectsTableMount = jest.fn()
 jest.mock('@/components/ObjectsTable/ObjectsTable', () => {
     // babel-plugin-jest-hoist forbids a factory from closing over anything
     // not prefixed `mock`, the imported `React` included.
+    // oxlint-disable-next-line typescript/consistent-type-imports -- the jest.mock factory may not close over imports, so the module type is named inline
     const { useEffect } = jest.requireActual<typeof import('react')>('react')
     return {
         ObjectsTable: (props: unknown) => {
@@ -60,7 +61,7 @@ afterEach(() => {
     jest.useRealTimers()
 })
 
-it('shows the pending value in the input immediately, before the debounce fires', () => {
+test('shows the pending value in the input immediately, before the debounce fires', () => {
     render(
         <ObjectsTab
             set={set}
@@ -80,7 +81,7 @@ it('shows the pending value in the input immediately, before the debounce fires'
     expect(lastFilterSent()).toEqual({})
 })
 
-it('debounces rapid typing into a single filter update, 300ms after the last keystroke', () => {
+test('debounces rapid typing into a single filter update, 300ms after the last keystroke', () => {
     const onFilter = jest.fn()
     render(
         <ObjectsTab
@@ -119,7 +120,7 @@ it('debounces rapid typing into a single filter update, 300ms after the last key
     expect(onFilter).toHaveBeenCalledWith({ text: 'cli' })
 })
 
-it('clearing the query restores the unfiltered filter', () => {
+test('clearing the query restores the unfiltered filter', () => {
     const onFilter = jest.fn()
     render(
         <ObjectsTab
@@ -140,7 +141,7 @@ it('clearing the query restores the unfiltered filter', () => {
     expect(onFilter).toHaveBeenCalledWith({ text: undefined })
 })
 
-it('does not call onFilter on mount, or after any render where the search input still matches the current filter', () => {
+test('does not call onFilter on mount, or after any render where the search input still matches the current filter', () => {
     // m1: the debounce effect used to fire unconditionally 300ms after
     // every render, including the very first -- a filter update the user
     // never asked for, on every visit to the Objects tab. Harmless only by
@@ -163,7 +164,7 @@ it('does not call onFilter on mount, or after any render where the search input 
     expect(onFilter).not.toHaveBeenCalled()
 })
 
-it('applies the debounced search on top of whichever filter is current when it fires, not a stale one', () => {
+test('applies the debounced search on top of whichever filter is current when it fires, not a stale one', () => {
     const onFilter = jest.fn()
     const { rerender } = render(
         <ObjectsTab

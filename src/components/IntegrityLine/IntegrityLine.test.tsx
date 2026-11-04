@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import React from 'react'
 import { IntegrityLine } from './IntegrityLine'
-import { ResolvedCheck, CheckSummary } from '@/data/integrity'
+import type { ResolvedCheck, CheckSummary } from '@/data/integrity'
 
 const check: ResolvedCheck = {
     logical: 'orgUnitsMissingCompulsory',
@@ -11,7 +11,7 @@ const check: ResolvedCheck = {
     isSlow: false,
 }
 
-it('renders the check name, the count, the run time and that it spans every group set', () => {
+test('renders the check name, the count, the run time and that it spans every group set', () => {
     const summary: CheckSummary = {
         name: check.name,
         count: 5,
@@ -40,7 +40,7 @@ it('renders the check name, the count, the run time and that it spans every grou
 // History, ChangeSetPreview) formats with `.toLocaleString()` -- this is
 // the exact inconsistency Task 8 item 4 existed to remove, and it missed
 // this file.
-it('thousands-formats the count', () => {
+test('thousands-formats the count', () => {
     const summary: CheckSummary = {
         name: check.name,
         count: 12345,
@@ -50,7 +50,7 @@ it('thousands-formats the count', () => {
     expect(screen.getByText(/12,345/)).toBeInTheDocument()
 })
 
-it('uses the singular wording for a count of exactly one', () => {
+test('uses the singular wording for a count of exactly one', () => {
     const summary: CheckSummary = {
         name: check.name,
         count: 1,
@@ -61,7 +61,7 @@ it('uses the singular wording for a count of exactly one', () => {
     expect(screen.queryByText(/1 objects\b/)).not.toBeInTheDocument()
 })
 
-it('says a never-run check has not run, names the check, and shows no time or count', () => {
+test('says a never-run check has not run, names the check, and shows no time or count', () => {
     const summary: CheckSummary = {
         name: check.name,
         count: 0,
@@ -77,7 +77,7 @@ it('says a never-run check has not run, names the check, and shows no time or co
     expect(screen.queryByText(/\b0\b/)).not.toBeInTheDocument()
 })
 
-it('shows a stale marker when the result predates a write this session', () => {
+test('shows a stale marker when the result predates a write this session', () => {
     const summary: CheckSummary = {
         name: check.name,
         count: 5,
@@ -87,7 +87,7 @@ it('shows a stale marker when the result predates a write this session', () => {
     expect(screen.getByText(/stale/i)).toBeInTheDocument()
 })
 
-it('shows no stale marker when the result is current', () => {
+test('shows no stale marker when the result is current', () => {
     const summary: CheckSummary = {
         name: check.name,
         count: 5,

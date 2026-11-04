@@ -1,25 +1,22 @@
-import { GroupChange } from './changeSet'
-import { buildHierarchy, Hierarchy } from './hierarchy'
-import { buildSetMembership, groupsOf, SetMembership } from './membership'
-import { ObjectAttributes, populationFor } from './population'
-import { MembershipsPayload, ObjectsPayload } from './protocol'
-import {
-    listObjects,
-    matrix,
-    MatrixRow,
-    ObjectFilter,
-    SetSummary,
-    summarize,
-} from './queries'
+import type { GroupChange } from './changeSet'
+import type { Hierarchy } from './hierarchy'
+import { buildHierarchy } from './hierarchy'
+import type { SetMembership } from './membership'
+import { buildSetMembership, groupsOf } from './membership'
+import type { ObjectAttributes } from './population'
+import { populationFor } from './population'
+import type { MembershipsPayload, ObjectsPayload } from './protocol'
+import type { MatrixRow, ObjectFilter, SetSummary } from './queries'
+import { listObjects, matrix, summarize } from './queries'
 import { evaluateSet } from './rules'
-import {
-    DEFAULT_CONFIG,
+import type {
     EngineConfig,
     GroupMeta,
     GroupSetMeta,
     ObjectType,
     Status,
 } from './types'
+import { DEFAULT_CONFIG } from './types'
 
 export interface ScopeRef {
     objectType: ObjectType
@@ -77,6 +74,13 @@ export interface ObjectsResult {
      * a second time, duplicating rows and overshooting `total`.
      */
     offset: number
+    /**
+     * Whether the engine's list has rows after this page. A caller that
+     * pages by cursor (`after`) cannot compare its own row count with
+     * `total`: it keeps rows an inline fix has since moved out of the
+     * filter, so its count and the engine's list no longer line up.
+     */
+    hasMore: boolean
     items: (ObjectRef & { status: Status; groups: number[] })[]
 }
 
@@ -122,10 +126,19 @@ export class EngineStore {
     private groupSets: GroupSetMeta[] = []
     private config: EngineConfig = DEFAULT_CONFIG
     private sets = new Map<string, SetState>()
+    /**
+     * Bumped by every method that changes what a query would answer
+     * (evaluating, applying a change, dropping or resetting data, renaming).
+     * The worker sends it back with every response, so a view on the main
+     * thread can re-ask its question after any such change -- a write or a
+     * late `setConfig` -- not only when the load phase moves.
+     */
+    revision = 0
 
     reset(): void {
         this.types.clear()
         this.sets.clear()
+        this.revision++
     }
 
     /**
@@ -144,6 +157,7 @@ export class EngineStore {
                 this.sets.delete(id)
             }
         }
+        this.revision++
     }
 
     loadObjects(p: ObjectsPayload): void {
@@ -194,6 +208,7 @@ export class EngineStore {
         if (t) {
             t.names = names
             t.namesLowerCache = undefined
+            this.revision++
         }
     }
 
@@ -269,7 +284,7 @@ export class EngineStore {
                     set.add(id)
                 }
             })
-            t.membersByGroup.set(change.groupId, Array.from(set))
+            t.membersByGroup.set(change.groupId, [...set])
         })
         // M5: only the group sets that actually contain one of the groups
         // this change named can have changed -- a set's membership and
@@ -286,6 +301,7 @@ export class EngineStore {
                 this.evaluateOne(set)
             }
         })
+        this.revision++
     }
 
     /**
@@ -333,6 +349,7 @@ export class EngineStore {
                 this.evaluateOne(set)
             }
         })
+        this.revision++
     }
 
     /** Rebuilds membership and status for every set whose object type is loaded. */
@@ -341,6 +358,7 @@ export class EngineStore {
         this.groupSets.forEach((set) => {
             this.evaluateOne(set)
         })
+        this.revision++
     }
 
     /** One set's rebuild -- see `evaluate` and, for why it is callable on
@@ -405,6 +423,13 @@ export class EngineStore {
         return this.groupSets
             .filter((set) => set.objectType === scope.objectType)
             .map((set) => {
+                // A set with no groups has nothing to check, and loadAll
+                // never loads a type whose sets all have none -- so waiting
+                // for its data would show "Loading…" forever. The card says
+                // the set has no groups instead.
+                if (set.groups.length === 0) {
+                    return { set, summary: EMPTY_SUMMARY, hasData: true }
+                }
                 const state = this.sets.get(set.id)
                 const t = this.types.get(set.objectType)
                 if (!state || !t) {
@@ -465,17 +490,13 @@ export class EngineStore {
         }
     }
 
-    indexOf(objectType: ObjectType, id: string): number {
-        return this.types.get(objectType)?.indexOf.get(id) ?? -1
-    }
-
     /**
-     * I3: the batched form. History's Export resolves every id in a change
-     * set, and a national fix's change set is unbounded -- the writer's own
-     * doc comment names a hundred thousand memberships. One `indexOf` call
-     * per id is a hundred thousand sequential worker round-trips and
-     * minutes of frozen UI; the map is already here, so one call answers
-     * the lot. Unknown ids (and an unloaded type) give -1 in place, so the
+     * I3: resolves ids to indexes in one call. History's Export resolves
+     * every id in a change set, and a national fix's change set is
+     * unbounded -- the writer's own doc comment names a hundred thousand
+     * memberships. One call per id is a hundred thousand sequential worker
+     * round-trips and minutes of frozen UI; the map is already here, so one
+     * call answers the lot. Unknown ids (and an unloaded type) give -1 in place, so the
      * result is positionally aligned with `ids`.
      */
     indexesOf(objectType: ObjectType, ids: string[]): number[] {
@@ -572,7 +593,7 @@ export class EngineStore {
         const targetIndex = state.set.groups.findIndex(
             (g) => g.id === targetGroupId
         )
-        if (targetIndex < 0) {
+        if (targetIndex === -1) {
             throw new Error(
                 `Unknown target group ${targetGroupId} in set ${setId}`
             )
@@ -603,8 +624,7 @@ export class EngineStore {
         let skippedCount = 0
         let affected = 0
 
-        for (let k = 0; k < indexes.length; k++) {
-            const idx = indexes[k]
+        for (const idx of indexes) {
             const id = t.ids[idx]
             const positions = groupsOf(state.membership, idx)
             if (positions.length === 1 && positions[0] === targetIndex) {
@@ -640,7 +660,7 @@ export class EngineStore {
         if (additions.size > 0) {
             changes.push({
                 groupId: targetGroupId,
-                additions: Array.from(additions),
+                additions: [...additions],
                 deletions: [],
             })
         }
@@ -648,7 +668,7 @@ export class EngineStore {
             changes.push({
                 groupId: state.set.groups[position].id,
                 additions: [],
-                deletions: Array.from(ids),
+                deletions: [...ids],
             })
         })
 
@@ -778,12 +798,26 @@ export class EngineStore {
         return { changes: revertChanges, affected, skippedCount, skippedSample }
     }
 
+    /**
+     * One page of the filtered list. With `after` (the id of the last row
+     * the caller holds) the page starts right after that object in the
+     * list's own order, wherever it now sits; otherwise at `offset`.
+     *
+     * The cursor is what keeps an inline fix from skipping a row: the fix
+     * moves its object out of a filtered list, so every later object shifts
+     * up one position, and the next page asked for by offset started one
+     * row too far. The cursor object itself may be out of the list by then;
+     * its position in the list's order is still defined (pre-order in the
+     * hierarchy, or the index for a flat type), so a binary search finds
+     * the first object after it either way.
+     */
     objectsFor(
         setId: string,
         scope: ScopeRef,
         filter: ObjectFilter,
         offset: number,
-        limit: number
+        limit: number,
+        after: string | null = null
     ): ObjectsResult {
         const { state, t } = this.setState(setId)
         const all = listObjects(
@@ -795,10 +829,16 @@ export class EngineStore {
             t.ids,
             this.namesLower(t)
         )
-        const slice = all.subarray(offset, offset + limit)
+        const cursor = after === null ? undefined : t.indexOf.get(after)
+        const start =
+            cursor === undefined
+                ? offset
+                : firstAfter(all, cursor, t.hierarchy?.order ?? null)
+        const slice = all.subarray(start, start + limit)
         return {
             total: all.length,
             offset,
+            hasMore: start + limit < all.length,
             items: Array.from(slice, (index) => ({
                 ...this.ref(t, index),
                 status: state.status[index] as Status,
@@ -806,4 +846,31 @@ export class EngineStore {
             })),
         }
     }
+}
+
+/**
+ * The position in `list` of the first object that comes after `cursor` in
+ * the list's order. `listObjects` returns objects in pre-order when the type
+ * has a hierarchy (`order[i]` is object `i`'s pre-order position) and in
+ * index order when it has none, so `list` is sorted by that key and a binary
+ * search finds the boundary without allocating anything.
+ */
+function firstAfter(
+    list: Int32Array,
+    cursor: number,
+    order: Int32Array | null
+): number {
+    const key = order ? order[cursor] : cursor
+    let lo = 0
+    let hi = list.length
+    while (lo < hi) {
+        const mid = (lo + hi) >>> 1
+        const at = order ? order[list[mid]] : list[mid]
+        if (at <= key) {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
 }

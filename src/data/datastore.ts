@@ -1,5 +1,6 @@
-import { fetchJson, Fetcher } from './sources/DataSource'
-import { ChangeSet } from '@/engine/changeSet'
+import type { Fetcher } from './sources/DataSource'
+import { fetchJson } from './sources/DataSource'
+import type { ChangeSet } from '@/engine/changeSet'
 
 export const NAMESPACE = 'group-set-integrity'
 
@@ -38,17 +39,14 @@ async function readDocument<T>(
 }
 
 /**
- * Reads one document for the read-modify-write path in front of a shared-
- * document save (`saveCatchAllGroup`). Unlike
- * `readDocument`, only a 404 -- the document genuinely does not exist yet
- * -- is treated as absent here. A transient 403, a 500, or a dropped
- * connection must not be read the same way: the write that follows would
- * merge the new entry into an empty object and silently erase every other
- * group set's saved value. Refusing to save while the dataStore is
- * briefly unreachable is the correct behaviour, so anything but a 404 is
- * rethrown to the caller instead of swallowed.
+ * Reads one document whose absence and whose unreadability must not be
+ * confused. Unlike `readDocument`, only a 404 -- the document genuinely
+ * does not exist yet -- is treated as absent here. A transient 403, a 500,
+ * or a dropped connection is rethrown: a clear that read "absent" from a
+ * briefly unreachable dataStore would skip the tombstone it needs to
+ * write, and the cleared value would come back from the legacy document.
  */
-async function readCurrentForMerge<T>(
+async function readOrAbsent<T>(
     fetcher: Fetcher,
     key: string
 ): Promise<T | undefined> {
@@ -57,9 +55,7 @@ async function readCurrentForMerge<T>(
         return undefined
     }
     if (!response.ok) {
-        throw new Error(
-            `Failed to read ${key} before saving: HTTP ${response.status}`
-        )
+        throw new Error(`Failed to read ${key}: HTTP ${response.status}`)
     }
     return (await response.json()) as T
 }
@@ -101,74 +97,131 @@ async function listKeys(fetcher: Fetcher): Promise<string[]> {
 }
 
 /**
+ * The document every group set's catch-all group was stored in together,
+ * keyed by set id, before each set got a key of its own. Still read, so a
+ * choice saved by an earlier version keeps working, but never written: two
+ * admins saving different sets at once each read it, added their entry and
+ * wrote it back, and whichever wrote second erased the other's entry.
+ */
+const LEGACY_CATCH_ALL_KEY = 'config-catch-all'
+
+/** One group set's catch-all choice lives under `config-catch-all-<setId>`. */
+const CATCH_ALL_KEY_PREFIX = `${LEGACY_CATCH_ALL_KEY}-`
+
+function catchAllKey(setId: string): string {
+    return `${CATCH_ALL_KEY_PREFIX}${setId}`
+}
+
+/**
+ * A per-set document. `groupId: null` is a tombstone: the set was cleared
+ * while the legacy document still names a group for it, and the per-set
+ * key always wins, so the tombstone is what keeps the legacy value from
+ * coming back. Rewriting the legacy document to drop the entry instead
+ * would reopen the read-modify-write race this layout removes.
+ */
+interface CatchAllDocument {
+    groupId: string | null
+}
+
+/**
  * Reads the config documents, merging each over its default. Never throws:
  * a document that is absent, unreadable, or unreachable reads as "not
  * configured yet" rather than a load failure, because a fresh instance has
  * no namespace at all until something is first saved to it.
+ *
+ * Catch-all groups come from the legacy shared document first, then each
+ * per-set document over it, so a set saved since the split wins over what
+ * the shared document says about it.
  */
 export async function loadConfig(fetcher: Fetcher): Promise<GsiConfig> {
-    const [catchAllGroup, general] = await Promise.all([
-        readDocument<Record<string, string>>(fetcher, 'config-catch-all'),
+    const perSetKeys = (await listKeys(fetcher)).filter((k) =>
+        k.startsWith(CATCH_ALL_KEY_PREFIX)
+    )
+    const [legacy, general, perSet] = await Promise.all([
+        readDocument<Record<string, string>>(fetcher, LEGACY_CATCH_ALL_KEY),
         readDocument<{ includeTracker?: boolean }>(fetcher, 'config-general'),
+        Promise.all(
+            perSetKeys.map(
+                async (key) =>
+                    [
+                        key.slice(CATCH_ALL_KEY_PREFIX.length),
+                        await readDocument<CatchAllDocument>(fetcher, key),
+                    ] as const
+            )
+        ),
     ])
+    const catchAllGroup: Record<string, string> = {
+        ...DEFAULT_CONFIG.catchAllGroup,
+        ...legacy,
+    }
+    for (const [setId, document] of perSet) {
+        if (!document) {
+            continue
+        }
+        if (typeof document.groupId === 'string' && document.groupId) {
+            catchAllGroup[setId] = document.groupId
+        } else {
+            delete catchAllGroup[setId]
+        }
+    }
     return {
-        catchAllGroup: catchAllGroup ?? DEFAULT_CONFIG.catchAllGroup,
+        catchAllGroup,
         includeTracker:
             general?.includeTracker ?? DEFAULT_CONFIG.includeTracker,
     }
 }
 
 /**
- * config-catch-all holds every group set's catch-all group together, keyed
- * by set id, so saving one set's choice must read the current document
- * first to avoid erasing the others' entries.
+ * Saves one group set's catch-all group under that set's own key, so two
+ * admins saving different sets at the same moment can no longer erase each
+ * other's entry: there is no shared document left to read, modify and
+ * write back.
  */
 export async function saveCatchAllGroup(
     fetcher: Fetcher,
     setId: string,
     groupId: string
 ): Promise<void> {
-    const current =
-        (await readCurrentForMerge<Record<string, string>>(
-            fetcher,
-            'config-catch-all'
-        )) ?? {}
-    await writeDocument(fetcher, 'config-catch-all', {
-        ...current,
-        [setId]: groupId,
-    })
+    const document: CatchAllDocument = { groupId }
+    await writeDocument(fetcher, catchAllKey(setId), document)
 }
 
 /**
- * Removes one group set's catch-all entry, leaving every other set's alone.
+ * Removes one group set's catch-all choice, leaving every other set's alone.
  *
- * "No catch-all group" is the absence of the key, not an empty string
- * stored under it: `loadConfig` merges this document over a `{}` default,
- * every reader asks `config.catchAllGroup[setId]` and treats `undefined` as
- * "not configured", and the bulk fix dialog then falls back to matching a
- * group by name (`CATCH_ALL_NAME_PATTERN`). Writing `''` instead would make
- * a cleared set look configured-with-nothing to code that only checks for
- * presence, so a cleared set is byte-identical to one that was never set.
+ * "No catch-all group" is the absence of the entry in `GsiConfig`, not an
+ * empty string stored under it: every reader asks
+ * `config.catchAllGroup[setId]` and treats `undefined` as "not configured",
+ * and the bulk fix dialog then falls back to matching a group by name
+ * (`CATCH_ALL_NAME_PATTERN`).
  *
- * A set with no entry writes nothing at all: the document is shared by
- * every group set, and a no-op PUT would still be a chance to lose a
- * concurrent editor's entry for no benefit.
+ * When the legacy shared document still names a group for this set, the
+ * per-set key is written as a tombstone (`groupId: null`) rather than
+ * deleted, so the legacy value does not come back on the next load.
+ * Without a legacy entry the per-set key is simply deleted. Neither path
+ * writes the shared document.
  */
 export async function clearCatchAllGroup(
     fetcher: Fetcher,
     setId: string
 ): Promise<void> {
-    const current =
-        (await readCurrentForMerge<Record<string, string>>(
-            fetcher,
-            'config-catch-all'
-        )) ?? {}
-    if (!(setId in current)) {
+    const legacy = await readOrAbsent<Record<string, string>>(
+        fetcher,
+        LEGACY_CATCH_ALL_KEY
+    )
+    if (legacy && setId in legacy) {
+        const tombstone: CatchAllDocument = { groupId: null }
+        await writeDocument(fetcher, catchAllKey(setId), tombstone)
         return
     }
-    const rest = { ...current }
-    delete rest[setId]
-    await writeDocument(fetcher, 'config-catch-all', rest)
+    const response = await fetcher(keyPath(catchAllKey(setId)), {
+        method: 'DELETE',
+    })
+    if (!response.ok && response.status !== 404) {
+        throw new Error(
+            `Failed to clear ${catchAllKey(setId)}: HTTP ${response.status}`
+        )
+    }
 }
 
 export async function saveIncludeTracker(
@@ -247,34 +300,21 @@ export async function saveChangeSet(
     await writeDocument(fetcher, `history-${changeSet.id}`, changeSet)
 }
 
-const PROBE_KEY = 'write-probe'
-
 /**
- * Whether the current user can write to the namespace, found out by
- * actually writing and then deleting a dedicated probe key rather than
- * inferred from a read. A dataStore key exposes created/last-updated
- * metadata but no per-namespace sharing object, so there is nothing to
- * consult that would tell a read-only user from a read-write one without
- * trying -- and inferring write access from read access risks telling a
- * read-only user they may write, only to have the real write fail later.
- * The cleanup delete is best-effort: the write already answered the
- * question, so a delete that fails leaves a harmless leftover key rather
- * than changing the answer.
- *
- * This costs a network round trip (two, when cleanup also succeeds), so
- * it is meant for a one-off check -- gating the Settings page -- and not
- * something to call before every load.
+ * Deletes a change set's document. Used only for a pending record that
+ * turned out to describe nothing (the write it was saved in front of
+ * confirmed no change at all), so a 404 counts as done.
  */
-export async function canWriteDataStore(fetcher: Fetcher): Promise<boolean> {
-    try {
-        await writeDocument(fetcher, PROBE_KEY, null)
-    } catch {
-        return false
+export async function deleteChangeSet(
+    fetcher: Fetcher,
+    id: string
+): Promise<void> {
+    const response = await fetcher(keyPath(`history-${id}`), {
+        method: 'DELETE',
+    })
+    if (!response.ok && response.status !== 404) {
+        throw new Error(
+            `Failed to delete history-${id}: HTTP ${response.status}`
+        )
     }
-    try {
-        await fetcher(keyPath(PROBE_KEY), { method: 'DELETE' })
-    } catch {
-        // Best-effort cleanup; see doc comment above.
-    }
-    return true
 }

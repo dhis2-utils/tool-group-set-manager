@@ -1,8 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { History } from './History'
-import { ChangeSet } from '@/engine/changeSet'
-import { GroupSetMeta } from '@/engine/types'
+import type { RestrictedGroupSet } from '@/data/groupSets'
+import type { ChangeSet } from '@/engine/changeSet'
+import type { GroupSetMeta } from '@/engine/types'
+import { actAndFlush } from '@/testing/actAndFlush'
 
 jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://server', apiVersion: 42 }),
@@ -43,6 +45,7 @@ const ownershipSet: GroupSetMeta = {
 }
 
 let mockGroupSets: GroupSetMeta[] = [ownershipSet]
+let mockRestrictedSets: RestrictedGroupSet[] = []
 // True in every test but the two that specifically exercise the
 // still-loading tri-state: most of this file's tests set up `mockGroupSets`
 // as if the engine has already finished its first load.
@@ -54,10 +57,13 @@ const mockClientCall = jest.fn()
 // make any effect keyed on `client` (RevertDialog's plan-loading effect)
 // refire on every render this component tree does, however unrelated.
 const mockClient = { call: mockClientCall }
+const mockReload = jest.fn(() => Promise.resolve(undefined))
 jest.mock('@/hooks/useEngine', () => ({
     useEngine: () => ({
         client: mockClient,
+        reload: mockReload,
         groupSets: mockGroupSets,
+        restrictedSets: mockRestrictedSets,
         groupSetsLoaded: mockGroupSetsLoaded,
         error: mockEngineError,
     }),
@@ -72,10 +78,56 @@ jest.mock('@/hooks/useMembershipWrite', () => ({
     }),
 }))
 
+// Finding M1: the revert dialog re-reads the touched groups before writing.
+// A fake server answering `filter=id:in:[…]` reads from `mockServer`, which
+// each test can change; the default agrees with `plan()` below (a1 is in
+// "other" and not in "pub"), so nothing has drifted.
+let mockServer: Record<string, string[]> = {}
+let mockSetProperties = { compulsory: false, dataDimension: true }
+const mockFetcher = jest.fn((path: string) => {
+    if (path.startsWith('organisationUnitGroupSets/')) {
+        return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve(mockSetProperties),
+        } as unknown as Response)
+    }
+    const groupId = /Groups\/([^/]+)\//.exec(path)?.[1] ?? ''
+    const asked =
+        /id:in:\[([^\]]*)\]/.exec(decodeURIComponent(path))?.[1].split(',') ??
+        []
+    const held = new Set(mockServer[groupId] ?? [])
+    return Promise.resolve(
+        // jsdom has no `Response`; this is the part of one the reader uses.
+        {
+            ok: true,
+            status: 200,
+            json: () =>
+                Promise.resolve({
+                    organisationUnits: asked
+                        .filter((id) => held.has(id))
+                        .map((id) => ({ id })),
+                }),
+        } as unknown as Response
+    )
+})
+jest.mock('@/data/fetcher', () => ({
+    createFetcher: () => mockFetcher,
+}))
+
+const mockPropertiesWrite = jest.fn()
+jest.mock('@/hooks/useSetPropertiesWrite', () => ({
+    useSetPropertiesWrite: () => ({
+        write: (...args: unknown[]) => mockPropertiesWrite(...args),
+        isWriting: false,
+    }),
+}))
+
 function changeSet(overrides: Partial<ChangeSet> = {}): ChangeSet {
     return {
         id: 'cs1',
-        createdAt: '2024-01-01T00:00:00.000Z',
+        // Inside the 24-hour revert window.
+        createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
         createdBy: { id: 'u1', displayName: 'Ann Author' },
         objectType: 'organisationUnit',
         groupSetId: 'own',
@@ -128,8 +180,12 @@ function writeResult(
 
 beforeEach(() => {
     jest.clearAllMocks()
+    mockServer = { other: ['a1'] }
+    mockSetProperties = { compulsory: false, dataDimension: true }
+    mockPropertiesWrite.mockResolvedValue({ changeSet: {} })
     mockIsWriting = false
     mockGroupSets = [ownershipSet]
+    mockRestrictedSets = []
     mockGroupSetsLoaded = true
     mockEngineError = null
     mockChangeSets.changeSets = []
@@ -160,6 +216,25 @@ describe('History', () => {
         expect(screen.getByText('2 membership changes')).toBeInTheDocument()
     })
 
+    it('a change set older than 24 hours is listed and exportable, but cannot be reverted', () => {
+        mockChangeSets.changeSets = [
+            changeSet({
+                createdAt: new Date(
+                    Date.now() - 25 * 60 * 60 * 1000
+                ).toISOString(),
+            }),
+        ]
+        render(<History />)
+        expect(screen.getByText('Ownership')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled()
+        expect(
+            screen.queryByRole('button', { name: 'Revert' })
+        ).not.toBeInTheDocument()
+        expect(
+            screen.getByText('Can no longer be reverted (older than 24 hours)')
+        ).toBeInTheDocument()
+    })
+
     it('shows an empty-state message when there is no history yet', () => {
         render(<History />)
         expect(
@@ -175,12 +250,45 @@ describe('History', () => {
         mockChangeSets.changeSets = [changeSet({ groupSetId: 'gone' })]
         render(<History />)
         expect(screen.getByText('Ownership')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Revert' })).toBeDisabled()
+        // M12: the reason is visible text, not a tooltip on a disabled
+        // button that only a mouse can reach.
+        expect(
+            screen.queryByRole('button', { name: 'Revert' })
+        ).not.toBeInTheDocument()
         expect(
             screen.getByText(
                 'This group set no longer exists, so this change cannot be reverted from here'
             )
         ).toBeInTheDocument()
+    })
+
+    it('a change set for a set with groups the user cannot see is not revertable, and says why', () => {
+        mockGroupSets = []
+        mockRestrictedSets = [
+            {
+                id: 'own',
+                displayName: 'Ownership',
+                objectType: 'organisationUnit',
+                hiddenGroups: 1,
+                totalGroups: 2,
+            },
+        ]
+        mockGroupSetsLoaded = true
+        mockChangeSets.changeSets = [changeSet({ groupSetId: 'own' })]
+        render(<History />)
+        expect(
+            screen.queryByRole('button', { name: 'Revert' })
+        ).not.toBeInTheDocument()
+        expect(
+            screen.getByText(
+                'You cannot see all groups of this group set, so this change cannot be reverted from here'
+            )
+        ).toBeInTheDocument()
+        expect(
+            screen.queryByText(
+                'This group set no longer exists, so this change cannot be reverted from here'
+            )
+        ).not.toBeInTheDocument()
     })
 
     // The engine has not finished loading, so nothing is known about which
@@ -226,7 +334,14 @@ describe('History', () => {
                 'This group set no longer exists, so this change cannot be reverted from here'
             )
         ).not.toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Revert' })).toBeDisabled()
+        expect(
+            screen.getByText(
+                'Group set information could not be loaded, so this change cannot be reverted from here'
+            )
+        ).toBeInTheDocument()
+        expect(
+            screen.queryByRole('button', { name: 'Revert' })
+        ).not.toBeInTheDocument()
     })
 
     it('claims it once group sets have loaded and it is genuinely absent', async () => {
@@ -275,10 +390,11 @@ describe('History', () => {
         render(<History />)
         fireEvent.click(screen.getByRole('button', { name: 'Revert' }))
 
+        // The dialog's own Revert, enabled once its preview has loaded.
         await waitFor(() =>
             expect(
-                screen.getAllByRole('button', { name: 'Revert' }).length
-            ).toBeGreaterThan(1)
+                screen.getAllByRole('button', { name: 'Revert' })[1]
+            ).toBeEnabled()
         )
         const dialogRevertButton = screen.getAllByRole('button', {
             name: 'Revert',
@@ -421,10 +537,11 @@ describe('History', () => {
         )
         render(<History />)
         fireEvent.click(screen.getByRole('button', { name: 'Revert' }))
+        // The dialog's own Revert, enabled once its preview has loaded.
         await waitFor(() =>
             expect(
-                screen.getAllByRole('button', { name: 'Revert' }).length
-            ).toBeGreaterThan(1)
+                screen.getAllByRole('button', { name: 'Revert' })[1]
+            ).toBeEnabled()
         )
         fireEvent.click(screen.getAllByRole('button', { name: 'Revert' })[1])
 
@@ -448,10 +565,11 @@ describe('History', () => {
         )
         render(<History />)
         fireEvent.click(screen.getByRole('button', { name: 'Revert' }))
+        // The dialog's own Revert, enabled once its preview has loaded.
         await waitFor(() =>
             expect(
-                screen.getAllByRole('button', { name: 'Revert' }).length
-            ).toBeGreaterThan(1)
+                screen.getAllByRole('button', { name: 'Revert' })[1]
+            ).toBeEnabled()
         )
         fireEvent.click(screen.getAllByRole('button', { name: 'Revert' })[1])
         await waitFor(() =>
@@ -499,7 +617,7 @@ describe('History', () => {
             HTMLAnchorElement.prototype,
             'download',
             'set'
-        ).mockImplementation(function (this: HTMLAnchorElement, value: string) {
+        ).mockImplementation((value: string) => {
             downloadName = value
         })
         // jsdom's Blob has no usable `.text()` in this test environment, so
@@ -517,7 +635,7 @@ describe('History', () => {
             )
 
         render(<History />)
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: 'Export' }))
         })
         await waitFor(() => expect(clickSpy).toHaveBeenCalled())
@@ -583,7 +701,7 @@ describe('History', () => {
             .mockImplementation(() => undefined)
 
         render(<History />)
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: 'Export' }))
         })
         await waitFor(() => expect(clickSpy).toHaveBeenCalled())
@@ -593,6 +711,216 @@ describe('History', () => {
         )
         expect(engineCalls).toHaveLength(1)
         expect(engineCalls[0]).toEqual(['indexesOf', 'organisationUnit', ids])
+        clickSpy.mockRestore()
+    })
+})
+
+describe('History: interrupted writes (M3)', () => {
+    it('shows a pending change set as interrupted, with how much was confirmed, and still offers to revert it', () => {
+        mockChangeSets.changeSets = [
+            changeSet({
+                status: 'pending',
+                planned: 3,
+                changes: [
+                    { groupId: 'other', additions: ['a1'], deletions: [] },
+                ],
+            }),
+        ]
+        render(<History />)
+        expect(
+            screen.getByText(
+                'Interrupted or still running, 1 of 3 changes confirmed'
+            )
+        ).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Revert' })).toBeEnabled()
+    })
+
+    it('says in words why a pending change set with nothing confirmed cannot be reverted', () => {
+        mockChangeSets.changeSets = [
+            changeSet({ status: 'pending', planned: 2, changes: [] }),
+        ]
+        render(<History />)
+        expect(
+            screen.getByText(
+                'Nothing was confirmed before this change stopped, so there is nothing to revert'
+            )
+        ).toBeInTheDocument()
+        expect(
+            screen.queryByRole('button', { name: 'Revert' })
+        ).not.toBeInTheDocument()
+    })
+})
+
+describe('History: revert re-checks the server first (M1)', () => {
+    it('recomputes and re-confirms instead of writing when the objects changed since the page loaded', async () => {
+        // a1 is no longer in "other": someone moved it meanwhile.
+        mockServer = { other: [] }
+        mockChangeSets.changeSets = [changeSet()]
+        render(<History />)
+        fireEvent.click(screen.getByRole('button', { name: 'Revert' }))
+        await waitFor(() =>
+            expect(
+                screen.getAllByRole('button', { name: 'Revert' })[1]
+            ).toBeEnabled()
+        )
+        await actAndFlush(() => {
+            fireEvent.click(
+                screen.getAllByRole('button', { name: 'Revert' })[1]
+            )
+        })
+
+        expect(
+            await screen.findByText(
+                'The metadata changed while you were reviewing'
+            )
+        ).toBeInTheDocument()
+        expect(mockWrite).not.toHaveBeenCalled()
+        expect(mockClientCall).toHaveBeenCalledWith(
+            'applyChangeSet',
+            'organisationUnit',
+            [{ groupId: 'other', additions: [], deletions: ['a1'] }]
+        )
+        const planCalls = mockClientCall.mock.calls.filter(
+            ([method]) => method === 'planRevert'
+        )
+        expect(planCalls).toHaveLength(2)
+
+        // Clicking again, with nothing further changed, writes.
+        mockServer = { other: ['a1'] }
+        await actAndFlush(() => {
+            fireEvent.click(
+                screen.getAllByRole('button', { name: 'Revert' })[1]
+            )
+        })
+        await waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1))
+    })
+
+    it('writes nothing when the re-read fails', async () => {
+        mockFetcher.mockResolvedValueOnce({
+            ok: false,
+            status: 500,
+        } as unknown as Response)
+        mockChangeSets.changeSets = [changeSet()]
+        render(<History />)
+        fireEvent.click(screen.getByRole('button', { name: 'Revert' }))
+        await waitFor(() =>
+            expect(
+                screen.getAllByRole('button', { name: 'Revert' })[1]
+            ).toBeEnabled()
+        )
+        await actAndFlush(() => {
+            fireEvent.click(
+                screen.getAllByRole('button', { name: 'Revert' })[1]
+            )
+        })
+        expect(
+            await screen.findByText('The metadata could not be checked')
+        ).toBeInTheDocument()
+        expect(mockWrite).not.toHaveBeenCalled()
+    })
+})
+
+describe('History: group set property changes (M11)', () => {
+    const propertiesChange = (overrides: Partial<ChangeSet> = {}) =>
+        changeSet({
+            id: 'props1',
+            action: 'properties',
+            note: '',
+            changes: [],
+            properties: {
+                before: { compulsory: true },
+                after: { compulsory: false },
+            },
+            ...overrides,
+        })
+
+    it('lists the change with what it changed', () => {
+        mockChangeSets.changeSets = [propertiesChange()]
+        render(<History />)
+        expect(
+            screen.getByText('Changed group set properties')
+        ).toBeInTheDocument()
+        expect(screen.getByText('Compulsory turned off')).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Revert' })).toBeEnabled()
+    })
+
+    it('reverts by restoring the previous value, recorded as a revert of it', async () => {
+        mockChangeSets.changeSets = [propertiesChange()]
+        render(<History />)
+        fireEvent.click(screen.getByRole('button', { name: 'Revert' }))
+        expect(
+            await screen.findByText('Compulsory turned on')
+        ).toBeInTheDocument()
+        await actAndFlush(() => {
+            fireEvent.click(
+                screen.getAllByRole('button', { name: 'Revert' })[1]
+            )
+        })
+
+        await waitFor(() => expect(mockPropertiesWrite).toHaveBeenCalled())
+        expect(mockPropertiesWrite.mock.calls[0][0]).toMatchObject({
+            before: { compulsory: false },
+            after: { compulsory: true },
+            action: 'revert',
+            revertOf: 'props1',
+        })
+        expect(
+            await screen.findByText('The group set was updated on the server.')
+        ).toBeInTheDocument()
+        expect(mockChangeSets.reload).toHaveBeenCalled()
+        expect(mockReload).toHaveBeenCalledWith(false)
+    })
+
+    it('leaves a property alone that someone has changed again since', async () => {
+        // The server no longer holds the value the change set wrote.
+        mockSetProperties = { compulsory: true, dataDimension: true }
+        mockChangeSets.changeSets = [propertiesChange()]
+        render(<History />)
+        fireEvent.click(screen.getByRole('button', { name: 'Revert' }))
+        expect(
+            await screen.findByText(
+                'Compulsory has been changed again since, so it is left as it is'
+            )
+        ).toBeInTheDocument()
+        expect(screen.getByText('Nothing to revert')).toBeInTheDocument()
+        expect(
+            screen.getAllByRole('button', { name: 'Revert' })[1]
+        ).toBeDisabled()
+    })
+
+    it('exports a property change as one row per property', async () => {
+        mockChangeSets.changeSets = [propertiesChange()]
+        Object.defineProperty(URL, 'createObjectURL', {
+            value: jest.fn(() => 'blob:mock'),
+            writable: true,
+        })
+        Object.defineProperty(URL, 'revokeObjectURL', {
+            value: jest.fn(),
+            writable: true,
+        })
+        const clickSpy = jest
+            .spyOn(HTMLAnchorElement.prototype, 'click')
+            .mockImplementation(() => undefined)
+        let csvText = ''
+        const RealBlob = globalThis.Blob
+        const blobSpy = jest
+            .spyOn(globalThis, 'Blob')
+            .mockImplementation(
+                (parts?: BlobPart[], options?: BlobPropertyBag) => {
+                    csvText = (parts ?? []).join('')
+                    return new RealBlob(parts, options)
+                }
+            )
+
+        render(<History />)
+        await actAndFlush(() => {
+            fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+        })
+        await waitFor(() => expect(clickSpy).toHaveBeenCalled())
+
+        expect(csvText).toContain('property')
+        expect(csvText).toMatch(/props1.*changed,compulsory,true,false/)
+        blobSpy.mockRestore()
         clickSpy.mockRestore()
     })
 })

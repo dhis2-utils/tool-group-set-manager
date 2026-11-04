@@ -1,5 +1,4 @@
 import {
-    canWriteDataStore,
     clearCatchAllGroup,
     listChangeSets,
     loadConfig,
@@ -8,7 +7,7 @@ import {
     saveChangeSet,
     saveIncludeTracker,
 } from './datastore'
-import { ChangeSet } from '@/engine/changeSet'
+import type { ChangeSet } from '@/engine/changeSet'
 
 const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status })
@@ -29,7 +28,7 @@ const changeSet = (id: string, createdAt: string): ChangeSet => ({
 
 describe('loadConfig', () => {
     it('returns defaults when the namespace does not exist yet', async () => {
-        const fetcher = async () => notFound()
+        const fetcher = () => Promise.resolve(notFound())
         expect(await loadConfig(fetcher)).toEqual({
             catchAllGroup: {},
             includeTracker: false,
@@ -37,14 +36,14 @@ describe('loadConfig', () => {
     })
 
     it('merges a present config document over the defaults', async () => {
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             if (path.endsWith('config-catch-all')) {
-                return json({ own: 'catch-all-group' })
+                return Promise.resolve(json({ own: 'catch-all-group' }))
             }
             if (path.endsWith('config-general')) {
-                return json({ includeTracker: true })
+                return Promise.resolve(json({ includeTracker: true }))
             }
-            return notFound()
+            return Promise.resolve(notFound())
         }
         expect(await loadConfig(fetcher)).toEqual({
             catchAllGroup: { own: 'catch-all-group' },
@@ -53,8 +52,8 @@ describe('loadConfig', () => {
     })
 
     it('never throws into a caller that is only reading configuration', async () => {
-        const fetcher = async () => {
-            throw new Error('network down')
+        const fetcher = () => {
+            return Promise.reject(new Error('network down'))
         }
         await expect(loadConfig(fetcher)).resolves.toEqual({
             catchAllGroup: {},
@@ -79,13 +78,13 @@ describe('loadConfig', () => {
 describe('saveIncludeTracker', () => {
     it('creates a key that does not exist and updates one that does', async () => {
         const calls: { method: string; path: string }[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
             calls.push({ method, path })
             if (method === 'POST' && path.endsWith('config-general')) {
-                return new Response('{}', { status: 409 })
+                return Promise.resolve(new Response('{}', { status: 409 }))
             }
-            return new Response('{}', { status: 200 })
+            return Promise.resolve(new Response('{}', { status: 200 }))
         }
         await saveIncludeTracker(fetcher, true)
         expect(calls.map((c) => c.method)).toEqual(['POST', 'PUT'])
@@ -93,108 +92,157 @@ describe('saveIncludeTracker', () => {
 
     it('creates directly when the key does not exist yet', async () => {
         const calls: string[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push(init?.method ?? 'GET')
-            return new Response('{}', { status: 200 })
+            return Promise.resolve(new Response('{}', { status: 200 }))
         }
         await saveIncludeTracker(fetcher, false)
         expect(calls).toEqual(['POST'])
     })
 })
 
-describe('saveCatchAllGroup', () => {
-    it('writes the group id under the set id when no document exists yet', async () => {
-        const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+describe('catch-all group configuration', () => {
+    const recordingFetcher = (
+        documents: Record<string, unknown>,
+        overrides: Partial<Record<string, Response>> = {}
+    ) => {
+        const writes: { method: string; path: string; body: unknown }[] = []
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
-            if (method === 'GET') {
-                return notFound()
+            const key = path.slice(`dataStore/${NAMESPACE}/`.length)
+            const override = overrides[`${method} ${key}`]
+            if (override) {
+                return Promise.resolve(override)
             }
-            writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
+            if (method === 'GET') {
+                if (path === `dataStore/${NAMESPACE}`) {
+                    return Promise.resolve(json(Object.keys(documents)))
+                }
+                return Promise.resolve(
+                    key in documents ? json(documents[key]) : notFound()
+                )
+            }
+            writes.push({
+                method,
+                path: key,
+                body: init?.body ? JSON.parse(init.body as string) : undefined,
+            })
+            return Promise.resolve(json({}, 200))
         }
-        await saveCatchAllGroup(fetcher, 'own', 'catch-all-group')
-        expect(writes).toEqual([{ own: 'catch-all-group' }])
-    })
+        return { fetcher, writes }
+    }
 
-    it('saveCatchAllGroup merges into the shared document, preserving other sets', async () => {
-        const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
-            const method = init?.method ?? 'GET'
-            if (method === 'GET') {
-                return json({ other: 'other-group' })
-            }
-            writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
-        }
+    it('saves one set under its own key, never reading or writing the shared document', async () => {
+        const { fetcher, writes } = recordingFetcher({
+            'config-catch-all': { other: 'other-group' },
+        })
         await saveCatchAllGroup(fetcher, 'own', 'catch-all-group')
         expect(writes).toEqual([
-            { other: 'other-group', own: 'catch-all-group' },
+            {
+                method: 'POST',
+                path: 'config-catch-all-own',
+                body: { groupId: 'catch-all-group' },
+            },
         ])
     })
 
-    it("clearCatchAllGroup removes only that set's entry, leaving the others", async () => {
-        const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+    it('two sets saved at the same moment both survive, since neither rewrites a shared document', async () => {
+        const store: Record<string, unknown> = {}
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
+            const key = path.slice(`dataStore/${NAMESPACE}/`.length)
             if (method === 'GET') {
-                return json({ other: 'other-group', own: 'catch-all-group' })
+                if (path === `dataStore/${NAMESPACE}`) {
+                    return Promise.resolve(json(Object.keys(store)))
+                }
+                return Promise.resolve(
+                    key in store ? json(store[key]) : notFound()
+                )
             }
-            writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
+            store[key] = JSON.parse(init?.body as string)
+            return Promise.resolve(json({}, 200))
         }
+        await Promise.all([
+            saveCatchAllGroup(fetcher, 'own', 'g-own'),
+            saveCatchAllGroup(fetcher, 'type', 'g-type'),
+        ])
+        expect((await loadConfig(fetcher)).catchAllGroup).toEqual({
+            own: 'g-own',
+            type: 'g-type',
+        })
+    })
+
+    it('reads the shared document an earlier version wrote, with per-set keys winning over it', async () => {
+        const { fetcher } = recordingFetcher({
+            'config-catch-all': { own: 'old', other: 'other-group' },
+            'config-catch-all-own': { groupId: 'new' },
+            'config-catch-all-cleared': { groupId: null },
+        })
+        expect((await loadConfig(fetcher)).catchAllGroup).toEqual({
+            own: 'new',
+            other: 'other-group',
+        })
+    })
+
+    it('a tombstone hides the shared document entry it overrides', async () => {
+        const { fetcher } = recordingFetcher({
+            'config-catch-all': { own: 'old' },
+            'config-catch-all-own': { groupId: null },
+        })
+        expect((await loadConfig(fetcher)).catchAllGroup).toEqual({})
+    })
+
+    it('clearing a set the shared document names writes a tombstone, leaving the shared document alone', async () => {
+        const { fetcher, writes } = recordingFetcher({
+            'config-catch-all': { own: 'old', other: 'other-group' },
+        })
         await clearCatchAllGroup(fetcher, 'own')
-        expect(writes).toEqual([{ other: 'other-group' }])
+        expect(writes).toEqual([
+            {
+                method: 'POST',
+                path: 'config-catch-all-own',
+                body: { groupId: null },
+            },
+        ])
     })
 
-    it('clearCatchAllGroup writes nothing when the set has no entry to clear', async () => {
-        const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
-            const method = init?.method ?? 'GET'
-            if (method === 'GET') {
-                return json({ other: 'other-group' })
-            }
-            writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
-        }
+    it('clearing a set the shared document does not name deletes its key', async () => {
+        const { fetcher, writes } = recordingFetcher({
+            'config-catch-all-own': { groupId: 'g' },
+        })
         await clearCatchAllGroup(fetcher, 'own')
-        expect(writes).toEqual([])
+        expect(writes).toEqual([
+            { method: 'DELETE', path: 'config-catch-all-own', body: undefined },
+        ])
     })
 
-    it('clearCatchAllGroup rethrows a non-404 failure reading the current document, so a clear can never erase the others', async () => {
-        const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
-            const method = init?.method ?? 'GET'
-            if (method === 'GET') {
-                return new Response('server error', { status: 500 })
-            }
-            writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
-        }
-        await expect(clearCatchAllGroup(fetcher, 'own')).rejects.toThrow()
-        expect(writes).toEqual([])
-    })
-
-    it('saveCatchAllGroup rethrows a non-404 failure reading the current document, rather than treating it as absent', async () => {
-        const writes: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
-            const method = init?.method ?? 'GET'
-            if (method === 'GET') {
-                return new Response('server error', { status: 500 })
-            }
-            writes.push(JSON.parse(init?.body as string))
-            return json({}, 200)
-        }
+    it('clearing a set that has no key at all succeeds', async () => {
+        const { fetcher } = recordingFetcher(
+            {},
+            { 'DELETE config-catch-all-own': notFound() }
+        )
         await expect(
-            saveCatchAllGroup(fetcher, 'own', 'catch-all-group')
-        ).rejects.toThrow()
+            clearCatchAllGroup(fetcher, 'own')
+        ).resolves.toBeUndefined()
+    })
+
+    it('clearing rethrows a non-404 failure reading the shared document, rather than skipping the tombstone', async () => {
+        const { fetcher, writes } = recordingFetcher(
+            {},
+            {
+                'GET config-catch-all': new Response('server error', {
+                    status: 500,
+                }),
+            }
+        )
+        await expect(clearCatchAllGroup(fetcher, 'own')).rejects.toThrow()
         expect(writes).toEqual([])
     })
 })
 
 describe('listChangeSets', () => {
     it('returns an empty list when the namespace does not exist yet', async () => {
-        const fetcher = async () => notFound()
+        const fetcher = () => Promise.resolve(notFound())
         expect(await listChangeSets(fetcher)).toEqual({
             changeSets: [],
             hasMore: false,
@@ -204,17 +252,19 @@ describe('listChangeSets', () => {
     it('returns change sets newest first', async () => {
         const older = changeSet('cs1', '2024-01-01T00:00:00.000Z')
         const newer = changeSet('cs2', '2024-06-01T00:00:00.000Z')
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             if (path.endsWith(`/${NAMESPACE}`)) {
-                return json(['history-cs1', 'config-general', 'history-cs2'])
+                return Promise.resolve(
+                    json(['history-cs1', 'config-general', 'history-cs2'])
+                )
             }
             if (path.endsWith('history-cs1')) {
-                return json(older)
+                return Promise.resolve(json(older))
             }
             if (path.endsWith('history-cs2')) {
-                return json(newer)
+                return Promise.resolve(json(newer))
             }
-            return notFound()
+            return Promise.resolve(notFound())
         }
         const result = await listChangeSets(fetcher)
         expect(result.changeSets.map((c) => c.id)).toEqual(['cs2', 'cs1'])
@@ -224,16 +274,18 @@ describe('listChangeSets', () => {
     it('pages: fetches only the requested window of documents, and reports whether more remain', async () => {
         const ids = Array.from({ length: 5 }, (_, i) => `cs${i}`)
         const requested: string[] = []
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             if (path.endsWith(`/${NAMESPACE}`)) {
-                return json(ids.map((id) => `history-${id}`))
+                return Promise.resolve(json(ids.map((id) => `history-${id}`)))
             }
             const match = /history-(cs\d)$/.exec(path)
             if (match) {
                 requested.push(match[1])
-                return json(changeSet(match[1], '2024-01-01T00:00:00.000Z'))
+                return Promise.resolve(
+                    json(changeSet(match[1], '2024-01-01T00:00:00.000Z'))
+                )
             }
-            return notFound()
+            return Promise.resolve(notFound())
         }
         // Keys sort newest-first as cs4, cs3, cs2, cs1, cs0.
         const page = await listChangeSets(fetcher, { offset: 0, limit: 2 })
@@ -256,19 +308,18 @@ describe('listChangeSets', () => {
         const sameInstant = '2024-01-01T00:00:00.000Z'
         const first = changeSet('cs1', sameInstant)
         const second = changeSet('cs2', sameInstant)
-        const fetcherWithKeyOrder =
-            (keys: string[]) => async (path: string) => {
-                if (path.endsWith(`/${NAMESPACE}`)) {
-                    return json(keys)
-                }
-                if (path.endsWith('history-cs1')) {
-                    return json(first)
-                }
-                if (path.endsWith('history-cs2')) {
-                    return json(second)
-                }
-                return notFound()
+        const fetcherWithKeyOrder = (keys: string[]) => (path: string) => {
+            if (path.endsWith(`/${NAMESPACE}`)) {
+                return Promise.resolve(json(keys))
             }
+            if (path.endsWith('history-cs1')) {
+                return Promise.resolve(json(first))
+            }
+            if (path.endsWith('history-cs2')) {
+                return Promise.resolve(json(second))
+            }
+            return Promise.resolve(notFound())
+        }
         const a = await listChangeSets(
             fetcherWithKeyOrder(['history-cs1', 'history-cs2'])
         )
@@ -284,14 +335,14 @@ describe('listChangeSets', () => {
 describe('saveChangeSet', () => {
     it('writes the change set under a history- key named by its id', async () => {
         const calls: { method: string; path: string; body: unknown }[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             const method = init?.method ?? 'GET'
             calls.push({
                 method,
                 path,
                 body: init?.body ? JSON.parse(init.body as string) : undefined,
             })
-            return json({}, 200)
+            return Promise.resolve(json({}, 200))
         }
         const cs = changeSet('cs3', '2024-07-01T00:00:00.000Z')
         await saveChangeSet(fetcher, cs)
@@ -302,59 +353,5 @@ describe('saveChangeSet', () => {
                 body: cs,
             },
         ])
-    })
-})
-
-describe('canWriteDataStore', () => {
-    it('writes and deletes a probe key to confirm write access, rather than inferring it from a read', async () => {
-        const calls: string[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
-            calls.push(init?.method ?? 'GET')
-            return json({}, 200)
-        }
-        await expect(canWriteDataStore(fetcher)).resolves.toBe(true)
-        expect(calls).toEqual(['POST', 'DELETE'])
-    })
-
-    it('reports no write access when the probe write is forbidden, rather than throwing', async () => {
-        const fetcher = async (path: string, init?: RequestInit) => {
-            const method = init?.method ?? 'GET'
-            if (method === 'POST') {
-                return new Response('forbidden', { status: 403 })
-            }
-            return json({}, 200)
-        }
-        await expect(canWriteDataStore(fetcher)).resolves.toBe(false)
-    })
-
-    it('reports write access even when the probe key already existed (POST 409, falls back to PUT)', async () => {
-        const fetcher = async (path: string, init?: RequestInit) => {
-            const method = init?.method ?? 'GET'
-            if (method === 'POST') {
-                return new Response('{}', { status: 409 })
-            }
-            return json({}, 200)
-        }
-        await expect(canWriteDataStore(fetcher)).resolves.toBe(true)
-    })
-
-    it('reports write access even when the best-effort cleanup delete fails', async () => {
-        const fetcher = async (path: string, init?: RequestInit) => {
-            if ((init?.method ?? 'GET') === 'DELETE') {
-                throw new Error('network down')
-            }
-            return json({}, 200)
-        }
-        await expect(canWriteDataStore(fetcher)).resolves.toBe(true)
-    })
-
-    it('reports no write access rather than throwing on a network failure during the write', async () => {
-        const fetcher = async (path: string, init?: RequestInit) => {
-            if ((init?.method ?? 'GET') === 'POST') {
-                throw new Error('network down')
-            }
-            return json({}, 200)
-        }
-        await expect(canWriteDataStore(fetcher)).resolves.toBe(false)
     })
 })

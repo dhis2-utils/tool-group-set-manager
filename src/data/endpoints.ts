@@ -1,4 +1,4 @@
-import { ObjectType } from '@/engine/types'
+import type { ObjectType } from '@/engine/types'
 
 export const ENDPOINTS: Record<
     ObjectType,

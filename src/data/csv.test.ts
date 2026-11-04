@@ -7,15 +7,18 @@ describe('parseCsv', () => {
             ['1', '2', '3'],
         ])
     })
+
     it('handles CRLF and quoted fields with commas and doubled quotes', () => {
         expect(parseCsv('uid,name\r\nx1,"Clinic, ""A"""\r\n')).toEqual([
             ['uid', 'name'],
             ['x1', 'Clinic, "A"'],
         ])
     })
+
     it('keeps empty fields', () => {
         expect(parseCsv('a,,c\n')).toEqual([['a', '', 'c']])
     })
+
     it('keeps a newline embedded in a quoted field', () => {
         expect(parseCsv('uid,note\nx1,"line1\nline2"\n')).toEqual([
             ['uid', 'note'],
@@ -47,5 +50,29 @@ describe('toCsv', () => {
             ['a2', 'Has, comma', 'Quote " here\nand a newline'],
         ]
         expect(parseCsv(toCsv(rows))).toEqual(rows)
+    })
+
+    it.each(['=1+1', '+SUM(A1)', '-2+3', '@cmd', '\tx', '\rx'])(
+        'prefixes %j with an apostrophe so a spreadsheet does not run it',
+        (value) => {
+            const [[field]] = parseCsv(toCsv([[value]]))
+            expect(field).toBe(`'${value}`)
+        }
+    )
+
+    it('quotes a formula-like field that also needs quoting', () => {
+        expect(toCsv([['=HYPERLINK("x","y")']])).toBe(
+            `"'=HYPERLINK(""x"",""y"")"\r\n`
+        )
+    })
+
+    it('leaves a formula character later in a value alone', () => {
+        expect(toCsv([['a=b', 'x-1']])).toBe('a=b,x-1\r\n')
+    })
+})
+
+describe('parseCsv on formula-like values', () => {
+    it('reads them as written, adding no apostrophe', () => {
+        expect(parseCsv('=a,-1,@b\n')).toEqual([['=a', '-1', '@b']])
     })
 })

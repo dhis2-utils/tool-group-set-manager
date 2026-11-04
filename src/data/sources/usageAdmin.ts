@@ -1,81 +1,100 @@
-import { fetchJson, Fetcher } from './DataSource'
-import { shareViewPublicly, SQL_VIEW_PUBLIC_SHARING } from './sqlViewAdmin'
-import { sqlViewLookupPath, USABLE_SQL_VIEW_TYPES } from './sqlViewSource'
+import type { Fetcher } from './DataSource'
+import { fetchJson } from './DataSource'
+import type { SqlViewStatus } from './sqlViewAdmin'
+import { viewStatus } from './sqlViewAdmin'
+import type {
+    AdminSqlViewRow,
+    RepairTarget,
+    SqlViewFailureReason,
+    SqlViewSharing,
+} from './sqlViewSharing'
+import {
+    createError,
+    executeView,
+    failureMessage,
+    failureReason,
+    repairExistingView,
+    sameSql,
+    sharingBody,
+    SqlViewActionError,
+} from './sqlViewSharing'
+import { sqlViewLookupPath } from './sqlViewSource'
+import type { UsageSqlCandidate } from './usageSqlView'
 import {
     USAGE_SQL_CANDIDATES,
     USAGE_SQL_VIEW_CODE,
     USAGE_SQL_VIEW_NAME,
-    UsageSqlCandidate,
 } from './usageSqlView'
-
-interface SqlViewRow {
-    id: string
-    code?: string
-    type?: string
-    access: { data?: { read?: boolean } }
-}
 
 export interface UsageViewCheck {
     id: string | null
-    /** `access.data.read` for the current user -- see `shareViewPublicly` */
-    readable: boolean
-    /** exists, is a VIEW/QUERY, is readable, and a real read just succeeded */
+    /** see `SqlViewStatus` */
+    status: SqlViewStatus
+    /** `status === 'usable'` */
     usable: boolean
+    /** the server's row, for repair; null when missing */
+    view: AdminSqlViewRow | null
 }
 
-/** Cheap regardless of how many group sets the instance has. */
-const probePath = (id: string) => `sqlViews/${id}/data.json?pageSize=1`
+/** Never MATERIALIZED_VIEW: it would serve arbitrarily old counts (spec 3.4). */
+const USAGE_VIEW_TYPE = 'VIEW'
 
-async function probeReadable(fetcher: Fetcher, id: string): Promise<boolean> {
-    try {
-        const response = await fetcher(probePath(id))
-        return response.ok
-    } catch {
-        return false
+/**
+ * What an existing usage view is repaired back to. Any candidate body is
+ * acceptable; one that matches none is set to the first.
+ */
+function usageTarget(
+    sharing: SqlViewSharing,
+    candidates: UsageSqlCandidate[] = USAGE_SQL_CANDIDATES
+): RepairTarget {
+    return {
+        type: USAGE_VIEW_TYPE,
+        sqlQuery: candidates[0]?.sqlQuery ?? '',
+        acceptQuery: (sql) => candidates.some((c) => sameSql(sql, c.sqlQuery)),
+        sharing,
     }
 }
 
 /**
- * Same bar as `checkSqlViews` applies to the three GSI_* views, and for the
- * same reason (C1 there): metadata alone cannot tell an executed view from
- * one that was created and never successfully executed, so "usable" has to
- * mean "was just read", not "looks right on paper".
+ * Same bar as `checkSqlViews` applies to the three GSI_* views: type, query
+ * and sharing judged on the view itself, and a real read when the current
+ * user may read it.
  */
 export async function checkUsageView(
-    fetcher: Fetcher
+    fetcher: Fetcher,
+    sharing: SqlViewSharing
 ): Promise<UsageViewCheck> {
-    const body = await fetchJson<{ sqlViews: SqlViewRow[] }>(
+    const body = await fetchJson<{ sqlViews: AdminSqlViewRow[] }>(
         fetcher,
         sqlViewLookupPath([USAGE_SQL_VIEW_CODE])
     )
     const view = body.sqlViews.find((v) => v.code === USAGE_SQL_VIEW_CODE)
-    const readable = Boolean(view?.access.data?.read)
-    const metadataUsable = Boolean(
-        view &&
-        readable &&
-        view.type !== undefined &&
-        USABLE_SQL_VIEW_TYPES.includes(view.type)
-    )
+    const status = await viewStatus(fetcher, view, usageTarget(sharing))
     return {
         id: view?.id ?? null,
-        readable,
-        usable:
-            metadataUsable && view
-                ? await probeReadable(fetcher, view.id)
-                : false,
+        status,
+        usable: status === 'usable',
+        view: view ?? null,
     }
+}
+
+export interface UsageInstallFailure {
+    variant: string
+    reason: SqlViewFailureReason
+    message: string
 }
 
 export interface InstallUsageResult {
     installed: boolean
     /** which candidate body took; null when none did */
     variant: string | null
-    failures: { variant: string; message: string }[]
+    failures: UsageInstallFailure[]
 }
 
 async function createView(
     fetcher: Fetcher,
-    candidate: UsageSqlCandidate
+    candidate: UsageSqlCandidate,
+    sharing: SqlViewSharing
 ): Promise<string> {
     const response = await fetcher('sqlViews', {
         method: 'POST',
@@ -83,9 +102,7 @@ async function createView(
         body: JSON.stringify({
             name: USAGE_SQL_VIEW_NAME,
             code: USAGE_SQL_VIEW_CODE,
-            // Never MATERIALIZED_VIEW: it would serve arbitrarily old counts
-            // with nothing in the response to say how old (spec 3.4).
-            type: 'VIEW',
+            type: USAGE_VIEW_TYPE,
             // The same guarantee, one layer further out. Pinning `type`
             // stops the *database* serving stale counts; left unset,
             // `cacheStrategy` defaults to RESPECT_SYSTEM_SETTING and the
@@ -93,16 +110,17 @@ async function createView(
             // `keyCacheStrategy` says -- a fortnight on a stock install,
             // with nothing in the response to say how old either. Same
             // omission, same consequence, as the GSI_* views had; see
-            // docs/superpowers/notes/2026-09-plan7-e2e-write-flows.md.
+            // docs/developer/dhis2-behavior.md.
             cacheStrategy: 'NO_CACHE',
             sqlQuery: candidate.sqlQuery,
-            // Data read too, not metadata read alone: see
-            // SQL_VIEW_PUBLIC_SHARING for the 409 the shorter string earns.
-            sharing: { public: SQL_VIEW_PUBLIC_SHARING },
+            // Data read, not metadata read alone, for everyone or for the
+            // chosen user group: see `SqlViewSharing`.
+            sharing: sharingBody(sharing),
         }),
     })
     if (!response.ok) {
-        throw new Error(
+        throw await createError(
+            response,
             `Could not create the usage SQL view — HTTP ${response.status}`
         )
     }
@@ -110,14 +128,8 @@ async function createView(
     return body.response.uid
 }
 
-async function executeView(fetcher: Fetcher, id: string): Promise<void> {
-    const response = await fetcher(`sqlViews/${id}/execute`, { method: 'POST' })
-    if (!response.ok) {
-        throw new Error(
-            `Could not execute the usage SQL view — HTTP ${response.status}`
-        )
-    }
-}
+/** Cheap regardless of how many group sets the instance has. */
+const probePath = (id: string) => `sqlViews/${id}/data.json?pageSize=1`
 
 async function readOrThrow(fetcher: Fetcher, id: string): Promise<void> {
     const response = await fetcher(probePath(id))
@@ -140,38 +152,52 @@ async function readOrThrow(fetcher: Fetcher, id: string): Promise<void> {
 }
 
 /**
- * Spec 3.3: the candidates are tried in order until one both creates and
- * executes -- and here, also reads, for the same reason `checkUsageView`
- * probes: a body that creates and executes but 500s on read is not an
- * install. A candidate that fails at any of those three steps has the view
- * it just created deleted again, so the next candidate starts from a server
- * in the state it found -- and so a failed install never leaves an orphan
- * behind that a later `checkUsageView` would have to reason about.
+ * Whether this user can read the view's rows once installed: with group
+ * sharing an administrator outside the group cannot, and a failed read then
+ * says nothing about whether the install worked.
+ */
+async function canReadData(fetcher: Fetcher, id: string): Promise<boolean> {
+    try {
+        const view = await fetchJson<{
+            access?: { data?: { read?: boolean } }
+        }>(fetcher, `sqlViews/${id}?fields=access[data[read]]`)
+        // Only a plain "no" skips the read: an answer missing the field
+        // must not quietly skip the check that the install worked.
+        return view.access?.data?.read !== false
+    } catch {
+        return true
+    }
+}
+
+/**
+ * Spec 3.3: the candidates are tried in order until one creates, executes
+ * and (when this user may read it) reads. A candidate that fails at any step
+ * has the view it just created deleted again, so the next candidate starts
+ * from a server in the state it found.
  *
  * An **existing** view (one this call did not create) is never deleted, the
- * same rule `createOrRepairSqlViews` follows: re-executing it is the repair,
- * and deleting someone else's object on a failed repair would be a much
- * larger action than the one the button offers.
+ * same rule `createOrRepairSqlViews` follows: its type, query and sharing
+ * are patched back where they differ, then it is executed.
  */
 export async function installUsageView(
     fetcher: Fetcher,
     check: UsageViewCheck,
-    candidates: UsageSqlCandidate[] = USAGE_SQL_CANDIDATES
+    options: { sharing: SqlViewSharing; candidates?: UsageSqlCandidate[] }
 ): Promise<InstallUsageResult> {
-    const failures: { variant: string; message: string }[] = []
+    const { sharing, candidates = USAGE_SQL_CANDIDATES } = options
+    const failures: UsageInstallFailure[] = []
 
-    if (check.id) {
+    if (check.view) {
         try {
-            if (!check.readable) {
-                await shareViewPublicly(fetcher, check.id)
+            await repairExistingView(
+                fetcher,
+                check.view,
+                usageTarget(sharing, candidates)
+            )
+            if (await canReadData(fetcher, check.view.id)) {
+                await readOrThrow(fetcher, check.view.id)
             }
-            await executeView(fetcher, check.id)
-            await readOrThrow(fetcher, check.id)
-            return {
-                installed: true,
-                variant: null,
-                failures,
-            }
+            return { installed: true, variant: null, failures }
         } catch (e) {
             return {
                 installed: false,
@@ -179,19 +205,23 @@ export async function installUsageView(
                 failures: [
                     {
                         variant: 'existing',
-                        message: e instanceof Error ? e.message : String(e),
+                        reason: failureReason(e),
+                        message: failureMessage(e),
                     },
                 ],
             }
         }
     }
 
+    /* oxlint-disable no-await-in-loop -- candidates are tried in order and the first that works ends the loop */
     for (const candidate of candidates) {
         let id: string | null = null
         try {
-            id = await createView(fetcher, candidate)
+            id = await createView(fetcher, candidate, sharing)
             await executeView(fetcher, id)
-            await readOrThrow(fetcher, id)
+            if (await canReadData(fetcher, id)) {
+                await readOrThrow(fetcher, id)
+            }
             return { installed: true, variant: candidate.variant, failures }
         } catch (e) {
             if (id) {
@@ -201,21 +231,28 @@ export async function installUsageView(
             }
             failures.push({
                 variant: candidate.variant,
-                message: e instanceof Error ? e.message : String(e),
+                reason: failureReason(e),
+                message: failureMessage(e),
             })
         }
     }
+    /* oxlint-enable no-await-in-loop */
 
     return { installed: false, variant: null, failures }
 }
 
+/**
+ * A 403 here almost always means another administrator owns the view; the
+ * error carries that reason so Settings can say so.
+ */
 export async function removeUsageView(
     fetcher: Fetcher,
     id: string
 ): Promise<void> {
     const response = await fetcher(`sqlViews/${id}`, { method: 'DELETE' })
     if (!response.ok) {
-        throw new Error(
+        throw new SqlViewActionError(
+            response.status === 403 ? 'forbidden' : 'other',
             `Could not remove the usage SQL view — HTTP ${response.status}`
         )
     }

@@ -1,5 +1,6 @@
-import { ancestorAtLevel, Hierarchy, isInSubtree } from './hierarchy'
-import { SetMembership } from './membership'
+import type { Hierarchy } from './hierarchy'
+import { ancestorAtLevel, isInSubtree } from './hierarchy'
+import type { SetMembership } from './membership'
 import { Status } from './types'
 
 export interface SetSummary {
@@ -196,7 +197,7 @@ export function matrix(
         addToRow(row, status[i], m.groupOf[i])
     })
     // Map preserves insertion order, which is depth-first order.
-    const result = Array.from(rows.values())
+    const result = [...rows.values()]
     if (above.total > 0) {
         result.push(above)
     }
@@ -296,7 +297,11 @@ export function listObjects(
         if (statusMask[status[i]] === 0) {
             return
         }
-        if (filter.level !== undefined && h!.level[i] !== filter.level) {
+        if (
+            filter.level !== undefined &&
+            h !== null &&
+            h.level[i] !== filter.level
+        ) {
             return
         }
         if (filter.group !== undefined && m.groupOf[i] !== filter.group) {
@@ -304,7 +309,8 @@ export function listObjects(
         }
         if (
             filter.ancestor !== undefined &&
-            !isInSubtree(h!, filter.ancestor, i)
+            h !== null &&
+            !isInSubtree(h, filter.ancestor, i)
         ) {
             return
         }

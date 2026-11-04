@@ -10,6 +10,7 @@ import { ScopeProvider } from '@/hooks/useScope'
 import { Dashboard } from '@/pages/Dashboard/Dashboard'
 import { GroupSetDetail } from '@/pages/GroupSetDetail/GroupSetDetail'
 import { History } from '@/pages/History/History'
+import { NotFound, RouteError } from '@/pages/NotFound/NotFound'
 import { Settings } from '@/pages/Settings/Settings'
 import { SyncUrlWithGlobalShell } from '@/utils/SyncUrlWithGlobalShell'
 
@@ -20,11 +21,15 @@ const queryClient = new QueryClient({
 const router = createHashRouter([
     {
         element: <SyncUrlWithGlobalShell />,
+        // M10: a render error anywhere below, translated, with a way back,
+        // instead of React Router's developer screen.
+        errorElement: <RouteError />,
         children: [
             { path: '/', element: <Dashboard /> },
             { path: '/sets/:setId', element: <GroupSetDetail /> },
             { path: '/history', element: <History /> },
             { path: '/settings', element: <Settings /> },
+            { path: '*', element: <NotFound /> },
         ],
     },
 ])

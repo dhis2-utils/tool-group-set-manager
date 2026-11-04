@@ -3,7 +3,7 @@ import { Card, Tag } from '@dhis2/ui'
 import React from 'react'
 import styles from './GroupSetCard.module.css'
 import { usageApplies } from '@/data/sources/usageSqlView'
-import { DashboardEntry } from '@/engine/store'
+import type { DashboardEntry } from '@/engine/store'
 import { useUsage } from '@/hooks/useUsage'
 import { usedInFavouritesLabel } from '@/utils/favouritesLabel'
 import { groupsLabel } from '@/utils/groupsLabel'
@@ -13,6 +13,12 @@ interface Props {
     entry: DashboardEntry
     onOpen: () => void
     onOpenUsage: () => void
+    /**
+     * Why this set's type could not be loaded, when it could not. A set of
+     * a failed type has no data and never will in this load, so it shows
+     * that instead of "Loading…".
+     */
+    loadError?: string
 }
 
 const readOnlyLabel = (count: number) =>
@@ -22,7 +28,12 @@ const readOnlyLabel = (count: number) =>
               count: count.toLocaleString(),
           })
 
-export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
+export const GroupSetCard = ({
+    entry,
+    onOpen,
+    onOpenUsage,
+    loadError,
+}: Props) => {
     const { set, summary, hasData } = entry
     const readOnlyGroups = set.groups.filter((g) => !g.canWrite).length
     const usage = useUsage()
@@ -49,28 +60,32 @@ export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
     // objects into a green OK number while the matrix counted them as
     // Missing.
     const showUnassigned = !set.compulsory && !set.dataDimension
-    const activate = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') {
-            onOpen()
-        } else if (e.key === ' ' || e.key === 'Spacebar') {
-            // Space's default action is scrolling the page; a button
-            // reached by keyboard must not do that instead of activating.
-            e.preventDefault()
-            onOpen()
-        }
-    }
+    // The set name is the card's one real control, so keyboard and screen
+    // reader users get a plain button with the set's name as its label.
+    // The rest of the card also opens the set on a mouse click, as a
+    // larger target; it is not a second control, so it is not focusable.
+    // "Appears unused" is a sibling button, not nested in another one.
     return (
         <Card>
+            {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- a mouse-only enlargement of the name button below, which is the keyboard and screen reader control for the same action */}
             <div
                 className={styles.card}
-                role="button"
-                tabIndex={0}
+                data-test="group-set-card"
                 onClick={onOpen}
-                onKeyDown={activate}
             >
-                <div className={styles.name} data-test="group-set-card-name">
+                <button
+                    type="button"
+                    className={styles.name}
+                    data-test="group-set-card-name"
+                    onClick={(e) => {
+                        // The card's own click would open the set a second
+                        // time.
+                        e.stopPropagation()
+                        onOpen()
+                    }}
+                >
                     {set.displayName}
-                </div>
+                </button>
                 <div className={styles.badges}>
                     {set.compulsory && (
                         <Tag positive>{i18n.t('Compulsory')}</Tag>
@@ -80,9 +95,7 @@ export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
                     )}
                     <Tag neutral>{groupsLabel(set.groups.length)}</Tag>
                 </div>
-                {!hasData ? (
-                    <div className={styles.meta}>{i18n.t('Loading…')}</div>
-                ) : set.groups.length === 0 ? (
+                {set.groups.length === 0 ? (
                     // Nothing was, or could have been, checked: showing the
                     // usual all-green stat block here would read as "every
                     // object passed" when in fact there is no configuration
@@ -91,6 +104,12 @@ export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
                     <div className={styles.meta}>
                         {i18n.t('This group set has no groups configured')}
                     </div>
+                ) : !hasData && loadError ? (
+                    <div className={styles.failed} title={loadError}>
+                        {i18n.t('This group set could not be loaded')}
+                    </div>
+                ) : !hasData ? (
+                    <div className={styles.meta}>{i18n.t('Loading…')}</div>
                 ) : (
                     <div className={styles.stats}>
                         <div className={styles.error}>
@@ -124,7 +143,7 @@ export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
                                     {summary.unassigned.toLocaleString()}
                                 </div>
                                 <div className={styles.label}>
-                                    {i18n.t('No group (not required)')}
+                                    {i18n.t('No group')}
                                 </div>
                             </div>
                         )}
@@ -151,27 +170,12 @@ export const GroupSetCard = ({ entry, onOpen, onOpenUsage }: Props) => {
                                 type="button"
                                 className={styles.unusedTag}
                                 onClick={(e) => {
-                                    // The whole card is itself a button;
-                                    // without this the card's own onOpen
-                                    // would fire too and land the user on
-                                    // the Overview tab instead.
+                                    // The card itself opens the set on a
+                                    // click; without this that would fire
+                                    // too and land the user on the
+                                    // Overview tab instead.
                                     e.stopPropagation()
                                     onOpenUsage()
-                                }}
-                                onKeyDown={(e) => {
-                                    // Fix round 2 (Minor promoted): the
-                                    // mouse path stops propagation above,
-                                    // but a keydown on this inner button
-                                    // still bubbled to the card's own
-                                    // `activate` handler -- Space hit
-                                    // `preventDefault` there and suppressed
-                                    // this button's own activation
-                                    // (navigating to Overview instead of
-                                    // Usage), and Enter fired `onOpen` on
-                                    // the bubbled keydown *and* `onOpenUsage`
-                                    // on the resulting click, with only
-                                    // ordering deciding which one "won".
-                                    e.stopPropagation()
                                 }}
                             >
                                 {i18n.t('Appears unused')}

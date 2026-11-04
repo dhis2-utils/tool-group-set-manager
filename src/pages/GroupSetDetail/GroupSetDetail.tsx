@@ -1,6 +1,7 @@
 import i18n from '@dhis2/d2-i18n'
 import {
     Button,
+    NoticeBox,
     SingleSelectField,
     SingleSelectOption,
     Tab,
@@ -8,7 +9,7 @@ import {
     Tag,
 } from '@dhis2/ui'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import styles from './GroupSetDetail.module.css'
 import { IntegrityTab } from './IntegrityTab'
 import { ObjectsTab } from './ObjectsTab'
@@ -19,11 +20,14 @@ import { FilterBar, FilterBarField } from '@/components/FilterBar/FilterBar'
 import { OrgUnitField } from '@/components/FilterBar/OrgUnitField'
 import { LoadProgress } from '@/components/LoadProgress/LoadProgress'
 import { MetadataFreshness } from '@/components/MetadataFreshness/MetadataFreshness'
-import { ScopeCrumb, ScopeTrail } from '@/components/ScopeTrail/ScopeTrail'
+import type { ScopeCrumb } from '@/components/ScopeTrail/ScopeTrail'
+import { ScopeTrail } from '@/components/ScopeTrail/ScopeTrail'
 import { SetPropertiesDialog } from '@/components/SetPropertiesDialog/SetPropertiesDialog'
-import { MatrixColumn } from '@/components/SummaryMatrix/SummaryMatrix'
-import { ObjectFilter } from '@/engine/queries'
-import { ObjectRef, ScopeRef } from '@/engine/store'
+import type { MatrixColumn } from '@/components/SummaryMatrix/SummaryMatrix'
+import type { RestrictedGroupSet } from '@/data/groupSets'
+import type { ObjectFilter } from '@/engine/queries'
+import type { ObjectRef, ScopeRef } from '@/engine/store'
+import type { GroupSetMeta } from '@/engine/types'
 import { Status } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
@@ -32,81 +36,34 @@ import { useScope } from '@/hooks/useScope'
 import { useUserScope } from '@/hooks/useUserScope'
 import { groupsLabel } from '@/utils/groupsLabel'
 import { interpolate } from '@/utils/interpolate'
+import { restrictedSetLabel } from '@/utils/restrictedSetLabel'
 import { useApiDataQuery } from '@/utils/useApiDataQuery'
 
 interface LevelsResponse {
     organisationUnitLevels: { level: number; displayName: string }[]
 }
 
+type Level = LevelsResponse['organisationUnitLevels'][number]
+
 type DetailTab = 'overview' | 'objects' | 'usage' | 'integrity'
+
+type Crumb = ScopeCrumb & { level: number | null; rowLevel: number }
 
 /** Used only while nothing at all is known about the scope's level yet. */
 const DEFAULT_LEVEL = 1
 
-export const GroupSetDetail = () => {
-    const { setId = '' } = useParams()
-    const location = useLocation()
-    const { groupSets, reload, status } = useEngine()
-    const { rootId, rootName, rootLevel, setRoot } = useScope()
-    const integrity = useIntegrity()
+/**
+ * The organisation unit levels below the scope, and the row level the
+ * Overview matrix shows.
+ *
+ * The scope's own level is needed so the list starts *below* it. The
+ * selector carries the level with the selection; a scope stored before it
+ * did falls back to the user's own roots and then to the engine, which
+ * holds the hierarchy. Only that last fallback costs a call.
+ */
+function useRowLevels() {
+    const { rootId, rootLevel } = useScope()
     const { roots } = useUserScope()
-    const set = groupSets.find((s) => s.id === setId)
-    // Lets a card link straight into this tab, e.g.
-    // navigate('/sets/<id>', { state: { tab: 'usage' } }) -- see Task 5/6.
-    const initialTab = (location.state as { tab?: DetailTab } | null)?.tab
-    const [tab, setTab] = useState<DetailTab>(initialTab ?? 'overview')
-    // m6 (Task 4 review round 1): the Tab button is hidden the moment
-    // `integrity.available` goes false (a 403 mid-session, most often), but
-    // without this the `tab` state itself stayed `'integrity'` -- the body
-    // already falls through to ObjectsTab in that case (see the ternary
-    // below), so the TabBar was left showing no tab selected over Objects
-    // content. Falling the state back to 'overview' keeps the two in sync.
-    useEffect(() => {
-        if (tab === 'integrity' && !integrity.available) {
-            setTab('overview')
-        }
-    }, [tab, integrity.available])
-    const [filter, setFilter] = useState<ObjectFilter>({})
-    // The filter a bulk fix was opened for. Spec 5.1: ObjectsTab's own
-    // button is the only thing that sets this, so a bulk fix always acts on
-    // rows the user can see and has already been shown the count of. The
-    // header's old "Fix issues…" shortcut set it to every violation in the
-    // set with no way to narrow it, and is gone. `null` means the dialog is
-    // closed.
-    const [bulkFixFilter, setBulkFixFilter] = useState<ObjectFilter | null>(
-        null
-    )
-    // I4: spec 3.5's "Set properties" action. The dialog itself does the
-    // confirm-then-report work; this only decides when it is on screen.
-    const [propertiesOpen, setPropertiesOpen] = useState(false)
-    // MR §4.3's "way back" from a drill-down: the scopes this page has
-    // drilled through, oldest first, each with the row level it was showing
-    // when the user left it. Page state rather than scope state, because it
-    // is the history of one visit, not part of the selection the rest of the
-    // app shares -- and it holds a row level, which `useScope` has no
-    // business knowing about.
-    const [trail, setTrail] = useState<
-        (ScopeCrumb & { level: number | null; rowLevel: number })[]
-    >([])
-    // A scope change this page did not make -- the organisation unit tree in
-    // the bar, or a restored session -- lands the user somewhere the trail
-    // does not lead, so the trail is no longer a path back from anywhere.
-    // Drilling and jumping both set this ref first, so only outside changes
-    // clear it.
-    const scopeFromTrailRef = useRef<string | null>(null)
-    useEffect(() => {
-        if (scopeFromTrailRef.current !== rootId) {
-            scopeFromTrailRef.current = null
-            setTrail((current) => (current.length === 0 ? current : []))
-        }
-    }, [rootId])
-
-    // The scope's own level, needed so the row level list starts *below* the
-    // scope and the matrix cannot key rows on org units outside it. The
-    // selector carries the level with the selection; a scope stored before it
-    // did, or restored some other way, falls back to the user's own roots and
-    // then to the engine, which holds the hierarchy. Only that last fallback
-    // costs a call, and only in the case where the first two know nothing.
     const rootLevelFromUserRoots =
         roots.find((r) => r.id === rootId)?.level ?? null
     const needsEngineLevel =
@@ -123,12 +80,8 @@ export const GroupSetDetail = () => {
         queryKey: ['organisationUnitLevels'],
         query: {
             resource: 'organisationUnitLevels',
-            // `paging: false` triggers the app runtime's "paging=false is
-            // deprecated" warning (and DHIS2 itself discourages it -- it
-            // forces the server to return every matching row in one
-            // response). An instance has at most a handful of levels, so an
-            // explicit page size comfortably above any real hierarchy gets
-            // the full list back in one page without ever disabling paging.
+            // Not `paging: false` (deprecated, and the runtime warns): an
+            // instance has a handful of levels, so one page of 100 is all.
             params: { fields: 'level,displayName', pageSize: 100 },
         },
         staleTime: Infinity,
@@ -141,28 +94,12 @@ export const GroupSetDetail = () => {
         [levelsData, scopeLevel]
     )
 
-    // `rowLevel` is seeded once, at mount, from `scopeLevel` -- which itself
-    // depends on the asynchronously-resolved user roots. A deep link opened
-    // before roots resolve seeds it from the fallback scope level (1), and
-    // when the real roots arrive with a deeper root, `levels` is recomputed
-    // against the new `scopeLevel` and may no longer contain the seeded
-    // value at all. Left uncorrected, `rowLevel` would then point at a
-    // level `SingleSelectField` has no matching option for, which
-    // `@dhis2/ui` treats as a hard render error rather than a no-op -- the
-    // same crash the empty-list gate in the bar above guards against, just
-    // reached a different way.
-    //
-    // Correcting this from a `useEffect` alone is one render too late: the
-    // render that first sees the new, narrower `levels` also passes the
-    // still-stale `rowLevel` straight into `SingleSelectField` in the bar
-    // above in that same pass, and `SingleSelectField` throws synchronously
-    // during that render -- before any effect from this render has had a
-    // chance to run and fix `rowLevel` up. So the value actually handed to
-    // children is a synchronously-derived, always-valid one computed right
-    // here during render; the effect below only exists to bring the
-    // underlying `rowLevel` state itself back in sync afterwards (so a
-    // later, organic level list change starts from a consistent value
-    // rather than compounding drift).
+    // `rowLevel` is seeded once from `scopeLevel`, which can change when the
+    // user roots resolve late, and `levels` may then no longer contain it.
+    // @dhis2/ui's SingleSelectField throws on a value with no option, during
+    // render, before an effect could fix it -- so the value handed to
+    // children is derived here, always valid, and the effect only brings the
+    // state back in line afterwards.
     const effectiveRowLevel =
         levels.length === 0 || levels.some((l) => l.level === rowLevel)
             ? rowLevel
@@ -174,109 +111,193 @@ export const GroupSetDetail = () => {
         }
     }, [effectiveRowLevel, rowLevel])
 
-    if (!set) {
-        return <p>{i18n.t('Group set not found or not loaded yet.')}</p>
-    }
-    const scope: ScopeRef = {
-        objectType: set.objectType,
-        rootId: set.objectType === 'organisationUnit' ? rootId : null,
-    }
+    return { levels, effectiveRowLevel, setRowLevel }
+}
 
-    // Pre-composed, already-translated explanation of why the "above the
-    // row level" row exists in OverviewTab's matrix -- see SummaryMatrix's
-    // own doc comment on `aboveLevelCaption` for why it wants the caller to
-    // supply this rather than working it out itself. Every organisation
-    // unit group set -- compulsory or not -- evaluates every organisation
-    // unit at every level (`populationFor` in `src/engine/population.ts`
-    // never restricts an org unit set's population by level), so the row is
-    // not specific to compulsory sets: confirmed against the Sierra Leone
-    // demo, where the non-compulsory "Area" set still has a non-empty one.
-    // What *is* true, and known here (this is the one place that still
-    // holds `levels`, now that the row level selector lives in the bar
-    // above), is which row level was actually chosen and what it is
-    // called -- so that is what the caption names. When the level list
-    // hasn't resolved yet, or doesn't contain the current level, there is
-    // nothing to name it with; `undefined` lets SummaryMatrix fall back to
-    // its own generic default instead.
-    //
-    // One whole translated sentence with a placeholder filled in
-    // afterwards, never a join of separately translated fragments -- see
-    // src/utils/interpolate.ts.
-    const rowLevelLabel = levels.find(
-        (l) => l.level === effectiveRowLevel
-    )?.displayName
-    const aboveLevelCaption = rowLevelLabel
-        ? interpolate(
-              i18n.t('Includes organisation units above the {level} level'),
-              { level: rowLevelLabel }
-          )
-        : undefined
+/** The matrix cell a user clicked, as the Objects tab's filter. */
+function filterForCell(row: ObjectRef | null, column: MatrixColumn) {
+    const next: ObjectFilter = {}
+    if (row) {
+        next.ancestor = row.index
+    }
+    if (column.kind === 'group') {
+        next.group = column.index
+    } else if (column.kind === 'missing') {
+        next.statuses = [Status.MissingError, Status.MissingWarning]
+    } else if (column.kind === 'unassigned') {
+        // "In no group, and that is allowed here": the engine records those
+        // as Status.Ok with no group, so both halves are needed.
+        next.group = -1
+        next.statuses = [Status.Ok]
+    } else if (column.kind === 'conflict') {
+        next.statuses = [Status.Conflict]
+    }
+    return next
+}
 
-    const onCell = (row: ObjectRef | null, column: MatrixColumn) => {
-        const next: ObjectFilter = {}
-        if (row) {
-            next.ancestor = row.index
+const RowLevelField = ({
+    levels,
+    rowLevel,
+    onChange,
+}: {
+    levels: Level[]
+    rowLevel: number
+    onChange: (level: number) => void
+}) => (
+    <FilterBarField label={i18n.t('Rows')}>
+        <SingleSelectField
+            dense
+            selected={String(rowLevel)}
+            onChange={({ selected }) => onChange(Number(selected))}
+            inputWidth="240px"
+        >
+            {levels.map((l) => (
+                <SingleSelectOption
+                    key={l.level}
+                    value={String(l.level)}
+                    // One complete string with placeholders, never
+                    // fragments joined in English word order.
+                    label={interpolate(i18n.t('{name} (level {level})'), {
+                        name: l.displayName,
+                        level: l.level,
+                    })}
+                />
+            ))}
+        </SingleSelectField>
+    </FilterBarField>
+)
+
+const SetHeader = ({ set }: { set: GroupSetMeta }) => (
+    <div className={styles.header}>
+        <h1 className={styles.title}>{set.displayName}</h1>
+        <div className={styles.badges}>
+            {set.compulsory && <Tag positive>{i18n.t('Compulsory')}</Tag>}
+            {set.dataDimension && (
+                <Tag positive>{i18n.t('Data dimension')}</Tag>
+            )}
+            <Tag neutral>{groupsLabel(set.groups.length)}</Tag>
+        </div>
+    </div>
+)
+
+const DetailTabBar = ({
+    tab,
+    onTab,
+    integrityAvailable,
+}: {
+    tab: DetailTab
+    onTab: (tab: DetailTab) => void
+    integrityAvailable: boolean
+}) => (
+    <TabBar>
+        <Tab selected={tab === 'overview'} onClick={() => onTab('overview')}>
+            {i18n.t('Overview')}
+        </Tab>
+        <Tab selected={tab === 'objects'} onClick={() => onTab('objects')}>
+            {i18n.t('Objects')}
+        </Tab>
+        <Tab selected={tab === 'usage'} onClick={() => onTab('usage')}>
+            {i18n.t('Usage')}
+        </Tab>
+        {integrityAvailable && (
+            <Tab
+                selected={tab === 'integrity'}
+                onClick={() => onTab('integrity')}
+            >
+                {i18n.t('DHIS2 integrity')}
+            </Tab>
+        )}
+    </TabBar>
+)
+
+/**
+ * M10: a deep link to a set that is not (yet) there. While the first load
+ * runs this is the load's own progress; once it has finished and the set is
+ * still absent, the set was deleted or is not shared with this user, and
+ * the page says so with a way back, instead of "not loaded yet" forever.
+ */
+const SetNotFound = () => {
+    const { status, groupSetsLoaded, error } = useEngine()
+    if (!groupSetsLoaded && error === null) {
+        return (
+            <div className={styles.page}>
+                <LoadProgress status={status} />
+            </div>
+        )
+    }
+    return (
+        <div className={styles.page}>
+            <LoadProgress status={status} />
+            <NoticeBox title={i18n.t('Group set not found')}>
+                <p>
+                    {i18n.t(
+                        'This group set does not exist, or you cannot see it.'
+                    )}
+                </p>
+                <Link to="/">{i18n.t('Back to the dashboard')}</Link>
+            </NoticeBox>
+        </div>
+    )
+}
+
+/**
+ * The way back from a drill-down: the scopes this page drilled through,
+ * oldest first, each with the row level it was left at. Page state, not
+ * scope state: it is the history of one visit.
+ */
+function useScopeTrail({
+    rowLevel,
+    setRowLevel,
+    setFilter,
+}: {
+    rowLevel: number
+    setRowLevel: (level: number) => void
+    setFilter: React.Dispatch<React.SetStateAction<ObjectFilter>>
+}) {
+    const { rootId, rootName, rootLevel, setRoot } = useScope()
+    const [trail, setTrail] = useState<Crumb[]>([])
+    // Drilling and jumping set this ref first, so only a scope change this
+    // page did not make (the organisation unit tree, a restored session)
+    // clears the trail -- it no longer leads back from there.
+    const scopeFromTrailRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (scopeFromTrailRef.current !== rootId) {
+            scopeFromTrailRef.current = null
+            setTrail((current) => (current.length === 0 ? current : []))
         }
-        if (column.kind === 'group') {
-            next.group = column.index
-        } else if (column.kind === 'missing') {
-            next.statuses = [Status.MissingError, Status.MissingWarning]
-        } else if (column.kind === 'unassigned') {
-            // "In no group, and that is allowed here": the engine records
-            // those as Status.Ok with no group, so both halves are needed --
-            // status alone would also list every object that *is* in a
-            // group, and group alone would also list the missing ones on a
-            // set where being in no group is an error.
-            next.group = -1
-            next.statuses = [Status.Ok]
-        } else if (column.kind === 'conflict') {
-            next.statuses = [Status.Conflict]
+        // Any scope change, drill-down included, makes an area (ancestor)
+        // filter from the old scope stale: it would carry a unit from
+        // outside, or above, the new scope into the Objects tab.
+        setFilter((current) => {
+            if (current.ancestor === undefined) {
+                return current
+            }
+            const next = { ...current }
+            delete next.ancestor
+            return next
+        })
+    }, [rootId, setFilter])
+
+    /** Remember the scope and row level being left, then move to the row. */
+    const drillTo = (row: ObjectRef, nextRowLevel: number) => {
+        if (rootId !== null) {
+            setTrail((current) => [
+                ...current,
+                {
+                    id: rootId,
+                    name: rootName || rootId,
+                    level: rootLevel,
+                    rowLevel,
+                },
+            ])
         }
-        setFilter(next)
-        setTab('objects')
+        scopeFromTrailRef.current = row.id
+        setRoot(row.id, row.displayName ?? row.id, rowLevel)
+        setRowLevel(nextRowLevel)
     }
 
-    // Task 6: a row's own level is always `effectiveRowLevel` -- every row
-    // in the matrix sits there by construction (`ObjectRef.level`, on each
-    // row's own `row`, is the same value; `effectiveRowLevel` is used here
-    // only because it is already in scope, not because rows lack a level
-    // of their own). Drilling only makes sense when a
-    // level exists below it; `levels` is already sorted ascending and
-    // filtered to what lies below the scope, so its first entry past the
-    // row's own level is the next one down. When there is none -- the
-    // chosen row level is already the deepest the hierarchy offers --
-    // `onDrillDown` stays undefined and SummaryMatrix leaves row labels as
-    // plain text, the same treatment it already gives a flat object type.
-    const nextRowLevel = levels.find((l) => l.level > effectiveRowLevel)?.level
-    const onDrillDown =
-        set.objectType === 'organisationUnit' && nextRowLevel !== undefined
-            ? (row: ObjectRef) => {
-                  // Remember where we were before moving, so the trail in
-                  // the bar can put the user back on the scope *and* the row
-                  // level they left -- returning to a parent scope showing a
-                  // different row level than it had would be a second,
-                  // unasked-for change.
-                  if (rootId !== null) {
-                      setTrail((current) => [
-                          ...current,
-                          {
-                              id: rootId,
-                              name: rootName || rootId,
-                              level: rootLevel,
-                              rowLevel: effectiveRowLevel,
-                          },
-                      ])
-                  }
-                  scopeFromTrailRef.current = row.id
-                  setRoot(row.id, row.displayName ?? row.id, effectiveRowLevel)
-                  setRowLevel(nextRowLevel)
-              }
-            : undefined
-
-    // Jumping to a crumb drops it and everything after it: the trail is the
-    // path still ahead of you, so arriving at a scope means you are no
-    // longer below it.
-    const onJumpToCrumb = (index: number) => {
+    /** Jumping to a crumb drops it and everything after it. */
+    const jumpTo = (index: number) => {
         const crumb = trail[index]
         if (!crumb) {
             return
@@ -287,14 +308,134 @@ export const GroupSetDetail = () => {
         setRowLevel(crumb.rowLevel)
     }
 
+    return { trail, drillTo, jumpTo }
+}
+
+const TabBody = ({
+    tab,
+    set,
+    scope,
+    overview,
+    objects,
+}: {
+    tab: DetailTab
+    set: GroupSetMeta
+    scope: ScopeRef
+    overview: {
+        rowLevel: number
+        levels: Level[]
+        onCell: (row: ObjectRef | null, column: MatrixColumn) => void
+        onDrillDown: ((row: ObjectRef) => void) | undefined
+    }
+    objects: {
+        filter: ObjectFilter
+        onFilter: (filter: ObjectFilter) => void
+        onBulkFix: () => void
+    }
+}) => {
+    switch (tab) {
+        case 'overview': {
+            // Why the "above the row level" row exists, naming the chosen
+            // level when it is known; SummaryMatrix has a generic default
+            // otherwise. One whole translated sentence with a placeholder.
+            const rowLevelLabel = overview.levels.find(
+                (l) => l.level === overview.rowLevel
+            )?.displayName
+            return (
+                <OverviewTab
+                    set={set}
+                    scope={scope}
+                    rowLevel={overview.rowLevel}
+                    aboveLevelCaption={
+                        rowLevelLabel
+                            ? interpolate(
+                                  i18n.t(
+                                      'Includes organisation units above the {level} level'
+                                  ),
+                                  { level: rowLevelLabel }
+                              )
+                            : undefined
+                    }
+                    onCell={overview.onCell}
+                    onDrillDown={overview.onDrillDown}
+                />
+            )
+        }
+        case 'integrity':
+            return <IntegrityTab set={set} scope={scope} />
+        case 'usage':
+            // Shown for every set; the tab's own body explains when there is
+            // nothing to show.
+            return <UsageTab set={set} />
+        default:
+            return (
+                <ObjectsTab
+                    set={set}
+                    scope={scope}
+                    filter={objects.filter}
+                    onFilter={objects.onFilter}
+                    levels={overview.levels}
+                    onBulkFix={objects.onBulkFix}
+                />
+            )
+    }
+}
+
+const GroupSetPage = ({ set }: { set: GroupSetMeta }) => {
+    const location = useLocation()
+    const { reload, status } = useEngine()
+    const { rootId, rootName } = useScope()
+    const integrity = useIntegrity()
+    // Lets a card link straight into this tab, e.g.
+    // navigate('/sets/<id>', { state: { tab: 'usage' } }).
+    const initialTab = (location.state as { tab?: DetailTab } | null)?.tab
+    const [tab, setTab] = useState<DetailTab>(initialTab ?? 'overview')
+    // m6: the integrity Tab disappears when `integrity.available` goes
+    // false (a 403 mid-session, most often); the selected tab must follow,
+    // or the TabBar shows nothing selected over the Objects content.
+    useEffect(() => {
+        if (tab === 'integrity' && !integrity.available) {
+            setTab('overview')
+        }
+    }, [tab, integrity.available])
+    const [filter, setFilter] = useState<ObjectFilter>({})
+    // The filter a bulk fix was opened for; only ObjectsTab's own button
+    // sets it, so a bulk fix acts on rows the user can see. `null` = closed.
+    const [bulkFixFilter, setBulkFixFilter] = useState<ObjectFilter | null>(
+        null
+    )
+    const [propertiesOpen, setPropertiesOpen] = useState(false)
+    const { levels, effectiveRowLevel, setRowLevel } = useRowLevels()
+    const { trail, drillTo, jumpTo } = useScopeTrail({
+        rowLevel: effectiveRowLevel,
+        setRowLevel,
+        setFilter,
+    })
+
     const isOrgUnitSet = set.objectType === 'organisationUnit'
+    const scope: ScopeRef = {
+        objectType: set.objectType,
+        rootId: isOrgUnitSet ? rootId : null,
+    }
+
+    // Drilling moves the scope to the row and the row level to the next
+    // level that exists; on the deepest level there is nowhere to go, and
+    // SummaryMatrix leaves row labels as plain text.
+    const nextRowLevel = levels.find((l) => l.level > effectiveRowLevel)?.level
+    const onDrillDown =
+        isOrgUnitSet && nextRowLevel !== undefined
+            ? (row: ObjectRef) => drillTo(row, nextRowLevel)
+            : undefined
+
+    // A non-forced reload is enough after a write or a property change:
+    // group set metadata is never cached, only object and membership
+    // payloads are.
+    const onApplied = () => {
+        void reload(false)
+    }
+
     return (
         <div className={styles.page}>
-            {/* One bar on every group set page (manual review 3), the
-                same row the dashboard has: the scope fields when the type
-                has a scope, the group set's own action beside them, and
-                the freshness line in the status slot on the right where
-                the dashboard keeps it. */}
             <FilterBar
                 status={
                     <MetadataFreshness
@@ -308,42 +449,16 @@ export const GroupSetDetail = () => {
                         currentName={
                             rootName || i18n.t('All organisation units')
                         }
-                        onJump={onJumpToCrumb}
+                        onJump={jumpTo}
                     />
                 )}
                 {isOrgUnitSet && <OrgUnitField />}
                 {isOrgUnitSet && tab === 'overview' && levels.length > 0 && (
-                    <FilterBarField label={i18n.t('Rows')}>
-                        <SingleSelectField
-                            dense
-                            selected={String(effectiveRowLevel)}
-                            onChange={({ selected }) =>
-                                setRowLevel(Number(selected))
-                            }
-                            inputWidth="240px"
-                        >
-                            {levels.map((l) => (
-                                <SingleSelectOption
-                                    key={l.level}
-                                    value={String(l.level)}
-                                    // One complete string with
-                                    // placeholders rather than
-                                    // translated fragments joined in
-                                    // English word order -- see
-                                    // src/utils/interpolate.ts for why
-                                    // the call itself takes no second
-                                    // argument.
-                                    label={interpolate(
-                                        i18n.t('{name} (level {level})'),
-                                        {
-                                            name: l.displayName,
-                                            level: l.level,
-                                        }
-                                    )}
-                                />
-                            ))}
-                        </SingleSelectField>
-                    </FilterBarField>
+                    <RowLevelField
+                        levels={levels}
+                        rowLevel={effectiveRowLevel}
+                        onChange={setRowLevel}
+                    />
                 )}
                 <FilterBarField label={i18n.t('Group set')}>
                     <Button
@@ -361,82 +476,39 @@ export const GroupSetDetail = () => {
                     </Button>
                 </FilterBarField>
             </FilterBar>
-            <div className={styles.header}>
-                <h1 className={styles.title}>{set.displayName}</h1>
-                <div className={styles.badges}>
-                    {set.compulsory && (
-                        <Tag positive>{i18n.t('Compulsory')}</Tag>
-                    )}
-                    {set.dataDimension && (
-                        <Tag positive>{i18n.t('Data dimension')}</Tag>
-                    )}
-                    <Tag neutral>{groupsLabel(set.groups.length)}</Tag>
-                </div>
-            </div>
+            <SetHeader set={set} />
             <LoadProgress status={status} />
-            <TabBar>
-                <Tab
-                    selected={tab === 'overview'}
-                    onClick={() => setTab('overview')}
-                >
-                    {i18n.t('Overview')}
-                </Tab>
-                <Tab
-                    selected={tab === 'objects'}
-                    onClick={() => setTab('objects')}
-                >
-                    {i18n.t('Objects')}
-                </Tab>
-                <Tab selected={tab === 'usage'} onClick={() => setTab('usage')}>
-                    {i18n.t('Usage')}
-                </Tab>
-                {integrity.available && (
-                    <Tab
-                        selected={tab === 'integrity'}
-                        onClick={() => setTab('integrity')}
-                    >
-                        {i18n.t('DHIS2 integrity')}
-                    </Tab>
-                )}
-            </TabBar>
-            {tab === 'overview' ? (
-                <OverviewTab
-                    set={set}
-                    scope={scope}
-                    rowLevel={effectiveRowLevel}
-                    aboveLevelCaption={aboveLevelCaption}
-                    onCell={onCell}
-                    onDrillDown={onDrillDown}
-                />
-            ) : tab === 'integrity' && integrity.available ? (
-                <IntegrityTab set={set} scope={scope} />
-            ) : tab === 'usage' ? (
-                // Shown for every set, including indicator group sets -- the
-                // tab's own body is what explains there is nothing to show
-                // there (spec 3.5), so no extra gate is needed here.
-                <UsageTab set={set} />
-            ) : (
-                <ObjectsTab
-                    set={set}
-                    scope={scope}
-                    filter={filter}
-                    onFilter={setFilter}
-                    levels={levels}
-                    onBulkFix={() => setBulkFixFilter(filter)}
-                />
-            )}
+            <DetailTabBar
+                tab={tab}
+                onTab={setTab}
+                integrityAvailable={integrity.available}
+            />
+            <TabBody
+                tab={
+                    integrity.available || tab !== 'integrity' ? tab : 'objects'
+                }
+                set={set}
+                scope={scope}
+                overview={{
+                    rowLevel: effectiveRowLevel,
+                    levels,
+                    onCell: (row, column) => {
+                        setFilter(filterForCell(row, column))
+                        setTab('objects')
+                    },
+                    onDrillDown,
+                }}
+                objects={{
+                    filter,
+                    onFilter: setFilter,
+                    onBulkFix: () => setBulkFixFilter(filter),
+                }}
+            />
             {propertiesOpen && (
                 <SetPropertiesDialog
                     set={set}
                     onClose={() => setPropertiesOpen(false)}
-                    // Group set metadata is re-read on every load (it is
-                    // never cached -- only object and membership payloads
-                    // are), so a non-forced reload is enough to bring the
-                    // patched `compulsory`/`dataDimension` back, and with
-                    // them every count that depends on them.
-                    onApplied={() => {
-                        void reload(false)
-                    }}
+                    onApplied={onApplied}
                 />
             )}
             {bulkFixFilter !== null && (
@@ -445,26 +517,38 @@ export const GroupSetDetail = () => {
                     scope={scope}
                     filter={bulkFixFilter}
                     onClose={() => setBulkFixFilter(null)}
-                    // D4: applying (or retrying) must not dismiss the
-                    // dialog -- only the dialog's own Close button, called
-                    // through `onClose`, does that. This handler's job is
-                    // D5's refresh: `set.groups` is a prop that comes from
-                    // this engine snapshot, so a non-forced reload is what
-                    // picks up a group the dialog created or a membership
-                    // change the write already applied locally.
-                    //
-                    // M4: this fires on every apply AND every retry while
-                    // the dialog is still open, so `set` (and therefore
-                    // `set.groups`) can change under the dialog mid-flow.
-                    // Harmless today -- the apply step never re-reads the
-                    // plan or re-renders the preview -- but a future change
-                    // to the apply/preview steps should not assume `set` is
-                    // stable for the dialog's lifetime.
-                    onApplied={() => {
-                        void reload(false)
-                    }}
+                    // D4: applying or retrying never closes the dialog; only
+                    // its own Close does. `set` can therefore change under
+                    // the open dialog after each apply.
+                    onApplied={onApplied}
                 />
             )}
         </div>
     )
+}
+
+/**
+ * A deep link to a set the user can see but not check, because some of its
+ * groups are not shared with them: say why, rather than "not found".
+ */
+const SetRestricted = ({ set }: { set: RestrictedGroupSet }) => (
+    <div className={styles.page}>
+        <NoticeBox warning title={set.displayName}>
+            <p>{restrictedSetLabel(set.hiddenGroups, set.totalGroups)}</p>
+            <Link to="/">{i18n.t('Back to the dashboard')}</Link>
+        </NoticeBox>
+    </div>
+)
+
+export const GroupSetDetail = () => {
+    const { setId = '' } = useParams()
+    const { groupSets, restrictedSets } = useEngine()
+    const set = groupSets.find((s) => s.id === setId)
+    if (set) {
+        // Keyed by id, so moving from one set to another starts afresh
+        // rather than carrying one set's filter or tab into the next.
+        return <GroupSetPage key={set.id} set={set} />
+    }
+    const restricted = restrictedSets.find((s) => s.id === setId)
+    return restricted ? <SetRestricted set={restricted} /> : <SetNotFound />
 }

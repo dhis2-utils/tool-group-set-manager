@@ -1,6 +1,7 @@
 import { ENDPOINTS } from './endpoints'
-import { fetchJson, Fetcher } from './sources/DataSource'
-import { GroupSetMeta, ObjectType } from '@/engine/types'
+import type { Fetcher } from './sources/DataSource'
+import { fetchJson } from './sources/DataSource'
+import type { GroupSetMeta, ObjectType } from '@/engine/types'
 
 const MAX_SHORT_NAME_LENGTH = 50
 
@@ -13,25 +14,8 @@ const CATCH_ALL_CODE_SUFFIX = '_OTHER'
 /** DHIS2's sharing object shape, copied wholesale rather than modelled field by field. */
 type Sharing = Record<string, unknown>
 
-// Used only when the set has no existing group to copy sharing from (spec:
-// "a set with no existing groups producing a group with sensible default
-// sharing rather than throwing"). `rw------`: metadata read+write for the
-// owner only, and nothing -- neither metadata nor data -- for anyone else,
-// matching the Maintenance app's own default for a new object. (An earlier
-// version of this used `rwrw----`, which is metadata *and data* read+write
-// for every user; that granted public write on a group this app created and
-// was wrong, not merely permissive.)
-const DEFAULT_SHARING: Sharing = {
-    public: 'rw------',
-    users: {},
-    userGroups: {},
-}
-
-interface GroupSetCodeResponse {
+interface GroupSetCodeAndSharing {
     code?: string
-}
-
-interface GroupSharingResponse {
     sharing?: Sharing
 }
 
@@ -45,28 +29,35 @@ type ListResponse = Record<
     { id: string; groupSets?: { id: string }[] }[] | undefined
 >
 
-async function fetchGroupSetCode(
+async function fetchGroupSetCodeAndSharing(
     fetcher: Fetcher,
     groupSetsEndpoint: string,
     setId: string
-): Promise<string | undefined> {
-    const body = await fetchJson<GroupSetCodeResponse>(
+): Promise<GroupSetCodeAndSharing> {
+    return await fetchJson<GroupSetCodeAndSharing>(
         fetcher,
-        `${groupSetsEndpoint}/${setId}?fields=code`
+        `${groupSetsEndpoint}/${setId}?fields=code,sharing`
     )
-    return body.code
 }
 
-async function fetchSiblingSharing(
-    fetcher: Fetcher,
-    groupsEndpoint: string,
-    siblingGroupId: string
-): Promise<Sharing> {
-    const body = await fetchJson<GroupSharingResponse>(
-        fetcher,
-        `${groupsEndpoint}/${siblingGroupId}?fields=sharing`
-    )
-    return body.sharing ?? DEFAULT_SHARING
+/**
+ * The sharing a new catch-all group gets: the group set's own sharing,
+ * without its owner. Whoever can see or edit the set can see or edit its
+ * catch-all group. The owner is left out so that DHIS2 makes the creator
+ * the owner: a copied owner can leave the creator unable to write the group
+ * they just created (seen live on 2.42, where the copied sharing was
+ * `r-------` with someone else as owner). Undefined when the set has no
+ * sharing to copy, and DHIS2 then applies its own default for a new object.
+ */
+export function catchAllSharing(
+    setSharing: Sharing | undefined
+): Sharing | undefined {
+    if (!setSharing) {
+        return undefined
+    }
+    const rest = { ...setSharing }
+    delete rest.owner
+    return rest
 }
 
 /**
@@ -79,6 +70,79 @@ async function fetchSiblingSharing(
  * place.
  */
 export const NAME_OWNED_BY_ANOTHER_SET = 'name-owned-by-another-set'
+
+/**
+ * Which step of a metadata write failed. A caller turns this, the status
+ * and `conflicts` into one translated sentence; the error's own `message`
+ * is developer diagnostics only and never shown.
+ */
+export type MetadataWriteStep = 'createGroup' | 'addToSet' | 'updateSet'
+
+/**
+ * A metadata write the server refused (or answered without the id it
+ * should have carried, `status` 0). `conflicts` holds the properties a 409
+ * named as already in use (`name`, `shortName`, `code`), read from the
+ * import report's `errorReports[].errorProperty` -- the only way to tell
+ * the user which of the three to change.
+ */
+export class MetadataWriteError extends Error {
+    readonly step: MetadataWriteStep
+    readonly status: number
+    readonly conflicts: string[]
+
+    constructor(
+        step: MetadataWriteStep,
+        status: number,
+        conflicts: string[] = []
+    ) {
+        super(`${step} failed: HTTP ${status}`)
+        this.name = 'MetadataWriteError'
+        this.step = step
+        this.status = status
+        this.conflicts = conflicts
+    }
+}
+
+/**
+ * Every `errorProperty` named anywhere in an import report. The report's
+ * shape differs across 2.40-2.43 (`response.errorReports` on one,
+ * `response.typeReports[].objectReports[].errorReports` on another), so the
+ * body is walked rather than addressed by path.
+ */
+function conflictingProperties(body: unknown): string[] {
+    const found = new Set<string>()
+    const walk = (node: unknown, depth: number) => {
+        if (depth > 8 || node === null || typeof node !== 'object') {
+            return
+        }
+        if (Array.isArray(node)) {
+            for (const item of node) {
+                walk(item, depth + 1)
+            }
+            return
+        }
+        const record = node as Record<string, unknown>
+        if (typeof record.errorProperty === 'string') {
+            found.add(record.errorProperty)
+        }
+        for (const value of Object.values(record)) {
+            walk(value, depth + 1)
+        }
+    }
+    walk(body, 0)
+    return [...found]
+}
+
+async function readConflicts(response: Response): Promise<string[]> {
+    if (response.status !== 409) {
+        return []
+    }
+    try {
+        return conflictingProperties(await response.json())
+    } catch {
+        return []
+    }
+}
 
 /**
  * The names `createCatchAllGroup` uses when the caller supplies none --
@@ -190,9 +254,9 @@ async function findExistingGroup(
  * accepts idempotently (adding an existing member again is a no-op, not
  * an error).
  *
- * Thrown errors carry only an HTTP status and are not user-facing text;
- * see the module doc comment on `setGroupSetProperties` for the same note
- * about translating them before display.
+ * A refused create or add throws `MetadataWriteError`, which carries the
+ * step, the status and any properties a 409 named, so the caller can build
+ * one translated sentence from it.
  */
 export async function createCatchAllGroup(
     fetcher: Fetcher,
@@ -224,9 +288,7 @@ export async function createCatchAllGroup(
         { method: 'POST', headers: { 'Content-Type': 'application/json' } }
     )
     if (!addResponse.ok) {
-        throw new Error(
-            `Failed to add the catch-all group ${id} to the set: HTTP ${addResponse.status}`
-        )
+        throw new MetadataWriteError('addToSet', addResponse.status)
     }
 
     return { id, displayName }
@@ -238,24 +300,21 @@ async function createGroup(
     names: { set: GroupSetMeta; displayName: string; shortName: string }
 ): Promise<string> {
     const { set, displayName, shortName } = names
-    const sibling = set.groups[0]
     // Fetched only when actually creating: a reused group (found by
-    // findExistingGroup) needs neither, since it already has both.
-    const codePromise = fetchGroupSetCode(fetcher, endpoint.groupSets, set.id)
-    const sharingPromise = sibling
-        ? fetchSiblingSharing(fetcher, endpoint.groups, sibling.id)
-        : Promise.resolve(DEFAULT_SHARING)
-    // Promise.all surfaces only the first rejection; without these, a
-    // failure of the *other* promise would additionally log as an
-    // unhandled rejection when both reject.
-    codePromise.catch(() => undefined)
-    sharingPromise.catch(() => undefined)
-    const [code, sharing] = await Promise.all([codePromise, sharingPromise])
+    // findExistingGroup) already has both.
+    const { code, sharing: setSharing } = await fetchGroupSetCodeAndSharing(
+        fetcher,
+        endpoint.groupSets,
+        set.id
+    )
+    const sharing = catchAllSharing(setSharing)
 
     const body: Record<string, unknown> = {
         name: displayName,
         shortName,
-        sharing,
+    }
+    if (sharing) {
+        body.sharing = sharing
     }
     if (code) {
         body.code = `${code}${CATCH_ALL_CODE_SUFFIX}`
@@ -267,14 +326,16 @@ async function createGroup(
         body: JSON.stringify(body),
     })
     if (!createResponse.ok) {
-        throw new Error(
-            `Failed to create catch-all group: HTTP ${createResponse.status}`
+        throw new MetadataWriteError(
+            'createGroup',
+            createResponse.status,
+            await readConflicts(createResponse)
         )
     }
     const created = (await createResponse.json()) as CreateResponse
     const id = created.response?.uid
     if (!id) {
-        throw new Error('Group create did not return an id')
+        throw new MetadataWriteError('createGroup', 0)
     }
     return id
 }
@@ -282,7 +343,7 @@ async function createGroup(
 /**
  * Patches `compulsory` and/or `dataDimension` on a group set with a JSON
  * patch (`application/json-patch+json`), confirmed by
- * docs/superpowers/notes/2026-09-plan2-write-api-findings.md to take effect
+ * docs/developer/dhis2-behavior.md to take effect
  * immediately. `set.objectType` is required even though a group set id
  * alone looks like it should be enough: the four object types each have
  * their own group-set collection (`organisationUnitGroupSets`,
@@ -292,9 +353,9 @@ async function createGroup(
  * takes as `set`, so a caller holding a `GroupSetMeta` passes it to either
  * function the same way.
  *
- * Thrown errors carry only an HTTP status, not user-facing text; a caller
- * that surfaces `e.message` in a dialog must translate it first rather than
- * display it raw (this project's strings must all go through `i18n.t()`).
+ * A refused patch throws `MetadataWriteError` with step `updateSet`; its
+ * `message` is diagnostics, and a caller builds the translated sentence
+ * from its `status`.
  */
 export async function setGroupSetProperties(
     fetcher: Fetcher,
@@ -314,8 +375,34 @@ export async function setGroupSetProperties(
         body: JSON.stringify(ops),
     })
     if (!response.ok) {
-        throw new Error(
-            `Failed to update group set ${set.id}: HTTP ${response.status}`
-        )
+        throw new MetadataWriteError('updateSet', response.status)
+    }
+}
+
+/**
+ * A group set's `compulsory` and `dataDimension` as the server holds them
+ * now, uncached. Reverting a property change from History compares these
+ * with what the change set it reverts recorded, so it never overwrites a
+ * value someone has changed again since.
+ */
+export async function readGroupSetProperties(
+    fetcher: Fetcher,
+    set: Pick<GroupSetMeta, 'id' | 'objectType'>
+): Promise<{ compulsory: boolean; dataDimension: boolean }> {
+    const endpoint = ENDPOINTS[set.objectType]
+    const response = await fetcher(
+        `${endpoint.groupSets}/${set.id}?fields=compulsory,dataDimension`,
+        { cache: 'no-store' }
+    )
+    if (!response.ok) {
+        throw new MetadataWriteError('updateSet', response.status)
+    }
+    const body = (await response.json()) as {
+        compulsory?: boolean
+        dataDimension?: boolean
+    }
+    return {
+        compulsory: body.compulsory ?? false,
+        dataDimension: body.dataDimension ?? false,
     }
 }

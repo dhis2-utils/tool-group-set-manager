@@ -1,8 +1,8 @@
 import i18n from '@dhis2/d2-i18n'
 import { LinearLoader, NoticeBox } from '@dhis2/ui'
 import React from 'react'
-import { LoadStatus } from '@/data/loadAll'
-import { ObjectType } from '@/engine/types'
+import type { LoadStatus } from '@/data/loadAll'
+import type { ObjectType } from '@/engine/types'
 import { interpolate } from '@/utils/interpolate'
 import { typeLabel, typeObjectsLabel } from '@/utils/objectTypeLabels'
 
@@ -45,6 +45,49 @@ const phaseLabel = (
                 : i18n.t('Checking rules')
         case 'done':
             return i18n.t('Done')
+        // Exhaustive: TypeScript rejects this function if a case is missing.
+        // no default
+    }
+}
+
+/**
+ * L5: the phase and its counter as one complete sentence, rather than the
+ * phase sentence with " · 3 of 7" glued on. Only the per-type phases that
+ * report progress have a counter; anything else keeps the plain phase.
+ */
+const progressLabel = (
+    phase: LoadStatus['phase'],
+    type: ObjectType | null,
+    { done, total }: { done: number; total: number }
+): string => {
+    if (!type) {
+        return phaseLabel(phase, type)
+    }
+    const values = {
+        type: typeObjectsLabel(type),
+        done: done.toLocaleString(),
+        total: total.toLocaleString(),
+    }
+    switch (phase) {
+        case 'objects':
+            return interpolate(
+                i18n.t('Loading {type}, {done} of {total}'),
+                values
+            )
+        case 'memberships':
+            return interpolate(
+                i18n.t(
+                    'Loading group memberships for {type}, {done} of {total}'
+                ),
+                values
+            )
+        case 'names':
+            return interpolate(
+                i18n.t('Loading names for {type}, {done} of {total}'),
+                values
+            )
+        default:
+            return phaseLabel(phase, type)
     }
 }
 
@@ -115,19 +158,16 @@ export const LoadProgress = ({ status }: { status: LoadStatus | null }) => {
     // "organisationUnitGroups") used to be shown here too; the sentence above
     // already names the type in the user's own language, so the counter is
     // all this adds.
-    const counter =
-        p && p.total
-            ? interpolate(i18n.t('{done} of {total}'), {
-                  done: p.done,
-                  total: p.total,
-              })
-            : null
     return (
         <div>
             <LinearLoader amount={amount} />
             <small>
-                {phaseLabel(status.phase, status.type)}
-                {counter && ` · ${counter}`}
+                {p && p.total
+                    ? progressLabel(status.phase, status.type, {
+                          done: p.done,
+                          total: p.total,
+                      })
+                    : phaseLabel(status.phase, status.type)}
             </small>
         </div>
     )

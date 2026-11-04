@@ -1,7 +1,7 @@
 {
-    "name": "group-set-integrity-tool",
-    "version": "1.0.0",
-    "description": "",
+    "name": "tool-group-set-manager",
+    "version": "1.1.0",
+    "description": "Finds and fixes objects that are in more than one group, or missing from a compulsory group, of a DHIS2 group set.",
     "license": "BSD-3-Clause",
     "private": true,
     "packageManager": "pnpm@10.13.1",
@@ -9,10 +9,11 @@
         "build": "d2-app-scripts build",
         "start": "d2-app-scripts start",
         "test": "d2-app-scripts test",
-        "test:e2e": "playwright test --config e2e/playwright.config.ts",
         "deploy": "d2-app-scripts deploy",
-        "lint": "eslint && prettier -c . && tsc -p e2e --noEmit",
-        "format": "prettier . -w"
+        "lint": "ultracite check",
+        "format": "oxfmt",
+        "check": "ultracite check",
+        "fix": "ultracite fix"
     },
     "dependencies": {
         "@dhis2/app-runtime": "^3.17.4",
@@ -28,10 +29,7 @@
     "devDependencies": {
         "@dhis2/api-types": "43.0.0-beta.daa0d8e",
         "@dhis2/cli-app-scripts": "12.11.4",
-        "@dhis2/config-eslint": "^0.2.2",
         "@dhis2/config-prettier": "^0.2.2",
-        "@eslint/compat": "^2.0.0",
-        "@playwright/test": "^1.63.0",
         "@testing-library/jest-dom": "^7.0.1",
         "@testing-library/react": "^16.3.3",
         "@testing-library/user-event": "^14.6.7",
@@ -39,10 +37,10 @@
         "@types/node": "^22.20.2",
         "@types/react": "^18.3.31",
         "@types/react-dom": "^18.3.7",
-        "eslint": "^9.39.2",
-        "eslint-import-resolver-typescript": "^4.4.5",
-        "prettier": "^3.7.4",
+        "oxfmt": "^0.71.0",
+        "oxlint": "^1.90.0",
         "typescript": "^5.9.3",
+        "ultracite": "8.0.1",
         "vite": "^7.3.0",
         "whatwg-fetch": "^3.6.20"
     }

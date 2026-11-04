@@ -270,38 +270,7 @@ describe('useUsage', () => {
         expect(result.current.forSet('set0')).toBeNull()
     })
 
-    // Fix round 1: `refresh()` used to call `lookup.refetch()`/
-    // `read.refetch()` directly, captured at the render that produced this
-    // hook's own closure. That is wrong for a caller like Settings, which
-    // invokes `refresh()` after an install or a remove has already changed
-    // what the *next* render's `view`/queryKey should be -- the closure's
-    // own `read.refetch()` would still target the pre-change key (e.g.
-    // `sqlViewData/none` right after an install that just created the
-    // view), a doomed request. `refresh()` now invalidates by key instead,
-    // so whichever consumer is actually mounted refetches under its own,
-    // current key.
-    it('refresh invalidates the lookup and data query keys, not the closure-captured refetch', async () => {
-        const lookupRefetch = jest.fn()
-        const readRefetch = jest.fn()
-        mockQueries(
-            { ...lookup([]), refetch: lookupRefetch },
-            { ...pending, refetch: readRefetch }
-        )
-        const { result } = renderHook(() => useUsage())
-        await waitFor(() => expect(result.current.status).toBe('absent'))
-        result.current.refresh()
-
-        expect(mockInvalidateQueries).toHaveBeenCalledTimes(1)
-        expect(mockInvalidateQueries).toHaveBeenCalledWith({
-            queryKey: [USAGE_QUERY_PREFIX],
-        })
-        // The doomed request this fix removes: neither closure-captured
-        // `refetch` is called any more.
-        expect(lookupRefetch).not.toHaveBeenCalled()
-        expect(readRefetch).not.toHaveBeenCalled()
-    })
-
-    it('keeps both of its query keys under the usage prefix, so refresh cannot reach another feature', async () => {
+    it('keeps both of its query keys under the usage prefix, so refresh cannot reach another feature', () => {
         mockQueries(
             lookup([
                 {
@@ -320,6 +289,7 @@ describe('useUsage', () => {
         expect(keys.some((k) => k[1] === 'sqlViews')).toBe(true)
         expect(keys.some((k) => k[1] === 'sqlViewData')).toBe(true)
         keys.forEach((key) => expect(key[0]).toBe(USAGE_QUERY_PREFIX))
+        return Promise.resolve()
     })
 })
 

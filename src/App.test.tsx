@@ -10,9 +10,10 @@ jest.mock('@/hooks/useEngine', () => ({
         client: null,
         status: null,
         groupSets: [],
+        restrictedSets: [],
         sourceKind: null,
         error: null,
-        reload: async () => undefined,
+        reload: () => Promise.resolve(undefined),
     }),
 }))
 jest.mock('@/hooks/useIntegrity', () => ({
@@ -26,9 +27,9 @@ jest.mock('@/hooks/useIntegrity', () => ({
         stale: new Set(),
         isRunning: false,
         error: null,
-        run: async () => undefined,
+        run: () => Promise.resolve(undefined),
         markStale: () => undefined,
-        refresh: async () => undefined,
+        refresh: () => Promise.resolve(undefined),
     }),
 }))
 jest.mock('@/hooks/useGsiConfig', () => ({
@@ -41,8 +42,8 @@ jest.mock('@/hooks/useGsiConfig', () => ({
             includeTracker: false,
         },
         isLoaded: true,
-        setCatchAllGroup: async () => undefined,
-        setIncludeTracker: async () => undefined,
+        setCatchAllGroup: () => Promise.resolve(undefined),
+        setIncludeTracker: () => Promise.resolve(undefined),
     }),
 }))
 jest.mock('@/hooks/useScope', () => ({
@@ -64,7 +65,7 @@ jest.mock('@/hooks/useUserScope', () => ({
     useUserScope: () => ({ roots: [] }),
 }))
 
-it('renders the dashboard with the only-issues filter', () => {
+test('renders the dashboard with the only-issues filter', () => {
     render(<App />)
     expect(screen.getByText('Only sets with issues')).toBeInTheDocument()
 })

@@ -1,5 +1,5 @@
-import { SetMembership } from './membership'
-import { EngineConfig, GroupSetMeta } from './types'
+import type { SetMembership } from './membership'
+import type { EngineConfig, GroupSetMeta } from './types'
 
 export interface ObjectAttributes {
     /** data elements: 1 = AGGREGATE, 2 = TRACKER */
@@ -59,5 +59,7 @@ export function populationFor(
             }
             return population
         }
+        // Exhaustive: TypeScript rejects this function if a case is missing.
+        // no default
     }
 }

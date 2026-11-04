@@ -9,15 +9,14 @@ import React, {
     useState,
 } from 'react'
 import { createFetcher } from '@/data/fetcher'
+import type { CheckSummary, ResolvedCheck } from '@/data/integrity'
 import {
-    CheckSummary,
     readDetails,
     readSummaries,
     resolveChecks,
-    ResolvedCheck,
     startRun,
 } from '@/data/integrity'
-import { ObjectType } from '@/engine/types'
+import type { ObjectType } from '@/engine/types'
 import { useApiDataQuery } from '@/utils/useApiDataQuery'
 
 export interface IntegrityState {
@@ -29,16 +28,21 @@ export interface IntegrityState {
     stale: Set<string>
     isRunning: boolean
     error: string | null
+    /**
+     * The last run gave up polling before DHIS2 reported a result. The
+     * server may still be running the check, so this is not an error, and
+     * the tab says so in its own words.
+     */
+    timedOut: boolean
     run: (names: string[]) => Promise<void>
     markStale: (objectType: ObjectType) => void
-    refresh: () => Promise<void>
 }
 
 const IntegrityContext = createContext<IntegrityState | null>(null)
 
 // Finding 6: the overlay is gated on ALL or F_PERFORM_MAINTENANCE. A user
 // with neither must never cause a single dataIntegrity request.
-const REQUIRED_AUTHORITIES = ['ALL', 'F_PERFORM_MAINTENANCE']
+const REQUIRED_AUTHORITIES = new Set(['ALL', 'F_PERFORM_MAINTENANCE'])
 
 interface Me {
     authorities: string[]
@@ -60,6 +64,12 @@ const POLL_INITIAL_INTERVAL_MS = 300
 const POLL_BACKOFF_FACTOR = 1.5
 const POLL_MAX_INTERVAL_MS = 5000
 const POLL_MAX_ATTEMPTS = 12
+
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms)
+    })
+}
 
 const EMPTY_SUMMARIES: Record<string, CheckSummary> = {}
 
@@ -109,6 +119,7 @@ export const IntegrityProvider = ({
     const [stale, setStale] = useState<Set<string>>(new Set())
     const [isRunning, setIsRunning] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [timedOut, setTimedOut] = useState(false)
     const checksRef = useRef<ResolvedCheck[]>([])
     // m4 (final review): `run` used to close over `summaries` state
     // directly (to snapshot `before`), so its own identity -- and with it
@@ -196,7 +207,7 @@ export const IntegrityProvider = ({
             return
         }
         const authorized = me.authorities.some((a) =>
-            REQUIRED_AUTHORITIES.includes(a)
+            REQUIRED_AUTHORITIES.has(a)
         )
         if (!authorized) {
             disable()
@@ -243,14 +254,8 @@ export const IntegrityProvider = ({
         summariesRef.current = summaries
     }, [summaries])
 
-    const refresh = useCallback(async () => {
-        if (disabledRef.current) {
-            return
-        }
-        await loadSummaries(checksRef.current)
-    }, [loadSummaries])
-
     const run = useCallback(
+        // oxlint-disable-next-line complexity -- predates the lint migration; splitting it is a refactor of its own, not part of adopting the linter
         async (names: string[]) => {
             if (
                 disabledRef.current ||
@@ -265,6 +270,7 @@ export const IntegrityProvider = ({
             runInFlightRef.current = true
             setIsRunning(true)
             setError(null)
+            setTimedOut(false)
             try {
                 const before = new Map(
                     names.map((n) => [
@@ -316,6 +322,7 @@ export const IntegrityProvider = ({
                 // the details cache the tab actually reads is still stale.
                 let interval = POLL_INITIAL_INTERVAL_MS
                 let advanced = false
+                /* oxlint-disable no-await-in-loop -- polling: each attempt waits for the previous one and backs off */
                 for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
                     const [rows, detailsRows] = await Promise.all([
                         readSummaries(fetcher, names),
@@ -351,9 +358,7 @@ export const IntegrityProvider = ({
                     if (attempt === POLL_MAX_ATTEMPTS - 1) {
                         break
                     }
-                    await new Promise((resolve) =>
-                        setTimeout(resolve, interval)
-                    )
+                    await delay(interval)
                     if (disabledRef.current || unmountedRef.current) {
                         return
                     }
@@ -362,15 +367,13 @@ export const IntegrityProvider = ({
                         POLL_MAX_INTERVAL_MS
                     )
                 }
+                /* oxlint-enable no-await-in-loop */
                 if (!advanced && !unmountedRef.current) {
-                    // Diagnostic text, not user-facing as written --
-                    // translate before display, same as engineError and
-                    // historyError in useMembershipWrite.ts. The check(s)
-                    // stay marked stale (if they were) since this run
-                    // never confirmed a fresh result.
-                    setError(
-                        'The run did not report back in time; the result may still arrive.'
-                    )
+                    // L4: a flag, not an English message in `error`: the tab
+                    // says it in its own translated words. The check(s) stay
+                    // marked stale (if they were), since this run never
+                    // confirmed a fresh result.
+                    setTimedOut(true)
                 }
             } catch (e) {
                 if (unmountedRef.current) {
@@ -413,9 +416,9 @@ export const IntegrityProvider = ({
             stale,
             isRunning,
             error,
+            timedOut,
             run,
             markStale,
-            refresh,
         }),
         [
             available,
@@ -424,9 +427,9 @@ export const IntegrityProvider = ({
             stale,
             isRunning,
             error,
+            timedOut,
             run,
             markStale,
-            refresh,
         ]
     )
 

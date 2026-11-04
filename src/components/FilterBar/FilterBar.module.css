@@ -25,11 +25,16 @@
     align-items: flex-start;
     flex-wrap: wrap;
 }
+/* A <fieldset> (so the label names the control: see FilterBarField), with
+   the browser's fieldset border, padding and margin taken off. */
 .field {
     display: flex;
     flex-direction: column;
     gap: var(--spacers-dp4);
     min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
 }
 /* Every field's label goes through this span -- every library control in
    the bar is passed without its own `label` prop (see Dashboard.tsx),

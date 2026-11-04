@@ -1,5 +1,5 @@
-import { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
-import { ObjectType } from '@/engine/types'
+import type { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
+import type { ObjectType } from '@/engine/types'
 
 export type Fetcher = (path: string, init?: RequestInit) => Promise<Response>
 
@@ -27,16 +27,16 @@ export interface DataSource {
      * the answer differs for names.
      */
     nameSource: 'sqlView' | 'metadata'
-    loadObjects(
+    loadObjects: (
         type: ObjectType,
         onProgress: (p: Progress) => void
-    ): Promise<ObjectsPayload>
-    loadNames(type: ObjectType): Promise<NamedId[]>
-    loadMemberships(
+    ) => Promise<ObjectsPayload>
+    loadNames: (type: ObjectType) => Promise<NamedId[]>
+    loadMemberships: (
         type: ObjectType,
         groupIds: string[],
         onProgress: (p: Progress) => void
-    ): Promise<MembershipsPayload>
+    ) => Promise<MembershipsPayload>
 }
 
 export async function fetchJson<T>(fetcher: Fetcher, path: string): Promise<T> {

@@ -7,12 +7,12 @@ beforeEach(() => {
     sessionStorage.clear()
 })
 
-it('starts from the initial value when nothing is stored', () => {
+test('starts from the initial value when nothing is stored', () => {
     const { result } = renderHook(() => useSessionState('k', true, isBoolean))
     expect(result.current[0]).toBe(true)
 })
 
-it('hands a later mount the value an earlier one set', () => {
+test('hands a later mount the value an earlier one set', () => {
     const first = renderHook(() => useSessionState('k', true, isBoolean))
     act(() => {
         first.result.current[1](false)
@@ -24,19 +24,19 @@ it('hands a later mount the value an earlier one set', () => {
     expect(second.result.current[0]).toBe(false)
 })
 
-it('falls back to the initial value when the stored value fails the guard', () => {
+test('falls back to the initial value when the stored value fails the guard', () => {
     sessionStorage.setItem('k', JSON.stringify('not a boolean'))
     const { result } = renderHook(() => useSessionState('k', true, isBoolean))
     expect(result.current[0]).toBe(true)
 })
 
-it('falls back to the initial value when the stored value is not JSON', () => {
+test('falls back to the initial value when the stored value is not JSON', () => {
     sessionStorage.setItem('k', '{oops')
     const { result } = renderHook(() => useSessionState('k', true, isBoolean))
     expect(result.current[0]).toBe(true)
 })
 
-it('keeps the value in state when storage refuses the write', () => {
+test('keeps the value in state when storage refuses the write', () => {
     const spy = jest
         .spyOn(Storage.prototype, 'setItem')
         .mockImplementation(() => {

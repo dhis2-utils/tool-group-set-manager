@@ -17,7 +17,7 @@ import {
 import React, { useEffect, useMemo, useState } from 'react'
 import { MAX_GROUP_COLUMNS, planColumns } from './columnPlan'
 import styles from './SummaryMatrix.module.css'
-import { MatrixResult, ObjectRef } from '@/engine/store'
+import type { MatrixResult, ObjectRef } from '@/engine/store'
 import { groupsLabel } from '@/utils/groupsLabel'
 import { interpolate } from '@/utils/interpolate'
 
@@ -175,29 +175,39 @@ export const SummaryMatrix = ({
         }
     ) => {
         const clickable = options.clickable ?? true
+        const content = (
+            <span
+                className={
+                    options.tone === 'error' && value > 0
+                        ? styles.error
+                        : value === 0
+                          ? styles.zero
+                          : undefined
+                }
+            >
+                {fmt(value)}
+            </span>
+        )
+        // M12: a real button inside the cell, so the drill-down is
+        // reachable and announced from the keyboard, like the row labels.
         return (
             <DataTableCell
                 key={options.cellKey ?? options.column.kind}
                 align="right"
                 className={clickable ? styles.cell : styles.cellStatic}
-                onClick={
-                    clickable
-                        ? () => onCell(options.row, options.column)
-                        : undefined
-                }
                 title={clickable ? undefined : ABOVE_LEVEL_CLICK_TITLE()}
             >
-                <span
-                    className={
-                        options.tone === 'error' && value > 0
-                            ? styles.error
-                            : value === 0
-                              ? styles.zero
-                              : undefined
-                    }
-                >
-                    {fmt(value)}
-                </span>
+                {clickable ? (
+                    <button
+                        type="button"
+                        className={styles.cellButton}
+                        onClick={() => onCell(options.row, options.column)}
+                    >
+                        {content}
+                    </button>
+                ) : (
+                    content
+                )}
             </DataTableCell>
         )
     }
@@ -208,26 +218,44 @@ export const SummaryMatrix = ({
         value: number,
         row: ObjectRef | null,
         clickable: boolean
-    ) => (
-        <DataTableCell
-            key="other"
-            align="right"
-            className={clickable ? styles.cell : styles.cellStatic}
-            onClick={clickable ? () => openPicker() : undefined}
-            title={clickable ? undefined : ABOVE_LEVEL_CLICK_TITLE()}
-        >
+    ) => {
+        const content = (
             <span className={value === 0 ? styles.zero : undefined}>
                 {fmt(value)}
             </span>
-        </DataTableCell>
-    )
+        )
+        return (
+            <DataTableCell
+                key="other"
+                align="right"
+                className={clickable ? styles.cell : styles.cellStatic}
+                title={clickable ? undefined : ABOVE_LEVEL_CLICK_TITLE()}
+            >
+                {clickable ? (
+                    <button
+                        type="button"
+                        className={styles.cellButton}
+                        onClick={openPicker}
+                    >
+                        {content}
+                    </button>
+                ) : (
+                    content
+                )}
+            </DataTableCell>
+        )
+    }
     return (
         <div className={styles.wrap}>
             <DataTable>
                 <DataTableHead>
                     <DataTableRow>
                         <DataTableColumnHeader>
-                            {i18n.t('Organisation unit')}
+                            {/* L7: a flat type's rows are not
+                                organisation units. */}
+                            {flat
+                                ? i18n.t('Objects')
+                                : i18n.t('Organisation unit')}
                         </DataTableColumnHeader>
                         {plan.shown.map((g) => (
                             <DataTableColumnHeader
@@ -251,7 +279,7 @@ export const SummaryMatrix = ({
                                 align="right"
                                 className={styles.numericHeader}
                             >
-                                {i18n.t('No group (not required)')}
+                                {i18n.t('No group')}
                             </DataTableColumnHeader>
                         )}
                         <DataTableColumnHeader

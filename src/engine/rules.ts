@@ -1,5 +1,6 @@
-import { SetMembership } from './membership'
-import { GroupSetMeta, Status } from './types'
+import type { SetMembership } from './membership'
+import type { GroupSetMeta } from './types'
+import { Status } from './types'
 
 /**
  * Spec 2026-09-15 §2.1. Returns one Status per object.

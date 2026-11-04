@@ -62,6 +62,17 @@ describe('FilterBarField', () => {
         ).toBeInTheDocument()
     })
 
+    it('names the control it wraps by its label, as a labelled group', () => {
+        render(
+            <FilterBarField label="Group set">
+                <button type="button">Ownership</button>
+            </FilterBarField>
+        )
+        expect(
+            screen.getByRole('group', { name: 'Group set' })
+        ).toContainElement(screen.getByRole('button', { name: 'Ownership' }))
+    })
+
     it('renders its label as a complete, argument-free string, not built from parts', () => {
         render(
             <FilterBarField label="Organisation unit">

@@ -71,6 +71,7 @@ export function useAdminSection<C>(load: () => Promise<C>): AdminSection<C> {
                 setBusy(false)
             }
         },
+        // oxlint-disable-next-line react/memo-dependencies -- react-hooks/exhaustive-deps requires `refresh` listed; it is stable, so listing it costs nothing
         [refresh]
     )
 

@@ -1,7 +1,8 @@
 import { ENDPOINTS } from '../endpoints'
-import { DataSource, fetchJson, Fetcher, NamedId, Progress } from './DataSource'
-import { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
-import { ObjectType } from '@/engine/types'
+import type { DataSource, Fetcher, NamedId, Progress } from './DataSource'
+import { fetchJson } from './DataSource'
+import type { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
+import type { ObjectType } from '@/engine/types'
 
 interface OrgUnitRow {
     id: string
@@ -112,6 +113,8 @@ export function createMetadataSource(fetcher: Fetcher): DataSource {
                 onProgress({ label: ep.collection, done: 1, total: 1 })
                 return payload
             }
+            // Exhaustive: TypeScript rejects this function if a case is missing.
+            // no default
         }
     }
 
@@ -133,6 +136,7 @@ export function createMetadataSource(fetcher: Fetcher): DataSource {
         const groups: MembershipsPayload['groups'] = []
         for (let i = 0; i < groupIds.length; i++) {
             const groupId = groupIds[i]
+            // oxlint-disable-next-line no-await-in-loop -- one group at a time keeps the server's load bounded and progress in order
             const body = await fetchJson<Record<string, { id: string }[]>>(
                 fetcher,
                 `${ep.groups}/${groupId}/${ep.members}?fields=id&paging=false`

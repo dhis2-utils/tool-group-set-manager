@@ -15,10 +15,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import styles from './ObjectsTable.module.css'
 import { MembershipControl } from '@/components/MembershipControl/MembershipControl'
 import { StatusPill } from '@/components/StatusPill/StatusPill'
-import { GroupChange } from '@/engine/changeSet'
-import { ObjectFilter } from '@/engine/queries'
-import { ObjectRef, ObjectsResult, ScopeRef } from '@/engine/store'
-import { GroupMeta, GroupSetMeta, Status } from '@/engine/types'
+import type { GroupChange } from '@/engine/changeSet'
+import type { ObjectFilter } from '@/engine/queries'
+import type { ObjectRef, ObjectsResult, ScopeRef } from '@/engine/store'
+import type { GroupMeta, GroupSetMeta } from '@/engine/types'
+import { Status } from '@/engine/types'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
 import { useMembershipWrite } from '@/hooks/useMembershipWrite'
 import { interpolate } from '@/utils/interpolate'
@@ -68,12 +69,20 @@ const EMPTY_INDEXES: number[] = []
 // count rather than pluralised via i18next's own count option, and the
 // number goes into a placeholder inside the string rather than being glued
 // to a translated fragment (src/utils/interpolate.ts).
-const objectsCountLabel = (count: number) =>
-    count === 1
+const objectsCountLabel = (count: number, loadingMore: boolean) => {
+    if (loadingMore) {
+        return count === 1
+            ? i18n.t('1 object, loading more rows…')
+            : interpolate(i18n.t('{count} objects, loading more rows…'), {
+                  count: count.toLocaleString(),
+              })
+    }
+    return count === 1
         ? i18n.t('1 object')
         : interpolate(i18n.t('{count} objects'), {
               count: count.toLocaleString(),
           })
+}
 
 /**
  * What has been loaded for one filter. `offset` is the offset of the page
@@ -81,12 +90,21 @@ const objectsCountLabel = (count: number) =>
  * `rows.length === offset` exactly while a request is outstanding and
  * `rows.length > offset` once its page has landed. That is what paces the
  * paging: one page in flight at a time, appended on arrival.
+ *
+ * `after` is the id of the last row held when the page was requested: the
+ * engine starts the page right after that object (M9a). `offset` alone is
+ * wrong once an inline fix has moved a held row out of the filter -- the
+ * engine's list is one shorter, and the next page by offset skips a row.
+ * For the same reason `hasMore` (from the engine) decides whether there is
+ * a next page, not a comparison of the held row count with `total`.
  */
 interface Loaded {
     key: string
     rows: LoadedRow[]
     total: number | null
     offset: number
+    after: string | null
+    hasMore: boolean
 }
 
 const emptyLoad = (key: string): Loaded => ({
@@ -94,6 +112,8 @@ const emptyLoad = (key: string): Loaded => ({
     rows: [],
     total: null,
     offset: 0,
+    after: null,
+    hasMore: false,
 })
 
 /**
@@ -159,7 +179,19 @@ export function computeMembershipChanges(
     ) {
         return []
     }
+    // M4: the addition goes first. Each change is written in order, so if
+    // the addition fails the object is left in a conflict (both groups),
+    // which the tool still shows and can fix -- never in no group at all,
+    // the "missing" state this tool exists to prevent. planAssignment
+    // orders a bulk fix the same way.
     const changes: GroupChange[] = []
+    if (needsAddition && target) {
+        changes.push({
+            groupId: target.id,
+            additions: [row.id],
+            deletions: [],
+        })
+    }
     row.groups.forEach((pos) => {
         if (pos !== chosenIndex) {
             const group = groups[pos]
@@ -172,15 +204,6 @@ export function computeMembershipChanges(
             }
         }
     })
-    if (needsAddition) {
-        if (target) {
-            changes.push({
-                groupId: target.id,
-                additions: [row.id],
-                deletions: [],
-            })
-        }
-    }
     return changes
 }
 
@@ -248,6 +271,7 @@ function disabledReasonFor(row: Row, groups: GroupMeta[]): string | undefined {
 const assignedLabel = (name: string, group: string) =>
     interpolate(i18n.t('{name} is now in {group}'), { name, group })
 
+// oxlint-disable-next-line complexity -- predates the lint migration; splitting it is a refactor of its own, not part of adopting the linter
 export const ObjectsTable = ({ set, scope, filter }: Props) => {
     // D3: only organisation units have a hierarchy at all; the level and
     // parent columns (and the resolveParents call below) are both gated on
@@ -281,6 +305,10 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
     const [failureAlert, setFailureAlert] = useState<string | null>(null)
     const [infoAlert, setInfoAlert] = useState<string | null>(null)
     const [successAlert, setSuccessAlert] = useState<string | null>(null)
+    // Identifies *which* list this is a page of. A set, scope or filter
+    // change starts a new list from offset 0.
+    const filterKey = JSON.stringify([set.id, scope, filter])
+    const [loaded, setLoaded] = useState<Loaded>(() => emptyLoad(filterKey))
 
     const handleGroupChoice = (row: Row, index: number) => {
         // D5/I2: per row, not per table -- a second click on the row
@@ -414,10 +442,6 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
         }
     }
 
-    // Identifies *which* list this is a page of. A set, scope or filter
-    // change starts a new list from offset 0.
-    const filterKey = JSON.stringify([set.id, scope, filter])
-    const [loaded, setLoaded] = useState<Loaded>(() => emptyLoad(filterKey))
     // Reset during render, not from an effect. An effect would run after the
     // append effect below has already had a chance to fold the *previous*
     // filter's last page into the new filter's (empty) list; deriving the
@@ -441,7 +465,7 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
     // src/hooks/useEngineQuery.ts.
     const { data, isLoading, error, refetch } = useEngineQuery<ObjectsResult>(
         'objectsFor',
-        [set.id, scope, filter, current.offset, PAGE]
+        [set.id, scope, filter, current.offset, PAGE, current.after]
     )
 
     // D1: one `resolveParents` call per landed page, not one per row -- the
@@ -488,27 +512,41 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
             return
         }
         setLoaded((prev) => {
-            return isAwaitedPage(prev, filterKey, data.offset)
-                ? {
-                      ...prev,
-                      rows: [
-                          ...prev.rows,
-                          ...data.items.map((item, i) => ({
-                              ...item,
-                              parent: isOrgUnit
-                                  ? (parentPage?.[i] ?? null)
-                                  : null,
-                          })),
-                      ],
-                      total: data.total,
-                  }
-                : prev
+            if (isAwaitedPage(prev, filterKey, data.offset)) {
+                return {
+                    ...prev,
+                    rows: [
+                        ...prev.rows,
+                        ...data.items.map((item, i) => ({
+                            ...item,
+                            parent: isOrgUnit
+                                ? (parentPage?.[i] ?? null)
+                                : null,
+                        })),
+                    ],
+                    total: data.total,
+                    hasMore: data.hasMore,
+                }
+            }
+            // The page already held, asked again because the engine's data
+            // changed (an inline fix here, a write elsewhere): its rows stay
+            // as they are (see handleConfirm on why a fixed row stays), but
+            // the count follows the engine.
+            if (
+                prev.key === filterKey &&
+                data.offset === prev.offset &&
+                prev.total !== data.total
+            ) {
+                return { ...prev, total: data.total }
+            }
+            return prev
         })
     }, [data, parentPage, filterKey, isOrgUnit])
 
     const rows = current.rows
 
     const parentRef = useRef<HTMLDivElement>(null)
+    // oxlint-disable-next-line react/incompatible-library -- a React Compiler notice; this app does not use the compiler, and @tanstack/react-virtual is its chosen virtualiser
     const virtualizer = useVirtualizer({
         count: rows.length,
         getScrollElement: () => parentRef.current,
@@ -522,8 +560,7 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
     const loadedCount = current.rows.length
     const requestNextPage =
         !isLoading &&
-        current.total !== null &&
-        loadedCount < current.total &&
+        current.hasMore &&
         // The page for the current offset has landed (see Loaded).
         loadedCount > current.offset &&
         lastVisible >= loadedCount - 50
@@ -534,7 +571,11 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
         }
         setLoaded((prev) =>
             prev.key === filterKey && prev.rows.length > prev.offset
-                ? { ...prev, offset: prev.rows.length }
+                ? {
+                      ...prev,
+                      offset: prev.rows.length,
+                      after: prev.rows[prev.rows.length - 1]?.id ?? null,
+                  }
                 : prev
         )
     }, [requestNextPage, filterKey])
@@ -561,82 +602,96 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
     // Org unit rows: Name / Parent / Level / Status / Group. Flat types
     // have no hierarchy at all, so just Name / Status / Group.
     const gridStyle = {
-        gridTemplateColumns: isOrgUnit ? undefined : '3fr 130px 2fr',
+        gridTemplateColumns: isOrgUnit
+            ? undefined
+            : '3fr 130px minmax(240px, 2fr)',
     }
     return (
         <div className={styles.table}>
             <p className={styles.count} data-test="objects-count">
-                {objectsCountLabel(current.total)}
-                {isLoading && ` · ${i18n.t('Loading more rows…')}`}
+                {objectsCountLabel(current.total, isLoading)}
             </p>
             {errorNotice}
-            <div className={styles.head} style={gridStyle}>
-                <span>{i18n.t('Name')}</span>
-                {isOrgUnit && <span>{i18n.t('Parent')}</span>}
-                {isOrgUnit && <span>{i18n.t('Level')}</span>}
-                <span>{i18n.t('Status')}</span>
-                <span>{i18n.t('Group in this set')}</span>
-            </div>
-            <div
-                ref={parentRef}
-                className={styles.scroll}
-                data-test="objects-table-scroll"
-            >
+            {/* L7: below about 700px the columns no longer fit; the head
+                and the rows keep a minimum width and this wrapper scrolls
+                sideways rather than clipping the group control. */}
+            <div className={styles.hscroll}>
+                <div className={styles.head} style={gridStyle}>
+                    <span>{i18n.t('Name')}</span>
+                    {isOrgUnit && <span>{i18n.t('Parent')}</span>}
+                    {isOrgUnit && <span>{i18n.t('Level')}</span>}
+                    <span>{i18n.t('Status')}</span>
+                    <span>{i18n.t('Group in this set')}</span>
+                </div>
                 <div
-                    style={{
-                        height: virtualizer.getTotalSize(),
-                        position: 'relative',
-                    }}
+                    ref={parentRef}
+                    className={styles.scroll}
+                    data-test="objects-table-scroll"
                 >
-                    {virtualItems.map((v) => {
-                        const r = rows[v.index]
-                        const disabledReason = disabledReasonFor(r, set.groups)
-                        return (
-                            <div
-                                key={r.id}
-                                className={styles.row}
-                                data-test="objects-table-row"
-                                style={{
-                                    ...gridStyle,
-                                    transform: `translateY(${v.start}px)`,
-                                }}
-                            >
-                                <span title={r.id}>
-                                    {r.displayName ?? r.id}
-                                </span>
-                                {isOrgUnit && (
-                                    <span data-test={`parent-${r.id}`}>
-                                        {/* D2: a root shows nothing, not a
+                    <div
+                        style={{
+                            height: virtualizer.getTotalSize(),
+                            position: 'relative',
+                        }}
+                    >
+                        {virtualItems.map((v) => {
+                            const r = rows[v.index]
+                            const disabledReason = disabledReasonFor(
+                                r,
+                                set.groups
+                            )
+                            return (
+                                <div
+                                    key={r.id}
+                                    className={styles.row}
+                                    data-test="objects-table-row"
+                                    style={{
+                                        ...gridStyle,
+                                        transform: `translateY(${v.start}px)`,
+                                    }}
+                                >
+                                    <span title={r.id}>
+                                        {r.displayName ?? r.id}
+                                    </span>
+                                    {isOrgUnit && (
+                                        <span data-test={`parent-${r.id}`}>
+                                            {/* D2: a root shows nothing, not a
                                             dash -- a dash in a data column
                                             reads as data. D4: a parent that
                                             could not be resolved to a name
                                             also shows nothing, never its
                                             raw id (the reason this column
                                             was dropped in Plan 1). */}
-                                        {r.parent?.displayName ?? ''}
+                                            {r.parent?.displayName ?? ''}
+                                        </span>
+                                    )}
+                                    {isOrgUnit && <span>{r.level}</span>}
+                                    <span>
+                                        <StatusPill status={r.status} />
                                     </span>
-                                )}
-                                {isOrgUnit && <span>{r.level}</span>}
-                                <span>
-                                    <StatusPill status={r.status} />
-                                </span>
-                                <span>
-                                    <MembershipControl
-                                        groups={set.groups}
-                                        current={r.groups}
-                                        disabled={
-                                            Boolean(disabledReason) ||
-                                            writingRowIds.has(r.id)
-                                        }
-                                        disabledReason={disabledReason}
-                                        onChange={(index) =>
-                                            handleGroupChoice(r, index)
-                                        }
-                                    />
-                                </span>
-                            </div>
-                        )
-                    })}
+                                    <span>
+                                        <MembershipControl
+                                            groups={set.groups}
+                                            current={r.groups}
+                                            disabled={
+                                                Boolean(disabledReason) ||
+                                                writingRowIds.has(r.id)
+                                            }
+                                            disabledReason={disabledReason}
+                                            onChange={(index) =>
+                                                handleGroupChoice(r, index)
+                                            }
+                                        />
+                                    </span>
+                                </div>
+                            )
+                        })}
+                    </div>
+                    {current.total === 0 && (
+                        <p className={styles.empty} data-test="objects-empty">
+                            {i18n.t('No objects match this filter.')}
+                        </p>
+                    )}
                 </div>
             </div>
             {confirm && (

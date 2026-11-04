@@ -55,6 +55,26 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    align-items: flex-start;
-    max-width: 420px;
+    max-width: 480px;
+}
+/* The name inputs take the full width (a generated name is often long);
+   the button keeps its own width. */
+.createCatchAll > button {
+    align-self: flex-start;
+}
+.createNote {
+    margin: 0;
+    font-size: 13px;
+    color: var(--colors-grey700);
+    max-width: 480px;
+}
+
+/* L2: the CSV download, its error and the History note below the preview,
+   stacked with room between them so the note's label is never drawn under
+   the button. */
+.previewFooter {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 16px;
 }

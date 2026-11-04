@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useChangeSets } from './useChangeSets'
-import { ChangeSet } from '@/engine/changeSet'
+import type { ChangeSet } from '@/engine/changeSet'
 
 jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://server', apiVersion: 41 }),

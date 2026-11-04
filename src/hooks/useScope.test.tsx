@@ -31,7 +31,7 @@ beforeEach(() => {
     mockIsLoading = false
 })
 
-it('restores a stored root from the same server', () => {
+test('restores a stored root from the same server', () => {
     sessionStorage.setItem(
         KEY,
         JSON.stringify({
@@ -48,7 +48,7 @@ it('restores a stored root from the same server', () => {
     expect(result.current.isReady).toBe(true)
 })
 
-it('keeps the level of a scope chosen deeper in the tree', () => {
+test('keeps the level of a scope chosen deeper in the tree', () => {
     // The level cannot be recovered from the id later: a scope chosen
     // through the org unit tree is not among the user's roots, so before it
     // was carried here every such scope read as level 1 -- which offered row
@@ -66,7 +66,7 @@ it('keeps the level of a scope chosen deeper in the tree', () => {
     })
 })
 
-it('accepts a scope stored before levels were stored, reporting an unknown level', () => {
+test('accepts a scope stored before levels were stored, reporting an unknown level', () => {
     sessionStorage.setItem(
         KEY,
         JSON.stringify({ id: 'a1', name: 'A1', baseUrl: 'http://server' })
@@ -76,7 +76,7 @@ it('accepts a scope stored before levels were stored, reporting an unknown level
     expect(result.current.rootLevel).toBeNull()
 })
 
-it('discards a stored root from a different server and falls back to the first user root', async () => {
+test('discards a stored root from a different server and falls back to the first user root', async () => {
     sessionStorage.setItem(
         KEY,
         JSON.stringify({ id: 'a1', name: 'A1', baseUrl: 'http://other-server' })
@@ -89,14 +89,14 @@ it('discards a stored root from a different server and falls back to the first u
     expect(result.current.rootLevel).toBe(1)
 })
 
-it('degrades to no stored scope when sessionStorage holds corrupted JSON', async () => {
+test('degrades to no stored scope when sessionStorage holds corrupted JSON', async () => {
     sessionStorage.setItem(KEY, '{not valid json')
     mockRoots = [{ id: 'root1', displayName: 'Root One', level: 1 }]
     const { result } = renderHook(() => useScope(), { wrapper: Wrapper })
     await waitFor(() => expect(result.current.rootId).toBe('root1'))
 })
 
-it('does not break when sessionStorage access throws, as in private browsing', async () => {
+test('does not break when sessionStorage access throws, as in private browsing', async () => {
     const getItemSpy = jest
         .spyOn(Storage.prototype, 'getItem')
         .mockImplementation(() => {

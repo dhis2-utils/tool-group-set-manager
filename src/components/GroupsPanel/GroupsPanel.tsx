@@ -2,27 +2,29 @@ import i18n from '@dhis2/d2-i18n'
 import { Button, Input } from '@dhis2/ui'
 import React, { useMemo, useState } from 'react'
 import styles from './GroupsPanel.module.css'
-import {
-    ColumnPlan,
-    MAX_GROUP_COLUMNS,
-} from '@/components/SummaryMatrix/columnPlan'
+import type { ColumnPlan } from '@/components/SummaryMatrix/columnPlan'
+import { MAX_GROUP_COLUMNS } from '@/components/SummaryMatrix/columnPlan'
 import { interpolate } from '@/utils/interpolate'
 
 // Two complete strings chosen on the count, never a number glued to a
 // translated word -- see CLAUDE.md's "Translatable strings".
-const objectsLabel = (count: number) =>
+//
+// L3: the count is of objects in this group and no other group of the set
+// (a conflict is counted under Conflict, not under each of its groups), so
+// the label says so. "1 object" beside a group with eleven members read as
+// a wrong member count.
+const onlyInGroupLabel = (count: number) =>
     count === 1
-        ? i18n.t('1 object')
-        : interpolate(i18n.t('{count} objects'), {
+        ? i18n.t('1 object only in this group')
+        : interpolate(i18n.t('{count} objects only in this group'), {
               count: count.toLocaleString(),
           })
 
+// Only offered when there are more groups than fit, so never for one.
 const showAllLabel = (count: number) =>
-    count === 1
-        ? i18n.t('Show 1 group')
-        : interpolate(i18n.t('Show all {count} groups'), {
-              count: count.toLocaleString(),
-          })
+    interpolate(i18n.t('Show all {count} groups'), {
+        count: count.toLocaleString(),
+    })
 
 // One complete sentence naming the term that matched nothing, rather than
 // a generic "No results" glued to the term afterwards -- see CLAUDE.md's
@@ -95,7 +97,7 @@ export const GroupsPanel = ({
                                 {g.group.displayName}
                             </span>
                             <span className={styles.count}>
-                                {objectsLabel(g.total)}
+                                {onlyInGroupLabel(g.total)}
                             </span>
                             <span className={styles.bar}>
                                 <i

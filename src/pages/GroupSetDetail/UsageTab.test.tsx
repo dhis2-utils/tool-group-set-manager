@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import React from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { UsageTab } from './UsageTab'
-import { GroupSetMeta } from '@/engine/types'
+import type { GroupSetMeta } from '@/engine/types'
 
 const mockUsage = jest.fn()
 jest.mock('@/hooks/useUsage', () => ({ useUsage: () => mockUsage() }))
@@ -143,13 +143,13 @@ describe('UsageTab', () => {
             </MemoryRouter>
         )
         expect(
-            screen.getByText('Usage data is not installed on this instance')
+            screen.getByText('Usage data is not available to you')
         ).toBeInTheDocument()
         // Pins the actual link target, not just its text -- a plain anchor
         // or a Link pointed at the wrong path would still satisfy the text
         // assertion above.
         expect(
-            screen.getByRole('link', { name: 'Go to Settings to install it' })
+            screen.getByRole('link', { name: 'Go to Settings to check it' })
         ).toHaveAttribute('href', '/settings')
     })
 
@@ -169,7 +169,7 @@ describe('UsageTab', () => {
             screen.getByTestId('dhis2-uicore-circularloader')
         ).toBeInTheDocument()
         expect(
-            screen.queryByText('Go to Settings to install it')
+            screen.queryByText('Go to Settings to check it')
         ).not.toBeInTheDocument()
     })
 

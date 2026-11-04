@@ -2,11 +2,26 @@
     overflow-x: auto;
 }
 .cell {
-    cursor: pointer;
     font-variant-numeric: tabular-nums;
 }
 .cell:hover {
     background: var(--colors-blue050);
+}
+/* Fills the cell, so the whole cell stays the click target it was. */
+.cellButton {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    width: 100%;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+}
+.cellButton:focus-visible {
+    outline: 2px solid var(--colors-blue600);
+    outline-offset: 2px;
 }
 .cellStatic {
     font-variant-numeric: tabular-nums;

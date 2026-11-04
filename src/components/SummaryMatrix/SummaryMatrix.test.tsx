@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import { SummaryMatrix } from './SummaryMatrix'
@@ -49,7 +49,7 @@ const result = {
     ],
 }
 
-it('renders group columns, rows, totals and fires onCell', async () => {
+test('renders group columns, rows, totals and fires onCell', async () => {
     const onCell = jest.fn()
     render(<SummaryMatrix result={result} onCell={onCell} />)
     expect(screen.getByText('Public')).toBeInTheDocument()
@@ -61,7 +61,7 @@ it('renders group columns, rows, totals and fires onCell', async () => {
     expect(onCell).toHaveBeenCalledWith(result.rows[0].row, { kind: 'missing' })
 })
 
-it('leaves the row label as plain text when onDrillDown is not given', () => {
+test('leaves the row label as plain text when onDrillDown is not given', () => {
     render(<SummaryMatrix result={result} onCell={jest.fn()} />)
     expect(
         screen.queryByRole('button', { name: 'Abaji' })
@@ -72,7 +72,7 @@ it('leaves the row label as plain text when onDrillDown is not given', () => {
 // Task 6: the review's complaint was that a row label did nothing --
 // numeric cells already opened the Objects tab, but going a level deeper
 // from the row itself was not possible.
-it('renders the row label as a button and calls onDrillDown with the row when given', async () => {
+test('renders the row label as a button and calls onDrillDown with the row when given', async () => {
     const onDrillDown = jest.fn()
     render(
         <SummaryMatrix
@@ -88,7 +88,7 @@ it('renders the row label as a button and calls onDrillDown with the row when gi
 // The "above the row level" pseudo-row stands for objects with no single
 // ancestor -- there is nothing there to drill into, exactly as there is
 // nothing there to filter by (see the cell-click test below it).
-it('does not turn the "above the row level" pseudo-row into a button even when onDrillDown is given', () => {
+test('does not turn the "above the row level" pseudo-row into a button even when onDrillDown is given', () => {
     render(
         <SummaryMatrix
             result={result}
@@ -102,7 +102,7 @@ it('does not turn the "above the row level" pseudo-row into a button even when o
     ).not.toBeInTheDocument()
 })
 
-it('labels the sole row of a flat (non-hierarchical) object type as the whole population, not as an above-the-row-level leftover', () => {
+test('labels the sole row of a flat (non-hierarchical) object type as the whole population, not as an above-the-row-level leftover', () => {
     const flatResult = {
         groups: [{ id: 'g', displayName: 'Group', canWrite: true }],
         rows: [
@@ -141,7 +141,7 @@ it('labels the sole row of a flat (non-hierarchical) object type as the whole po
     expect(screen.getAllByText('13')).toHaveLength(1)
 })
 
-it('suppresses the totals row generally whenever there is exactly one data row, not only for flat types', () => {
+test('suppresses the totals row generally whenever there is exactly one data row, not only for flat types', () => {
     const oneRowResult = {
         groups: [{ id: 'g', displayName: 'Group', canWrite: true }],
         rows: [
@@ -167,19 +167,19 @@ it('suppresses the totals row generally whenever there is exactly one data row, 
     expect(screen.getAllByText('4')).toHaveLength(1)
 })
 
-it('does not let the aggregate "above the row level" row be filtered by clicking its cells', () => {
+test('does not let the aggregate "above the row level" row be filtered by clicking its cells', () => {
     const onCell = jest.fn()
     render(<SummaryMatrix result={result} onCell={onCell} />)
     const aboveRow = screen
         .getByText('Above the row level')
         .closest('tr') as HTMLTableRowElement
-    const valueCells = Array.from(aboveRow.querySelectorAll('td')).slice(1)
+    const valueCells = [...aboveRow.querySelectorAll('td')].slice(1)
     expect(valueCells.length).toBeGreaterThan(0)
     valueCells.forEach((td) => fireEvent.click(td))
     expect(onCell).not.toHaveBeenCalled()
 })
 
-it('shows the "no group, not required" column only when the caller asks for it, and filters by it', async () => {
+test('shows the "no group, not required" column only when the caller asks for it, and filters by it', async () => {
     const permissive = {
         groups: [{ id: 'g', displayName: 'Group', canWrite: true }],
         rows: [
@@ -206,21 +206,19 @@ it('shows the "no group, not required" column only when the caller asks for it, 
     )
     // Without the flag the column is not there at all -- for a compulsory or
     // data dimension set it could only ever be zero.
-    expect(
-        screen.queryByText('No group (not required)')
-    ).not.toBeInTheDocument()
+    expect(screen.queryByText('No group')).not.toBeInTheDocument()
 
     rerender(
         <SummaryMatrix result={permissive} onCell={onCell} showUnassigned />
     )
-    expect(screen.getByText('No group (not required)')).toBeInTheDocument()
+    expect(screen.getByText('No group')).toBeInTheDocument()
     await userEvent.click(screen.getByText('9'))
     expect(onCell).toHaveBeenCalledWith(permissive.rows[0].row, {
         kind: 'unassigned',
     })
 })
 
-it('lets the caller say why the aggregate row exists instead of assuming a compulsory set', () => {
+test('lets the caller say why the aggregate row exists instead of assuming a compulsory set', () => {
     const onCell = jest.fn()
     render(
         <SummaryMatrix
@@ -241,7 +239,7 @@ it('lets the caller say why the aggregate row exists instead of assuming a compu
 // emits a rule for a `.label` class the component never renders. Our own
 // class on the header is what actually right-aligns it, so the test pins
 // the class rather than a computed style jsdom would not resolve anyway.
-it('marks every numeric column header as numeric', () => {
+test('marks every numeric column header as numeric', () => {
     render(<SummaryMatrix result={result} onCell={jest.fn()} />)
     const headers = screen.getAllByRole('columnheader')
     // first column is the row label; every other header is a number
@@ -256,7 +254,7 @@ it('marks every numeric column header as numeric', () => {
 // retargeting that generated selector at `.top` (the class that already
 // exists) instead -- that fix leaves this assertion passing forever, so a
 // human still has to notice the CHANGELOG entry.
-it('would fail if @dhis2/ui started rendering the `.label` element its own align rule already targets', () => {
+test('would fail if @dhis2/ui started rendering the `.label` element its own align rule already targets', () => {
     const { container } = render(
         <SummaryMatrix result={result} onCell={jest.fn()} />
     )
@@ -291,7 +289,7 @@ const manyGroupsResult = {
     ],
 }
 
-it('caps the matrix at eight group columns plus an Other groups column summing the rest', () => {
+test('caps the matrix at eight group columns plus an Other groups column summing the rest', () => {
     render(<SummaryMatrix result={manyGroupsResult} onCell={jest.fn()} />)
     for (let i = 0; i < 8; i++) {
         expect(screen.getByText(`Group ${i}`)).toBeInTheDocument()
@@ -304,7 +302,7 @@ it('caps the matrix at eight group columns plus an Other groups column summing t
     expect(screen.getByText('12')).toBeInTheDocument()
 })
 
-it('still fires onCell with the original group index (not its rank) for a shown column', async () => {
+test('still fires onCell with the original group index (not its rank) for a shown column', async () => {
     const onCell = jest.fn()
     render(<SummaryMatrix result={manyGroupsResult} onCell={onCell} />)
     // "Group 0" is the biggest, shown first, but its original index is 0.
@@ -315,7 +313,7 @@ it('still fires onCell with the original group index (not its rank) for a shown 
     })
 })
 
-it('opens a picker on the Other groups cell instead of calling onCell', async () => {
+test('opens a picker on the Other groups cell instead of calling onCell', async () => {
     const onCell = jest.fn()
     render(<SummaryMatrix result={manyGroupsResult} onCell={onCell} />)
     await userEvent.click(screen.getByText('12'))
@@ -326,13 +324,32 @@ it('opens a picker on the Other groups cell instead of calling onCell', async ()
     expect(screen.getByText('Group 11')).toBeInTheDocument()
 })
 
+/**
+ * In the open picker, drops Group 0 and adds Group 8, then saves. The
+ * checkboxes are looked up within the picker's own list: a role query over
+ * the whole screen also walks every cell button of the matrix behind the
+ * modal, which made these tests slow enough to time out under load.
+ */
+const pinGroup0Off8On = async () => {
+    const picker = screen
+        .getByText('Choose which groups to show')
+        .closest('[role="dialog"]') as HTMLElement
+    await userEvent.click(
+        within(picker).getByRole('checkbox', { name: 'Group 0' })
+    )
+    await userEvent.click(
+        within(picker).getByRole('checkbox', { name: 'Group 8' })
+    )
+    await userEvent.click(within(picker).getByText('Save'))
+}
+
 // A repeat query through the worker (src/engine/client.ts) structured-clones
 // its response, so `useEngineQuery` re-issuing the same query -- which it
 // does "several times per load" per its own comment, and again on reload --
 // hands SummaryMatrix a brand-new `groups` array holding the very same
 // group ids. A pinned selection must survive that; it should only reset
 // when the matrix is genuinely showing a different set's groups.
-it('keeps a pinned selection across a re-render carrying a new but identical `groups` array (a repeat query, not a set change)', async () => {
+test('keeps a pinned selection across a re-render carrying a new but identical `groups` array (a repeat query, not a set change)', async () => {
     const onCell = jest.fn()
     const { rerender } = render(
         <SummaryMatrix result={manyGroupsResult} onCell={onCell} />
@@ -342,9 +359,7 @@ it('keeps a pinned selection across a re-render carrying a new but identical `gr
     // queried by role rather than by their label text, since the same
     // group name is already on screen as a column header behind the modal.
     await userEvent.click(screen.getByText('12'))
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Group 0' }))
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Group 8' }))
-    await userEvent.click(screen.getByText('Save'))
+    await pinGroup0Off8On()
     expect(screen.queryByText('Group 0')).not.toBeInTheDocument()
     expect(screen.getByText('Group 8')).toBeInTheDocument()
 
@@ -363,15 +378,13 @@ it('keeps a pinned selection across a re-render carrying a new but identical `gr
     expect(screen.getByText('Group 8')).toBeInTheDocument()
 })
 
-it('drops a pinned selection once the matrix actually shows a different set (different group ids)', async () => {
+test('drops a pinned selection once the matrix actually shows a different set (different group ids)', async () => {
     const onCell = jest.fn()
     const { rerender } = render(
         <SummaryMatrix result={manyGroupsResult} onCell={onCell} />
     )
     await userEvent.click(screen.getByText('12'))
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Group 0' }))
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Group 8' }))
-    await userEvent.click(screen.getByText('Save'))
+    await pinGroup0Off8On()
     expect(screen.getByText('Group 8')).toBeInTheDocument()
 
     // A different set's matrix: different group ids entirely.
@@ -385,7 +398,7 @@ it('drops a pinned selection once the matrix actually shows a different set (dif
     expect(screen.getByText('Private')).toBeInTheDocument()
 })
 
-it('does not let the Other groups cell in the aggregate "above the row level" row open the picker either', () => {
+test('does not let the Other groups cell in the aggregate "above the row level" row open the picker either', () => {
     const onCell = jest.fn()
     const withLeftover = {
         ...manyGroupsResult,
@@ -407,7 +420,7 @@ it('does not let the Other groups cell in the aggregate "above the row level" ro
         .getByText('Above the row level')
         .closest('tr') as HTMLTableRowElement
     // The leftover row's Other groups cell sums to 1 + 1 + 1 + 1 = 4.
-    const otherCell = Array.from(aboveRow.querySelectorAll('td')).find(
+    const otherCell = [...aboveRow.querySelectorAll('td')].find(
         (td) => td.textContent === '4'
     ) as HTMLTableCellElement
     expect(otherCell).toBeTruthy()
@@ -416,4 +429,47 @@ it('does not let the Other groups cell in the aggregate "above the row level" ro
     expect(
         screen.queryByText('Choose which groups to show')
     ).not.toBeInTheDocument()
+})
+
+test('M12: each clickable cell holds a real button that works from the keyboard', async () => {
+    const onCell = jest.fn()
+    render(<SummaryMatrix result={result} onCell={onCell} />)
+    const missing = screen.getByRole('button', { name: '61' })
+    missing.focus()
+    await userEvent.keyboard('{Enter}')
+    expect(onCell).toHaveBeenCalledWith(result.rows[0].row, { kind: 'missing' })
+    // The "above the row level" row cannot be filtered, so its cells hold
+    // no button at all.
+    const aboveRow = screen
+        .getByText('Above the row level')
+        .closest('tr') as HTMLTableRowElement
+    expect(aboveRow.querySelector('button')).toBeNull()
+})
+
+test('L7: heads the row column for what a flat type actually lists', () => {
+    const flatResult = {
+        groups: [{ id: 'g', displayName: 'Group', canWrite: true }],
+        rows: [
+            {
+                object: -1,
+                row: null,
+                perGroup: [1],
+                missing: 0,
+                unassigned: 0,
+                conflict: 0,
+                total: 1,
+            },
+        ],
+    }
+    const { rerender } = render(
+        <SummaryMatrix result={flatResult} onCell={jest.fn()} flat />
+    )
+    expect(
+        screen.getByRole('columnheader', { name: 'Objects' })
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Organisation unit')).not.toBeInTheDocument()
+    rerender(<SummaryMatrix result={result} onCell={jest.fn()} />)
+    expect(
+        screen.getByRole('columnheader', { name: 'Organisation unit' })
+    ).toBeInTheDocument()
 })

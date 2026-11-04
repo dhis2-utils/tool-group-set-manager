@@ -1,22 +1,27 @@
-import { fetchJson, Fetcher } from './sources/DataSource'
-import { ObjectType } from '@/engine/types'
+import type { Fetcher } from './sources/DataSource'
+import { fetchJson } from './sources/DataSource'
+import type { ObjectType } from '@/engine/types'
 
-/** The app's six logical checks, named for what they mean rather than for
- *  what any one server calls them. */
+/**
+ * The app's five logical checks, named for what they mean rather than for
+ * what any one server calls them. Each concerns an object type the app
+ * loads. (A sixth, `category_option_group_sets_incomplete`, was resolved
+ * and polled but concerns no loaded type, so nothing ever showed it; L9
+ * removed it.)
+ */
 export type LogicalCheck =
     | 'orgUnitsMissingCompulsory'
     | 'orgUnitsConflicting'
     | 'dataElementsConflicting'
     | 'indicatorsConflicting'
     | 'categoryOptionsConflicting'
-    | 'categoryOptionGroupSetsIncomplete'
 
 export interface ResolvedCheck {
     logical: LogicalCheck
     /** the name this server uses, which is the key for every later call */
     name: string
     displayName: string
-    objectType: ObjectType | null
+    objectType: ObjectType
     isSlow: boolean
 }
 
@@ -35,21 +40,18 @@ export interface CheckIssue {
 }
 
 /**
- * The object type each logical check concerns, or null for the one check
- * that concerns no object type the app loads (category option group sets).
- * This is what `resolveChecks` derives `objectType` from -- never from the
+ * The object type each logical check concerns. This is what `resolveChecks` derives `objectType` from -- never from the
  * payload's `issuesIdType`, which is inconsistent across both versions and
  * checks (measured values include `organisationUnits`, `dataElements`,
  * `indicators`, `categories`, `categoryOptionGroupSets` and, on 2.40,
  * `data_elements_aggregate` for a check about data elements).
  */
-const OBJECT_TYPE_OF: Record<LogicalCheck, ObjectType | null> = {
+const OBJECT_TYPE_OF: Record<LogicalCheck, ObjectType> = {
     orgUnitsMissingCompulsory: 'organisationUnit',
     orgUnitsConflicting: 'organisationUnit',
     dataElementsConflicting: 'dataElement',
     indicatorsConflicting: 'indicator',
     categoryOptionsConflicting: 'categoryOption',
-    categoryOptionGroupSetsIncomplete: null,
 }
 
 /**
@@ -78,9 +80,6 @@ const CANDIDATES: Record<LogicalCheck, readonly string[]> = {
     ],
     indicatorsConflicting: ['indicators_violating_exclusive_group_sets'],
     categoryOptionsConflicting: ['category_options_excess_groupset_membership'],
-    categoryOptionGroupSetsIncomplete: [
-        'category_option_group_sets_incomplete',
-    ],
 }
 
 // Derived from CANDIDATES rather than hand-maintained: a logical check
@@ -97,7 +96,7 @@ interface DataIntegrityCheckRow {
 }
 
 /**
- * The checks this server actually runs, resolved from the app's six logical
+ * The checks this server actually runs, resolved from the app's five logical
  * checks by name. Never hard-codes a check name or code as *the* key --
  * resolution is by candidate list, at runtime, so this works unmodified
  * from 2.40 through 2.43 and whatever comes after.

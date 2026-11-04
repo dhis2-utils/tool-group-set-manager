@@ -21,6 +21,26 @@
 .segButton:disabled {
     cursor: default;
 }
+/* A group the user cannot write: hatched and crossed out, so that it reads
+   as unavailable without hovering for the tooltip. A read-only group the
+   object is in keeps its selected or conflict colours, dimmed. The reason
+   is stated once above the table (ObjectsTab), not per row: the rows of
+   the virtualised table have a fixed height. */
+.segButton[data-read-only='true'][data-state='none'] {
+    color: var(--colors-grey500);
+    background: repeating-linear-gradient(
+        135deg,
+        var(--colors-grey100),
+        var(--colors-grey100) 4px,
+        var(--colors-grey200) 4px,
+        var(--colors-grey200) 8px
+    );
+    text-decoration: line-through;
+}
+.segButton[data-read-only='true'][data-state='selected'],
+.segButton[data-read-only='true'][data-state='conflict'] {
+    opacity: 0.6;
+}
 .segButton[data-state='selected'] {
     background: var(--colors-blue600);
     color: var(--colors-white);
@@ -43,6 +63,14 @@
     align-items: center;
     gap: var(--spacers-dp4);
     min-width: 0;
+}
+/* A fixed width rather than the content's: with nothing selected the
+   placeholder alone set the width, and the option menu, which takes its
+   width from the select, became too narrow to read. */
+.select {
+    flex: 0 0 auto;
+    width: 240px;
+    max-width: 100%;
 }
 .conflictNames {
     font-size: var(--gsi-font-size-sm, 12px);

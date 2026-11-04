@@ -1,14 +1,15 @@
 import { ENDPOINTS } from './endpoints'
-import { Fetcher } from './sources/DataSource'
-import { GroupChange } from '@/engine/changeSet'
-import { ObjectType } from '@/engine/types'
+import { readMembersAmong } from './groupMembers'
+import type { Fetcher } from './sources/DataSource'
+import type { GroupChange } from '@/engine/changeSet'
+import type { ObjectType } from '@/engine/types'
 
 /**
  * The outcome of one batch request against one group. `requested` and
  * `accepted` are both counts of ids (additions plus deletions), not booleans,
  * because DHIS2 can accept some of a batch and drop the rest without saying
  * which -- see finding 2 in
- * docs/superpowers/notes/2026-09-plan2-write-api-findings.md. `accepted !==
+ * docs/developer/dhis2-behavior.md. `accepted !==
  * requested` marks a partial failure (a shortfall in the ordinary case, but
  * the batch is disowned either way if the server ever reports more than was
  * sent); `error` is set instead when the request itself failed (non-200, the
@@ -56,11 +57,21 @@ export interface BatchOutcome {
 export const UNPARSEABLE_RESPONSE = 'unparseable-response'
 
 /**
+ * Sentinel `error` for deletions that were deliberately not sent because
+ * the same objects' additions to another group were not confirmed (see
+ * `WriteOptions.holdUnplacedDeletions`). Like `UNPARSEABLE_RESPONSE`,
+ * `outcomeText` turns it into its own translated sentence.
+ */
+export const ADDITION_NOT_CONFIRMED = 'addition-not-confirmed'
+
+/**
  * What `writeMemberships` actually achieved, as distinct from what it was
  * asked to do. `applied` is the truth a ChangeSet should be built from:
- * only the batches the server's own stats confirm in full. `unaccounted` is
- * every batch that came back short, in full -- see the note on
- * reconciliation below for why it is never a guessed subset.
+ * the batches the server's own stats confirm in full, plus the part of a
+ * short batch a re-read of the group confirmed. `unaccounted` is the rest:
+ * every failed batch, and the ids of a short batch the re-read did not
+ * find in place (or the whole short batch when the re-read failed) -- see
+ * the note on reconciliation below. Never a guessed subset.
  */
 export interface WriteResult {
     outcomes: BatchOutcome[]
@@ -106,8 +117,8 @@ interface ImportReportBody {
  *
  * Full numbers, including why the metadata-import shape was measured, won on
  * every axis, and was still not adopted (its concurrency guard cannot be
- * built on 2.41-2.43 -- see 2026-09-plan7-lastupdated-guard.md):
- * docs/superpowers/notes/2026-09-plan7-write-shapes.md.
+ * built on 2.41-2.43 -- see
+ * docs/developer/dhis2-behavior.md).
  */
 export const DEFAULT_BATCH_SIZE = 5000
 
@@ -163,8 +174,8 @@ function splitChange(change: GroupChange, batchSize: number): GroupChange[] {
  * <endpoint.groups>/<groupId>`, `Content-Type: application/json-patch+json`,
  * a one-op body `[{op: 'replace', path: '/<endpoint.members>', value:
  * [...]}]`), the exact shape proven against live 2.40.12 and 2.41.10
- * instances by `scripts/perf/json-patch-members.js` and measured in
- * docs/superpowers/notes/2026-09-plan8-json-patch.md. Reports back as
+ * instances (see
+ * docs/developer/dhis2-behavior.md). Reports back as
  * exactly one `BatchOutcome`, so `WriteResult` cannot be told apart from the
  * batched route by a caller.
  *
@@ -202,8 +213,7 @@ function splitChange(change: GroupChange, batchSize: number): GroupChange[] {
  * `response.ok` really is the whole success signal here, the same
  * convention `setGroupSetProperties` (metadataWrites.ts) already uses for
  * this app's other JSON Patch call. See
- * docs/superpowers/notes/2026-09-plan9-json-patch-rejection.md; reproduce
- * with scripts/probe/json-patch-rejection.js.
+ * docs/developer/dhis2-behavior.md.
  */
 async function patchChange(
     fetcher: Fetcher,
@@ -304,11 +314,13 @@ async function patchChange(
  * than trusted at face value: DHIS2 returns 200 OK even when it silently
  * dropped an invalid id, so an HTTP status alone would report success for a
  * write that did not fully happen (see finding 2 in
- * docs/superpowers/notes/2026-09-plan2-write-api-findings.md). When a batch
- * comes back short, the response names nothing that would let the caller
- * tell which ids it kept, so the whole batch is reported as unaccounted --
- * never a guessed subset -- and the caller must re-read that group from the
- * server rather than trust its own intent.
+ * docs/developer/dhis2-behavior.md). When a batch
+ * comes back short, the response names nothing that would tell which ids
+ * it kept, so the group is re-read for exactly that batch's ids
+ * (`reconcileShortfall`): what the re-read finds in place is applied and
+ * goes to History, and only the rest is unaccounted and offered for Retry.
+ * If the re-read fails too, the whole batch is unaccounted -- never a
+ * guessed subset.
  *
  * A failed batch is recorded and does not stop the remaining groups: being
  * able to fix nine groups out of ten is worth far more than failing all ten.
@@ -343,6 +355,26 @@ async function patchChange(
 export interface WriteOptions {
     batchSize?: number
     completeMembers?: Map<string, string[]>
+    /**
+     * Called after each change's last request, except the very last
+     * change's, with everything confirmed so far, and awaited before the
+     * next change is written. `useMembershipWrite` saves its pending
+     * History record here, so a write interrupted partway (a closed tab, a
+     * lost connection) still leaves the groups it finished in History. A
+     * rejection is ignored: progress reporting must never stop the write.
+     */
+    onChangeSettled?: (appliedSoFar: GroupChange[]) => Promise<void> | void
+    /**
+     * Sends every addition before any deletion, and does not send the
+     * deletion of an object whose addition elsewhere in the same write was
+     * not confirmed: a move whose addition failed must not still take the
+     * object out of its old group and leave it in none (findings M4, M6).
+     * The held deletions are reported in `unaccounted` with the
+     * `ADDITION_NOT_CONFIRMED` error, so Retry sends them once the
+     * addition has landed. `useMembershipWrite` always sets this; it is
+     * off by default here only so request-order tests read naturally.
+     */
+    holdUnplacedDeletions?: boolean
 }
 
 /**
@@ -359,15 +391,170 @@ export function takesPatchRoute(
     return change.additions.length + change.deletions.length > batchSize
 }
 
+/**
+ * What one batch request achieved: the outcome to report, and the parts of
+ * the batch that are confirmed and unaccounted for. Either part may be
+ * absent (empty), never both present and both empty for a non-empty batch.
+ */
+interface BatchResult {
+    outcome: BatchOutcome
+    confirmed?: GroupChange
+    missing?: GroupChange
+    /** Set for a 401/403, which writes off the group's remaining batches. */
+    groupError?: string
+}
+
+/**
+ * A batch whose stats did not add up to what was sent: DHIS2 dropped some
+ * ids without saying which (typically an object deleted since the page
+ * loaded). The group is re-read for exactly this batch's ids, so the
+ * additions now present and the deletions now absent are recorded as
+ * applied -- History can revert them -- and only the rest is left for
+ * Retry. Returns undefined when the re-read itself fails, and the caller
+ * then disowns the whole batch, as it did before the re-read existed.
+ */
+async function reconcileShortfall(
+    fetcher: Fetcher,
+    objectType: ObjectType,
+    batch: GroupChange
+): Promise<{ confirmed: GroupChange; missing: GroupChange } | undefined> {
+    let present: Set<string>
+    try {
+        present = await readMembersAmong(fetcher, objectType, batch.groupId, [
+            ...batch.additions,
+            ...batch.deletions,
+        ])
+    } catch {
+        return undefined
+    }
+    return {
+        confirmed: {
+            groupId: batch.groupId,
+            additions: batch.additions.filter((id) => present.has(id)),
+            deletions: batch.deletions.filter((id) => !present.has(id)),
+        },
+        missing: {
+            groupId: batch.groupId,
+            additions: batch.additions.filter((id) => !present.has(id)),
+            deletions: batch.deletions.filter((id) => present.has(id)),
+        },
+    }
+}
+
+function sizeOf(change: GroupChange): number {
+    return change.additions.length + change.deletions.length
+}
+
+async function writeBatch(
+    fetcher: Fetcher,
+    objectType: ObjectType,
+    batch: GroupChange
+): Promise<BatchResult> {
+    const endpoint = ENDPOINTS[objectType]
+    const requested = sizeOf(batch)
+    const failed = (error: string, rawError?: string): BatchResult => ({
+        outcome: {
+            groupId: batch.groupId,
+            requested,
+            accepted: 0,
+            error,
+            ...(rawError === undefined ? {} : { rawError }),
+        },
+        missing: batch,
+    })
+    let response: Response
+    try {
+        response = await fetcher(
+            `${endpoint.groups}/${batch.groupId}/${endpoint.members}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    additions: batch.additions.map((id) => ({ id })),
+                    deletions: batch.deletions.map((id) => ({ id })),
+                }),
+            }
+        )
+    } catch (error) {
+        // A thrown error (a dropped connection, a network blip) is a
+        // transient failure, not a permission rejection -- it does not
+        // mark the group, so the next batch still gets its own attempt.
+        return failed(error instanceof Error ? error.message : String(error))
+    }
+    if (!response.ok) {
+        const error = `HTTP ${response.status}`
+        // Only a permission rejection marks the whole group as a lost
+        // cause; a transient failure (a 500, a rate limit) is exactly the
+        // case where the next batch deserves its own attempt rather than
+        // being written off with this one.
+        const permission = response.status === 401 || response.status === 403
+        return {
+            ...failed(error),
+            ...(permission ? { groupError: error } : {}),
+        }
+    }
+    let body: ImportReportBody
+    try {
+        body = (await response.json()) as ImportReportBody
+    } catch (parseError) {
+        // The conclusion (this batch did not land) is the same as any
+        // other failed request, but a JSON parser's own message
+        // ("Unexpected token < in JSON at position 0") is not something a
+        // user should ever see, and (this module has no `i18n.t`) not
+        // something this module could translate into user-facing prose
+        // even if it wanted to -- see `UNPARSEABLE_RESPONSE`'s doc
+        // comment. The raw text is logged here for whoever is watching
+        // the console, and also kept on `rawError` for a future caller (a
+        // bug report, a persisted write log) that wants it.
+        const rawMessage =
+            parseError instanceof Error
+                ? parseError.message
+                : String(parseError)
+        console.warn(
+            `writeMemberships: batch for group ${batch.groupId} returned a response that could not be parsed as JSON`,
+            rawMessage
+        )
+        return failed(UNPARSEABLE_RESPONSE, rawMessage)
+    }
+    const accepted = acceptedCount(body)
+    if (accepted === requested) {
+        return {
+            outcome: { groupId: batch.groupId, requested, accepted },
+            confirmed: batch,
+        }
+    }
+    const reconciled = await reconcileShortfall(fetcher, objectType, batch)
+    if (!reconciled) {
+        return {
+            outcome: { groupId: batch.groupId, requested, accepted },
+            missing: batch,
+        }
+    }
+    return {
+        // What the re-read confirmed, not what the stats said: the stats
+        // are the very thing that did not add up.
+        outcome: {
+            groupId: batch.groupId,
+            requested,
+            accepted: sizeOf(reconciled.confirmed),
+        },
+        confirmed: reconciled.confirmed,
+        missing: reconciled.missing,
+    }
+}
+
 export async function writeMemberships(
     fetcher: Fetcher,
     objectType: ObjectType,
     changes: GroupChange[],
     onProgress: (done: number, total: number) => void,
-    { batchSize = DEFAULT_BATCH_SIZE, completeMembers }: WriteOptions = {}
+    {
+        batchSize = DEFAULT_BATCH_SIZE,
+        completeMembers,
+        onChangeSettled,
+        holdUnplacedDeletions = false,
+    }: WriteOptions = {}
 ): Promise<WriteResult> {
-    const endpoint = ENDPOINTS[objectType]
-
     // Spec 2026-09-16 section 6.1. DHIS2 re-reads a group's whole collection
     // on every collection write, so the batched path costs roughly (requests
     // x collection size) while a JSON Patch replace costs one pass. The two
@@ -380,26 +567,60 @@ export async function writeMemberships(
     // collection, which is only sound when the membership it is built from
     // was just re-read (section 5). A caller that has not done that refresh
     // has no entry here and therefore cannot reach this route at all.
-    const routesToPatch = (change: GroupChange): boolean =>
-        takesPatchRoute(change, batchSize) &&
-        completeMembers?.has(change.groupId) === true
+    const patchMembers = (change: GroupChange): string[] | undefined =>
+        takesPatchRoute(change, batchSize)
+            ? completeMembers?.get(change.groupId)
+            : undefined
 
     // Each change is routed once, in the order given: a patch change
     // counts as one unit of `onProgress`'s total (the same as one batch),
     // and a batched change contributes the batches `splitChange` produces
-    // for it (zero for a no-op change).
-    type Unit =
-        | { kind: 'patch'; change: GroupChange }
+    // for it (zero for a no-op change). `last` marks a change's final unit,
+    // after which `onChangeSettled` runs.
+    type Unit = { last: boolean } & (
+        | { kind: 'patch'; change: GroupChange; members: string[] }
         | { kind: 'batch'; batch: GroupChange }
-    const units: Unit[] = changes.flatMap((change): Unit[] =>
-        routesToPatch(change)
-            ? [{ kind: 'patch', change }]
-            : splitChange(change, batchSize).map((batch) => ({
-                  kind: 'batch',
-                  batch,
-              }))
     )
+    const unitsOf = (change: GroupChange): Unit[] => {
+        const members = patchMembers(change)
+        if (members) {
+            return [{ kind: 'patch', change, members, last: true }]
+        }
+        const batches = splitChange(change, batchSize)
+        return batches.map((batch, i) => ({
+            kind: 'batch',
+            batch,
+            last: i === batches.length - 1,
+        }))
+    }
+    // M4/M6: with `holdUnplacedDeletions`, every addition is sent before any
+    // deletion, across all groups, so a deletion can wait on the addition
+    // that moves the same object elsewhere (see `heldDeletions` below). A
+    // patch-route change is never split (its replace is built from one
+    // membership read), so one with deletions goes with the deletions.
+    const units: Unit[] = holdUnplacedDeletions
+        ? [
+              ...changes.flatMap((change) =>
+                  patchMembers(change)
+                      ? change.deletions.length === 0
+                          ? unitsOf(change)
+                          : []
+                      : unitsOf({ ...change, deletions: [] })
+              ),
+              ...changes.flatMap((change) =>
+                  patchMembers(change)
+                      ? change.deletions.length > 0
+                          ? unitsOf(change)
+                          : []
+                      : unitsOf({ ...change, additions: [] })
+              ),
+          ]
+        : changes.flatMap(unitsOf)
     const total = units.length
+    const addedIds = new Set(
+        holdUnplacedDeletions ? changes.flatMap((c) => c.additions) : []
+    )
+    const confirmedAdded = new Set<string>()
 
     const outcomes: BatchOutcome[] = []
     const applied: GroupChange[] = []
@@ -412,123 +633,105 @@ export async function writeMemberships(
     // group and has no "remaining batches" to skip.
     const failedGroups = new Map<string, string>()
 
-    let done = 0
-    for (const unit of units) {
-        if (unit.kind === 'patch') {
-            const { outcome, ok } = await patchChange(
-                fetcher,
-                objectType,
-                unit.change,
-                completeMembers!.get(unit.change.groupId)!
-            )
-            outcomes.push(outcome)
-            ;(ok ? applied : unaccounted).push(unit.change)
-            done += 1
-            onProgress(done, total)
-            continue
+    const record = ({ outcome, confirmed, missing }: BatchResult) => {
+        outcomes.push(outcome)
+        if (confirmed && sizeOf(confirmed) > 0) {
+            applied.push(confirmed)
+            for (const id of confirmed.additions) {
+                confirmedAdded.add(id)
+            }
         }
-        const batch = unit.batch
-        const requested = batch.additions.length + batch.deletions.length
-        const priorFailure = failedGroups.get(batch.groupId)
-        if (priorFailure !== undefined) {
-            outcomes.push({
-                groupId: batch.groupId,
-                requested,
-                accepted: 0,
-                error: priorFailure,
-            })
-            unaccounted.push(batch)
-            done += 1
-            onProgress(done, total)
-            continue
-        }
-        try {
-            const response = await fetcher(
-                `${endpoint.groups}/${batch.groupId}/${endpoint.members}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        additions: batch.additions.map((id) => ({ id })),
-                        deletions: batch.deletions.map((id) => ({ id })),
-                    }),
-                }
-            )
-            if (!response.ok) {
-                const error = `HTTP ${response.status}`
-                outcomes.push({
-                    groupId: batch.groupId,
-                    requested,
-                    accepted: 0,
-                    error,
-                })
-                unaccounted.push(batch)
-                // Only a permission rejection marks the whole group as a
-                // lost cause; a transient failure (a 500, a rate limit) is
-                // exactly the case where the next batch deserves its own
-                // attempt rather than being written off with this one.
-                if (response.status === 401 || response.status === 403) {
-                    failedGroups.set(batch.groupId, error)
-                }
-                continue
-            }
-            let body: ImportReportBody
-            try {
-                body = (await response.json()) as ImportReportBody
-            } catch (parseError) {
-                // The conclusion (this batch did not land) is the same as
-                // any other failed request, but a JSON parser's own
-                // message ("Unexpected token < in JSON at position 0") is
-                // not something a user should ever see, and (this module
-                // has no `i18n.t`) not something this module could
-                // translate into user-facing prose even if it wanted to --
-                // see `UNPARSEABLE_RESPONSE`'s doc comment. The raw text is
-                // logged here for whoever is watching the console, and
-                // also kept on `rawError` for a future caller (a bug
-                // report, a persisted write log) that wants it.
-                const rawMessage =
-                    parseError instanceof Error
-                        ? parseError.message
-                        : String(parseError)
-                console.warn(
-                    `writeMemberships: batch for group ${batch.groupId} returned a response that could not be parsed as JSON`,
-                    rawMessage
-                )
-                outcomes.push({
-                    groupId: batch.groupId,
-                    requested,
-                    accepted: 0,
-                    error: UNPARSEABLE_RESPONSE,
-                    rawError: rawMessage,
-                })
-                unaccounted.push(batch)
-                continue
-            }
-            const accepted = acceptedCount(body)
-            outcomes.push({ groupId: batch.groupId, requested, accepted })
-            if (accepted === requested) {
-                applied.push(batch)
-            } else {
-                unaccounted.push(batch)
-            }
-        } catch (error) {
-            // A thrown error (a dropped connection, a network blip) is a
-            // transient failure, not a permission rejection -- it does not
-            // mark the group, so the next batch still gets its own attempt.
-            const message =
-                error instanceof Error ? error.message : String(error)
-            outcomes.push({
-                groupId: batch.groupId,
-                requested,
-                accepted: 0,
-                error: message,
-            })
-            unaccounted.push(batch)
-        } finally {
-            done += 1
-            onProgress(done, total)
+        if (missing && sizeOf(missing) > 0) {
+            unaccounted.push(missing)
         }
     }
+
+    // The deletions in `change` of objects this write also adds somewhere
+    // whose addition has not been confirmed (it failed, came back short, or
+    // was itself held). Sending them would leave the object in no group --
+    // the state the tool exists to prevent -- so they are kept back and
+    // reported as unaccounted for Retry instead.
+    const heldDeletions = (change: GroupChange): string[] =>
+        change.deletions.filter(
+            (id) => addedIds.has(id) && !confirmedAdded.has(id)
+        )
+    const holdBack = (change: GroupChange, held: string[]) => {
+        record({
+            outcome: {
+                groupId: change.groupId,
+                requested: held.length,
+                accepted: 0,
+                error: ADDITION_NOT_CONFIRMED,
+            },
+            missing: {
+                groupId: change.groupId,
+                additions: [],
+                deletions: held,
+            },
+        })
+        const heldSet = new Set(held)
+        return {
+            ...change,
+            deletions: change.deletions.filter((id) => !heldSet.has(id)),
+        }
+    }
+
+    let done = 0
+    /* oxlint-disable no-await-in-loop -- one request at a time: a group's 401/403 skips its later batches, and onProgress counts in order */
+    for (const unit of units) {
+        if (unit.kind === 'patch') {
+            const held = heldDeletions(unit.change)
+            const change =
+                held.length > 0 ? holdBack(unit.change, held) : unit.change
+            if (sizeOf(change) > 0) {
+                const { outcome, ok } = await patchChange(
+                    fetcher,
+                    objectType,
+                    change,
+                    unit.members
+                )
+                record(
+                    ok
+                        ? { outcome, confirmed: change }
+                        : { outcome, missing: change }
+                )
+            }
+        } else {
+            const held = heldDeletions(unit.batch)
+            const batch =
+                held.length > 0 ? holdBack(unit.batch, held) : unit.batch
+            const priorFailure = failedGroups.get(batch.groupId)
+            if (sizeOf(batch) === 0) {
+                // Everything in this batch was held back above.
+            } else if (priorFailure === undefined) {
+                const result = await writeBatch(fetcher, objectType, batch)
+                record(result)
+                if (result.groupError !== undefined) {
+                    failedGroups.set(batch.groupId, result.groupError)
+                }
+            } else {
+                record({
+                    outcome: {
+                        groupId: batch.groupId,
+                        requested: sizeOf(batch),
+                        accepted: 0,
+                        error: priorFailure,
+                    },
+                    missing: batch,
+                })
+            }
+        }
+        done += 1
+        onProgress(done, total)
+        if (unit.last && done < total && onChangeSettled) {
+            try {
+                await onChangeSettled([...applied])
+            } catch {
+                // Progress reporting must never stop the write itself.
+            }
+        }
+    }
+    /* oxlint-enable no-await-in-loop */
 
     return { outcomes, applied, unaccounted }
 }

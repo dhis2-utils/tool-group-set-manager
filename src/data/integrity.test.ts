@@ -112,9 +112,9 @@ const OUVEGS_DECOY_2_40 = {
 describe('resolveChecks', () => {
     it('requests the exact fields and paging=false, nothing else', async () => {
         let capturedPath = ''
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             capturedPath = path
-            return jsonResponse(CHECK_2_43)
+            return Promise.resolve(jsonResponse(CHECK_2_43))
         }
         await resolveChecks(fetcher)
         expect(capturedPath).toBe(
@@ -122,8 +122,8 @@ describe('resolveChecks', () => {
         )
     })
 
-    it('resolves all six logical checks to their 2.43 names', async () => {
-        const fetcher = async () => jsonResponse(CHECK_2_43)
+    it('resolves all five logical checks to their 2.43 names', async () => {
+        const fetcher = () => Promise.resolve(jsonResponse(CHECK_2_43))
         const resolved = await resolveChecks(fetcher)
         expect(resolved.map((r) => r.logical)).toEqual([
             'orgUnitsMissingCompulsory',
@@ -131,7 +131,6 @@ describe('resolveChecks', () => {
             'dataElementsConflicting',
             'indicatorsConflicting',
             'categoryOptionsConflicting',
-            'categoryOptionGroupSetsIncomplete',
         ])
         expect(resolved.map((r) => r.name)).toEqual([
             'org_units_not_in_compulsory_group_sets',
@@ -139,12 +138,11 @@ describe('resolveChecks', () => {
             'data_elements_violating_exclusive_group_sets',
             'indicators_violating_exclusive_group_sets',
             'category_options_excess_groupset_membership',
-            'category_option_group_sets_incomplete',
         ])
     })
 
-    it('resolves the two org unit checks to their 2.40 names while the other four keep shared names', async () => {
-        const fetcher = async () => jsonResponse(CHECK_2_40)
+    it('resolves the two org unit checks to their 2.40 names while the other three keep shared names', async () => {
+        const fetcher = () => Promise.resolve(jsonResponse(CHECK_2_40))
         const resolved = await resolveChecks(fetcher)
         const byLogical = new Map(resolved.map((r) => [r.logical, r]))
         expect(byLogical.get('orgUnitsMissingCompulsory')?.name).toBe(
@@ -162,14 +160,17 @@ describe('resolveChecks', () => {
         expect(byLogical.get('categoryOptionsConflicting')?.name).toBe(
             'category_options_excess_groupset_membership'
         )
-        expect(byLogical.get('categoryOptionGroupSetsIncomplete')?.name).toBe(
-            'category_option_group_sets_incomplete'
-        )
+        // Present on the server, but concerns no type the app loads.
+        expect(
+            resolved.some(
+                (r) => r.name === 'category_option_group_sets_incomplete'
+            )
+        ).toBe(false)
     })
 
     it('returns only the checks present, in LogicalCheck order, with no throw', async () => {
         const partial = [CHECK_2_43[2], CHECK_2_43[0]]
-        const fetcher = async () => jsonResponse(partial)
+        const fetcher = () => Promise.resolve(jsonResponse(partial))
         const resolved = await resolveChecks(fetcher)
         expect(resolved.map((r) => r.logical)).toEqual([
             'orgUnitsMissingCompulsory',
@@ -178,8 +179,8 @@ describe('resolveChecks', () => {
     })
 
     it('resolves orgUnitsConflicting to the fast SQL check, not the decoy sharing its code (finding 1)', async () => {
-        const fetcher = async () =>
-            jsonResponse([...CHECK_2_40, OUVEGS_DECOY_2_40])
+        const fetcher = () =>
+            Promise.resolve(jsonResponse([...CHECK_2_40, OUVEGS_DECOY_2_40]))
         const resolved = await resolveChecks(fetcher)
         const conflicting = resolved.find(
             (r) => r.logical === 'orgUnitsConflicting'
@@ -208,7 +209,7 @@ describe('resolveChecks', () => {
                 isSlow: false,
             },
         ]
-        const fetcher = async () => jsonResponse(both2_40First)
+        const fetcher = () => Promise.resolve(jsonResponse(both2_40First))
         const resolved = await resolveChecks(fetcher)
         const conflicting = resolved.find(
             (r) => r.logical === 'orgUnitsConflicting'
@@ -219,7 +220,7 @@ describe('resolveChecks', () => {
     })
 
     it('derives objectType from the logical check, and null for the check that concerns no object type', async () => {
-        const fetcher = async () => jsonResponse(CHECK_2_43)
+        const fetcher = () => Promise.resolve(jsonResponse(CHECK_2_43))
         const resolved = await resolveChecks(fetcher)
         const byLogical = new Map(resolved.map((r) => [r.logical, r]))
         expect(byLogical.get('orgUnitsMissingCompulsory')?.objectType).toBe(
@@ -237,25 +238,22 @@ describe('resolveChecks', () => {
         expect(byLogical.get('categoryOptionsConflicting')?.objectType).toBe(
             'categoryOption'
         )
-        expect(
-            byLogical.get('categoryOptionGroupSetsIncomplete')?.objectType
-        ).toBe(null)
     })
 })
 
 describe('readSummaries', () => {
     it('requests timeout=0 and nothing else', async () => {
         let capturedPath = ''
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             capturedPath = path
-            return jsonResponse({})
+            return Promise.resolve(jsonResponse({}))
         }
         await readSummaries(fetcher, ['a', 'b'])
         expect(capturedPath).toBe('dataIntegrity/summary?checks=a,b&timeout=0')
     })
 
     it('returns one entry per requested name with count 0 and finishedTime null on an empty body', async () => {
-        const fetcher = async () => jsonResponse({})
+        const fetcher = () => Promise.resolve(jsonResponse({}))
         const summaries = await readSummaries(fetcher, ['a', 'b'])
         expect(summaries).toEqual([
             { name: 'a', count: 0, finishedTime: null },
@@ -264,10 +262,12 @@ describe('readSummaries', () => {
     })
 
     it('returns the server counts and finishedTime when present', async () => {
-        const fetcher = async () =>
-            jsonResponse({
-                a: { count: 272, finishedTime: '2026-09-11T10:00:00.000' },
-            })
+        const fetcher = () =>
+            Promise.resolve(
+                jsonResponse({
+                    a: { count: 272, finishedTime: '2026-09-11T10:00:00.000' },
+                })
+            )
         const summaries = await readSummaries(fetcher, ['a', 'b'])
         expect(summaries).toEqual([
             { name: 'a', count: 272, finishedTime: '2026-09-11T10:00:00.000' },
@@ -279,14 +279,16 @@ describe('readSummaries', () => {
 describe('readDetails', () => {
     it('requests the exact details path, non-blocking, for the one check asked for', async () => {
         let capturedPath = ''
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             capturedPath = path
-            return jsonResponse({
-                orgUnitsConflicting: {
-                    issues: [],
-                    finishedTime: '2026-09-12T07:00:00.000',
-                },
-            })
+            return Promise.resolve(
+                jsonResponse({
+                    orgUnitsConflicting: {
+                        issues: [],
+                        finishedTime: '2026-09-12T07:00:00.000',
+                    },
+                })
+            )
         }
         await readDetails(fetcher, ['orgUnitsConflicting'])
         expect(capturedPath).toBe(
@@ -302,18 +304,20 @@ describe('readDetails', () => {
     // rediscovered -- and defeated -- by a caller.
     it('requests several checks in one comma-joined call and returns a map keyed by check name', async () => {
         let capturedPath = ''
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             capturedPath = path
-            return jsonResponse({
-                orgUnitsConflicting: {
-                    issues: [{ id: 'a', name: 'A' }],
-                    finishedTime: '2026-09-12T07:00:00.000',
-                },
-                orgUnitsMissingCompulsory: {
-                    issues: [{ id: 'b', name: 'B' }],
-                    finishedTime: '2026-09-12T07:00:01.000',
-                },
-            })
+            return Promise.resolve(
+                jsonResponse({
+                    orgUnitsConflicting: {
+                        issues: [{ id: 'a', name: 'A' }],
+                        finishedTime: '2026-09-12T07:00:00.000',
+                    },
+                    orgUnitsMissingCompulsory: {
+                        issues: [{ id: 'b', name: 'B' }],
+                        finishedTime: '2026-09-12T07:00:01.000',
+                    },
+                })
+            )
         }
         const result = await readDetails(fetcher, [
             'orgUnitsConflicting',
@@ -343,13 +347,15 @@ describe('readDetails', () => {
     // the "empty" side of that distinction: the key is present, so DHIS2 has
     // computed it, and an empty issues array is a real, honest zero.
     it('yields an empty issues array (not null) for a check the server computed and found nothing for', async () => {
-        const fetcher = async () =>
-            jsonResponse({
-                orgUnitsConflicting: {
-                    issues: [],
-                    finishedTime: '2026-09-12T07:00:00.000',
-                },
-            })
+        const fetcher = () =>
+            Promise.resolve(
+                jsonResponse({
+                    orgUnitsConflicting: {
+                        issues: [],
+                        finishedTime: '2026-09-12T07:00:00.000',
+                    },
+                })
+            )
         const result = await readDetails(fetcher, ['orgUnitsConflicting'])
         expect(result.orgUnitsConflicting).toEqual({
             finishedTime: '2026-09-12T07:00:00.000',
@@ -364,7 +370,7 @@ describe('readDetails', () => {
     // `null` -- never `[]` -- so a caller can tell "not computed" apart from
     // "computed, found nothing" without a second signal.
     it('yields finishedTime: null and issues: null for a check the server never computed (absent from the payload), never an empty array', async () => {
-        const fetcher = async () => jsonResponse({})
+        const fetcher = () => Promise.resolve(jsonResponse({}))
         const result = await readDetails(fetcher, ['orgUnitsConflicting'])
         expect(result).toEqual({
             orgUnitsConflicting: { finishedTime: null, issues: null },
@@ -372,21 +378,23 @@ describe('readDetails', () => {
     })
 
     it('reads refs into detail, joined with a space (2.43)', async () => {
-        const fetcher = async () =>
-            jsonResponse({
-                orgUnitsConflicting: {
-                    issues: [
-                        {
-                            id: 'roQ2l7TX0eZ',
-                            name: 'SLRCS (Bo) Clinic',
-                            refs: [
-                                'ougs_name: Facility Ownership; ougs_id: Bpx0589u8y0; groups: [oug_uid: oRVt7g429ZO; oug_name: Public facilities, oug_uid: PVLOW4bCshG; oug_name: NGO]',
-                            ],
-                        },
-                    ],
-                    finishedTime: '2026-09-12T07:00:00.000',
-                },
-            })
+        const fetcher = () =>
+            Promise.resolve(
+                jsonResponse({
+                    orgUnitsConflicting: {
+                        issues: [
+                            {
+                                id: 'roQ2l7TX0eZ',
+                                name: 'SLRCS (Bo) Clinic',
+                                refs: [
+                                    'ougs_name: Facility Ownership; ougs_id: Bpx0589u8y0; groups: [oug_uid: oRVt7g429ZO; oug_name: Public facilities, oug_uid: PVLOW4bCshG; oug_name: NGO]',
+                                ],
+                            },
+                        ],
+                        finishedTime: '2026-09-12T07:00:00.000',
+                    },
+                })
+            )
         const result = await readDetails(fetcher, ['orgUnitsConflicting'])
         expect(result.orgUnitsConflicting?.issues).toEqual([
             {
@@ -398,20 +406,22 @@ describe('readDetails', () => {
     })
 
     it('reads comment into detail (2.40)', async () => {
-        const fetcher = async () =>
-            jsonResponse({
-                orgUnitsConflicting: {
-                    issues: [
-                        {
-                            id: 'sK498nBOLfQ',
-                            name: 'Elshadai MCHP',
-                            comment:
-                                'Facility Ownership :(Public facilities; Private Clinic)',
-                        },
-                    ],
-                    finishedTime: '2026-09-12T07:00:00.000',
-                },
-            })
+        const fetcher = () =>
+            Promise.resolve(
+                jsonResponse({
+                    orgUnitsConflicting: {
+                        issues: [
+                            {
+                                id: 'sK498nBOLfQ',
+                                name: 'Elshadai MCHP',
+                                comment:
+                                    'Facility Ownership :(Public facilities; Private Clinic)',
+                            },
+                        ],
+                        finishedTime: '2026-09-12T07:00:00.000',
+                    },
+                })
+            )
         const result = await readDetails(fetcher, ['orgUnitsConflicting'])
         expect(result.orgUnitsConflicting?.issues).toEqual([
             {
@@ -423,13 +433,15 @@ describe('readDetails', () => {
     })
 
     it('yields detail: null for an issue with neither field', async () => {
-        const fetcher = async () =>
-            jsonResponse({
-                orgUnitsMissingCompulsory: {
-                    issues: [{ id: 'Rp268JB6Ne4', name: 'Adonkia CHP' }],
-                    finishedTime: '2026-09-12T07:00:00.000',
-                },
-            })
+        const fetcher = () =>
+            Promise.resolve(
+                jsonResponse({
+                    orgUnitsMissingCompulsory: {
+                        issues: [{ id: 'Rp268JB6Ne4', name: 'Adonkia CHP' }],
+                        finishedTime: '2026-09-12T07:00:00.000',
+                    },
+                })
+            )
         const result = await readDetails(fetcher, ['orgUnitsMissingCompulsory'])
         expect(result.orgUnitsMissingCompulsory?.issues).toEqual([
             { id: 'Rp268JB6Ne4', displayName: 'Adonkia CHP', detail: null },
@@ -437,19 +449,21 @@ describe('readDetails', () => {
     })
 
     it('yields detail: null, not an empty string, for an issue with an empty refs array', async () => {
-        const fetcher = async () =>
-            jsonResponse({
-                orgUnitsConflicting: {
-                    issues: [
-                        {
-                            id: 'roQ2l7TX0eZ',
-                            name: 'SLRCS (Bo) Clinic',
-                            refs: [],
-                        },
-                    ],
-                    finishedTime: '2026-09-12T07:00:00.000',
-                },
-            })
+        const fetcher = () =>
+            Promise.resolve(
+                jsonResponse({
+                    orgUnitsConflicting: {
+                        issues: [
+                            {
+                                id: 'roQ2l7TX0eZ',
+                                name: 'SLRCS (Bo) Clinic',
+                                refs: [],
+                            },
+                        ],
+                        finishedTime: '2026-09-12T07:00:00.000',
+                    },
+                })
+            )
         const result = await readDetails(fetcher, ['orgUnitsConflicting'])
         expect(result.orgUnitsConflicting?.issues).toEqual([
             {
@@ -461,20 +475,22 @@ describe('readDetails', () => {
     })
 
     it('prefers refs over comment when both are present', async () => {
-        const fetcher = async () =>
-            jsonResponse({
-                orgUnitsConflicting: {
-                    issues: [
-                        {
-                            id: 'roQ2l7TX0eZ',
-                            name: 'SLRCS (Bo) Clinic',
-                            refs: ['ougs_name: Facility Ownership'],
-                            comment: 'should not be used',
-                        },
-                    ],
-                    finishedTime: '2026-09-12T07:00:00.000',
-                },
-            })
+        const fetcher = () =>
+            Promise.resolve(
+                jsonResponse({
+                    orgUnitsConflicting: {
+                        issues: [
+                            {
+                                id: 'roQ2l7TX0eZ',
+                                name: 'SLRCS (Bo) Clinic',
+                                refs: ['ougs_name: Facility Ownership'],
+                                comment: 'should not be used',
+                            },
+                        ],
+                        finishedTime: '2026-09-12T07:00:00.000',
+                    },
+                })
+            )
         const result = await readDetails(fetcher, ['orgUnitsConflicting'])
         expect(result.orgUnitsConflicting?.issues?.[0].detail).toBe(
             'ougs_name: Facility Ownership'
@@ -485,10 +501,12 @@ describe('startRun', () => {
     it('POSTs to dataIntegrity/summary with the checks in the query string and resolves without reading the job id', async () => {
         let capturedPath = ''
         let capturedInit: RequestInit | undefined
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             capturedPath = path
             capturedInit = init
-            return jsonResponse({ response: { id: 'someJobId' } })
+            return Promise.resolve(
+                jsonResponse({ response: { id: 'someJobId' } })
+            )
         }
         await expect(
             startRun(fetcher, ['a', 'b'], 'summary')
@@ -498,7 +516,7 @@ describe('startRun', () => {
     })
 
     it('throws on a non-ok response (a 403 from a user lacking F_PERFORM_MAINTENANCE), in the house error style', async () => {
-        const fetcher = async () => jsonResponse({}, 403)
+        const fetcher = () => Promise.resolve(jsonResponse({}, 403))
         await expect(startRun(fetcher, ['a', 'b'], 'summary')).rejects.toThrow(
             'dataIntegrity/summary?checks=a,b failed with HTTP 403'
         )
@@ -506,9 +524,11 @@ describe('startRun', () => {
 
     it('POSTs to dataIntegrity/details with the checks in the query string', async () => {
         let capturedPath = ''
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             capturedPath = path
-            return jsonResponse({ response: { id: 'someJobId' } })
+            return Promise.resolve(
+                jsonResponse({ response: { id: 'someJobId' } })
+            )
         }
         await startRun(fetcher, ['a'], 'details')
         expect(capturedPath).toBe('dataIntegrity/details?checks=a')

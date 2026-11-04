@@ -1,20 +1,13 @@
 import i18n from '@dhis2/d2-i18n'
-import {
-    Button,
-    ButtonStrip,
-    CircularLoader,
-    InputField,
-    NoticeBox,
-} from '@dhis2/ui'
+import { Button, CircularLoader, InputField, NoticeBox } from '@dhis2/ui'
 import React from 'react'
 import styles from './BulkFixDialog.module.css'
-import { Action, CHECK_TIMEOUT } from './constants'
-import {
-    ChangeSetPreview,
-    ChangeSetPreviewObjects,
-} from '@/components/ChangeSetPreview/ChangeSetPreview'
-import { AssignmentPlan } from '@/engine/store'
-import { GroupSetMeta } from '@/engine/types'
+import type { Action } from './constants'
+import { CHECK_TIMEOUT } from './constants'
+import type { ChangeSetPreviewObjects } from '@/components/ChangeSetPreview/ChangeSetPreview'
+import { ChangeSetPreview } from '@/components/ChangeSetPreview/ChangeSetPreview'
+import type { AssignmentPlan } from '@/engine/store'
+import type { GroupSetMeta } from '@/engine/types'
 import { interpolate } from '@/utils/interpolate'
 
 const objectsCountLabel = (count: number) =>
@@ -62,10 +55,15 @@ export const PreviewStep: React.FC<PreviewStepProps> = ({
     <div>
         {planLoading && <CircularLoader small />}
         {planError && <NoticeBox error>{planError}</NoticeBox>}
-        {/* Task 9 (spec 5.1/5.4): shown only for a plan with
-            at least one group taking the patch route --
-            the common case (every group batched) never sets
-            `checkingFreshness` at all. */}
+        {plan && plan.affected === 0 && !planLoading && (
+            <NoticeBox title={i18n.t('Nothing to apply')}>
+                {i18n.t(
+                    'No object that matches the filter needs a change. Go back and choose another action or group.'
+                )}
+            </NoticeBox>
+        )}
+        {/* Task 9 (spec 5.1/5.4), finding M1: shown while the
+            touched groups are re-read before any write. */}
         {checkingFreshness && (
             <div className={styles.progressRow}>
                 <CircularLoader small />
@@ -181,21 +179,27 @@ export const PreviewStep: React.FC<PreviewStepProps> = ({
                     groups={groups}
                     objects={previewObjects}
                 />
-                <ButtonStrip>
-                    <Button small loading={csvBusy} onClick={onDownloadCsv}>
-                        {i18n.t('Download full list as CSV')}
-                    </Button>
-                </ButtonStrip>
-                {csvError && <NoticeBox error>{csvError}</NoticeBox>}
-                <InputField
-                    // See the catch-all name fields in
-                    // ActionStep.tsx: without `name` the label
-                    // associates with nothing.
-                    name="note"
-                    label={i18n.t('Note for History (optional)')}
-                    value={note}
-                    onChange={({ value }) => onNoteChange(value ?? '')}
-                />
+                {/* L2: one column with its own spacing. The CSV button
+                    used to sit in a ButtonStrip directly above the note
+                    field, and the field's label was drawn under the
+                    button. */}
+                <div className={styles.previewFooter}>
+                    <div>
+                        <Button small loading={csvBusy} onClick={onDownloadCsv}>
+                            {i18n.t('Download full list as CSV')}
+                        </Button>
+                    </div>
+                    {csvError && <NoticeBox error>{csvError}</NoticeBox>}
+                    <InputField
+                        // See the catch-all name fields in
+                        // ActionStep.tsx: without `name` the label
+                        // associates with nothing.
+                        name="note"
+                        label={i18n.t('Note for History (optional)')}
+                        value={note}
+                        onChange={({ value }) => onNoteChange(value ?? '')}
+                    />
+                </div>
             </>
         )}
     </div>

@@ -1,3 +1,4 @@
+import type { ObjectType } from '@/engine/types'
 import { Status } from '@/engine/types'
 
 /**
@@ -60,3 +61,15 @@ export const VIOLATION_STATUSES = [
     Status.MissingWarning,
     Status.Conflict,
 ]
+
+/**
+ * The authority prefix DHIS2 checks before it creates a group of each type,
+ * verified live on 2.42.7.1: `<prefix>_PUBLIC_ADD` or `<prefix>_PRIVATE_ADD`
+ * (or `ALL`). Without one, POST returns 403.
+ */
+export const GROUP_ADD_AUTHORITY: Record<ObjectType, string> = {
+    organisationUnit: 'F_ORGUNITGROUP',
+    dataElement: 'F_DATAELEMENTGROUP',
+    indicator: 'F_INDICATORGROUP',
+    categoryOption: 'F_CATEGORY_OPTION_GROUP',
+}

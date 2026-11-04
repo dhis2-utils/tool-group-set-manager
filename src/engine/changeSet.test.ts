@@ -1,4 +1,5 @@
-import { ChangeSet, GroupChange, invert, sameChanges } from './changeSet'
+import type { ChangeSet, GroupChange } from './changeSet'
+import { invert, sameChanges } from './changeSet'
 
 const base: ChangeSet = {
     id: 'cs1',

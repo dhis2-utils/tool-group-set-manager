@@ -6,15 +6,18 @@ import styles from './Dashboard.module.css'
 import { FilterBar, FilterBarField } from '@/components/FilterBar/FilterBar'
 import { OrgUnitField } from '@/components/FilterBar/OrgUnitField'
 import { GroupSetCard } from '@/components/GroupSetCard/GroupSetCard'
+import { RestrictedGroupSetCard } from '@/components/GroupSetCard/RestrictedGroupSetCard'
 import { LoadProgress } from '@/components/LoadProgress/LoadProgress'
 import { MetadataFreshness } from '@/components/MetadataFreshness/MetadataFreshness'
 import { usageApplies } from '@/data/sources/usageSqlView'
-import { DashboardEntry } from '@/engine/store'
-import { OBJECT_TYPES, ObjectType } from '@/engine/types'
+import type { DashboardEntry } from '@/engine/store'
+import type { ObjectType } from '@/engine/types'
+import { OBJECT_TYPES } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useScope } from '@/hooks/useScope'
 import { useSessionState } from '@/hooks/useSessionState'
-import { useUsage, UsageStatus } from '@/hooks/useUsage'
+import type { UsageStatus } from '@/hooks/useUsage'
+import { useUsage } from '@/hooks/useUsage'
 import { interpolate } from '@/utils/interpolate'
 import { typeLabel } from '@/utils/objectTypeLabels'
 
@@ -103,7 +106,7 @@ const sourceLabel = (
 const usageSortHelpText = (status: UsageStatus) => {
     switch (status) {
         case 'absent':
-            return i18n.t('Usage data is not installed on this instance')
+            return i18n.t('Usage data is not available to you')
         case 'error':
             return i18n.t('Usage data could not be read on this instance')
         default:
@@ -112,8 +115,16 @@ const usageSortHelpText = (status: UsageStatus) => {
 }
 
 export const Dashboard = () => {
-    const { client, status, error, sourceKind, nameSource, fellBack } =
-        useEngine()
+    const {
+        client,
+        status,
+        error,
+        sourceKind,
+        nameSource,
+        fellBack,
+        revision,
+        restrictedSets,
+    } = useEngine()
     const { rootId, isReady } = useScope()
     const navigate = useNavigate()
     // Manual review 2: these three were plain `useState`, so going into a
@@ -154,7 +165,7 @@ export const Dashboard = () => {
         if (!usageSortable && sortKey === 'usage') {
             setSortKey('issues')
         }
-    }, [usageSortable, sortKey])
+    }, [usageSortable, sortKey, setSortKey])
 
     /**
      * Least used first, because that is the question this sort answers --
@@ -232,7 +243,10 @@ export const Dashboard = () => {
         return () => {
             cancelled = true
         }
-    }, [client, rootId, isReady, status?.phase, status?.type])
+        // `revision` re-reads the summaries after anything changed the
+        // engine's data without moving the load phase: a write, or the
+        // tracker setting arriving after the load.
+    }, [client, rootId, isReady, status?.phase, status?.type, revision])
 
     const shownTypes = OBJECT_TYPES.filter(
         (type) => typeFilter === 'all' || type === typeFilter
@@ -399,12 +413,15 @@ export const Dashboard = () => {
                 const hasLoaded = type in entries
                 const all = entries[type] ?? []
                 const typeError = typeErrors[type]
-                const shown = (
-                    onlyIssues
+                // The type itself failed to load: its sets have no data and
+                // will not get any in this load, so they are shown as
+                // failed, not as still loading.
+                const loadError = status?.errors[type]
+                const shown = [
+                    ...(onlyIssues
                         ? all.filter((e) => hasIssues(e) || !e.hasData)
-                        : all
-                )
-                    .slice()
+                        : all),
+                ]
                     // Array.prototype.sort is stable, so sets with the same
                     // error count (or, under the usage sort, the same
                     // usage) keep the order the API returned them in.
@@ -414,6 +431,14 @@ export const Dashboard = () => {
                             : byWorstFirst
                     )
                 const hidden = all.length - shown.length
+                // Sets the user cannot check (a group is not shared with
+                // them). Shown whether or not "Only sets with issues" is on:
+                // nothing is known about their issues, and hiding them would
+                // let a user believe every set of the type was checked. They
+                // have no counts to sort on, so they come last, by name.
+                const restricted = restrictedSets
+                    .filter((r) => r.objectType === type)
+                    .sort((a, b) => a.displayName.localeCompare(b.displayName))
                 // Minor 9 (fix round 1): `byWorstFirst` sorts a set with
                 // no data yet ahead of every loaded one, but until now
                 // nothing on screen said why -- only the card's own
@@ -422,12 +447,15 @@ export const Dashboard = () => {
                 // whole. Split the already-sorted `shown` list at the
                 // boundary (not-yet-loaded entries are always first) so a
                 // one-line explanation can sit above just that group.
-                const notYetLoaded = shown.filter((e) => !e.hasData)
+                const notYetLoaded = shown.filter(
+                    (e) => !e.hasData && !loadError
+                )
+                const failed = shown.filter((e) => !e.hasData && loadError)
                 const loaded = shown.filter((e) => e.hasData)
                 if (!hasLoaded) {
                     return null
                 }
-                if (all.length === 0 && !typeError) {
+                if (all.length === 0 && restricted.length === 0 && !typeError) {
                     return (
                         <section key={type}>
                             <h2 className={styles.heading}>
@@ -455,6 +483,25 @@ export const Dashboard = () => {
                             >
                                 {typeError}
                             </NoticeBox>
+                        )}
+                        {failed.length > 0 && (
+                            <div className={styles.cards}>
+                                {failed.map((entry) => (
+                                    <GroupSetCard
+                                        key={entry.set.id}
+                                        entry={entry}
+                                        loadError={loadError}
+                                        onOpen={() =>
+                                            navigate(`/sets/${entry.set.id}`)
+                                        }
+                                        onOpenUsage={() =>
+                                            navigate(`/sets/${entry.set.id}`, {
+                                                state: { tab: 'usage' },
+                                            })
+                                        }
+                                    />
+                                ))}
+                            </div>
                         )}
                         {notYetLoaded.length > 0 && (
                             <>
@@ -498,6 +545,16 @@ export const Dashboard = () => {
                                                 state: { tab: 'usage' },
                                             })
                                         }
+                                    />
+                                ))}
+                            </div>
+                        )}
+                        {restricted.length > 0 && (
+                            <div className={styles.cards}>
+                                {restricted.map((set) => (
+                                    <RestrictedGroupSetCard
+                                        key={set.id}
+                                        set={set}
                                     />
                                 ))}
                             </div>

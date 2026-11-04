@@ -1,8 +1,8 @@
 import { parseCsv } from '../csv'
-import { DataSource, Fetcher, Progress } from './DataSource'
+import type { DataSource, Fetcher, Progress } from './DataSource'
 import { createMetadataSource } from './metadataSource'
-import { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
-import { ObjectType } from '@/engine/types'
+import type { MembershipsPayload, ObjectsPayload } from '@/engine/protocol'
+import type { ObjectType } from '@/engine/types'
 
 export interface SqlViewIds {
     orgUnits: string
@@ -44,9 +44,13 @@ export const USABLE_SQL_VIEW_TYPES = ['VIEW', 'QUERY']
  * a poor way to keep two answers to the same question agreeing -- a field
  * dropped from one would have shown the user a view the loader refuses, or
  * the reverse.
+ *
+ * `sqlQuery` and `sharing` are for Settings, which compares them with the
+ * definitions below and with the administrator's sharing choice before it
+ * calls a view usable or repairs it.
  */
 export function sqlViewLookupPath(codes: readonly string[]): string {
-    return `sqlViews?fields=id,code,type,access[data[read]]&filter=code:in:[${codes.join(',')}]&paging=false`
+    return `sqlViews?fields=id,code,type,sqlQuery,sharing,access[data[read]]&filter=code:in:[${codes.join(',')}]&paging=false`
 }
 
 export const SQL_VIEW_CODES = {
@@ -71,18 +75,34 @@ export const SQL_VIEW_CODES = {
  * own fix vanishes on the next load, and History offers them a Revert that
  * correctly reports "nothing to revert" against data that never moved.
  * Measured and proved in
- * docs/superpowers/notes/2026-09-plan7-e2e-write-flows.md -- it is what
+ * docs/developer/dhis2-behavior.md -- it is what
  * three e2e write/revert flows had been failing on.
  *
  * Pinning this here only covers views *this* version creates. `fetchCsv`
  * below carries the other half, for views an earlier build already made.
  */
-export const SQL_VIEW_DEFINITIONS = [
+export interface SqlViewDefinition {
+    code: string
+    type: string
+    cacheStrategy: string
+    name: string
+    /**
+     * The header row the view must return, in this order: the reader takes
+     * columns by position, so a view with the right code and a different
+     * query (hand-edited, or made by someone else) is refused rather than
+     * read with every unit landing in the wrong column.
+     */
+    columns: readonly string[]
+    sqlQuery: string
+}
+
+export const SQL_VIEW_DEFINITIONS: readonly SqlViewDefinition[] = [
     {
         code: SQL_VIEW_CODES.orgUnits,
         type: 'VIEW',
         cacheStrategy: 'NO_CACHE',
         name: 'GSI org unit hierarchy',
+        columns: ['uid', 'level', 'parent'],
         sqlQuery:
             'select ou.uid, ou.hierarchylevel as level, p.uid as parent from organisationunit ou left join organisationunit p on p.organisationunitid = ou.parentid',
     },
@@ -91,6 +111,7 @@ export const SQL_VIEW_DEFINITIONS = [
         type: 'VIEW',
         cacheStrategy: 'NO_CACHE',
         name: 'GSI org unit names',
+        columns: ['uid', 'name'],
         // Returns the raw, untranslated `name` column by design: resolving a
         // caller's locale inside a SQL view is not practical, and this
         // divergence from the metadata source's `displayName` only affects
@@ -103,6 +124,7 @@ export const SQL_VIEW_DEFINITIONS = [
         type: 'VIEW',
         cacheStrategy: 'NO_CACHE',
         name: 'GSI org unit group memberships',
+        columns: ['groupid', 'ouid'],
         sqlQuery:
             'select g.uid as groupid, ou.uid as ouid from orgunitgroupmembers m join orgunitgroup g on g.orgunitgroupid = m.orgunitgroupid join organisationunit ou on ou.organisationunitid = m.organisationunitid where g.orgunitgroupid in (select orgunitgroupid from orgunitgroupsetmembers)',
     },
@@ -148,7 +170,34 @@ function parseLevels(rows: string[][]): Uint8Array {
  * says, at the cost of one real request per load, which is what this source
  * was always meant to be doing.
  */
-async function fetchCsv(fetcher: Fetcher, viewId: string): Promise<string[][]> {
+const columnsOf = (code: string): readonly string[] =>
+    SQL_VIEW_DEFINITIONS.find((d) => d.code === code)?.columns ?? []
+
+/**
+ * Throws when the header row is not the definition's: `withSourceFallback`
+ * in loadAll then switches the load to the metadata API, which is slower
+ * but right, instead of reading a hand-edited view's columns as ours.
+ */
+function checkHeader(
+    header: string[] | undefined,
+    columns: readonly string[]
+): void {
+    const actual = (header ?? []).map((h) => h.trim().toLowerCase())
+    if (
+        actual.length !== columns.length ||
+        columns.some((c, i) => actual[i] !== c)
+    ) {
+        throw new Error(
+            `SQL view returned columns ${JSON.stringify(header ?? [])}, expected ${JSON.stringify(columns)}`
+        )
+    }
+}
+
+async function fetchCsv(
+    fetcher: Fetcher,
+    viewId: string,
+    columns: readonly string[]
+): Promise<string[][]> {
     const response = await fetcher(`sqlViews/${viewId}/data.csv?paging=false`, {
         cache: 'no-store',
     })
@@ -158,6 +207,7 @@ async function fetchCsv(fetcher: Fetcher, viewId: string): Promise<string[][]> {
         )
     }
     const rows = parseCsv(await response.text())
+    checkHeader(rows[0], columns)
     return (
         rows
             .slice(1) // drop header
@@ -183,7 +233,11 @@ export function createSqlViewSource(
             return metadata.loadObjects(type, onProgress)
         }
         onProgress({ label: 'organisationUnits', done: 0, total: 1 })
-        const rows = await fetchCsv(fetcher, views.orgUnits)
+        const rows = await fetchCsv(
+            fetcher,
+            views.orgUnits,
+            columnsOf(SQL_VIEW_CODES.orgUnits)
+        )
         const payload: ObjectsPayload = {
             objectType: type,
             ids: rows.map((r) => r[0]),
@@ -204,7 +258,11 @@ export function createSqlViewSource(
         if (type !== 'organisationUnit' || views.orgUnitNames === null) {
             return metadata.loadNames(type)
         }
-        const rows = await fetchCsv(fetcher, views.orgUnitNames)
+        const rows = await fetchCsv(
+            fetcher,
+            views.orgUnitNames,
+            columnsOf(SQL_VIEW_CODES.orgUnitNames)
+        )
         return rows.map((r) => ({ id: r[0], displayName: r[1] }))
     }
 
@@ -217,7 +275,11 @@ export function createSqlViewSource(
             return metadata.loadMemberships(type, groupIds, onProgress)
         }
         onProgress({ label: 'organisationUnitGroups', done: 0, total: 1 })
-        const rows = await fetchCsv(fetcher, views.orgUnitMemberships)
+        const rows = await fetchCsv(
+            fetcher,
+            views.orgUnitMemberships,
+            columnsOf(SQL_VIEW_CODES.orgUnitMemberships)
+        )
         const byGroup = new Map<string, string[]>(groupIds.map((g) => [g, []]))
         rows.forEach((r) => byGroup.get(r[0])?.push(r[1]))
         onProgress({ label: 'organisationUnitGroups', done: 1, total: 1 })

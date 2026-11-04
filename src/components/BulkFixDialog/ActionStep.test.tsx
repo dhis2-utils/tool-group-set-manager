@@ -24,6 +24,7 @@ let base: {
     onTargetChange: jest.Mock
     targetGroups: { id: string; displayName: string }[]
     showCreateOffer: boolean
+    canCreateGroup: boolean
     catchAll: typeof catchAll
 }
 
@@ -49,18 +50,19 @@ beforeEach(() => {
         onTargetChange: jest.fn(),
         targetGroups: [{ id: 'g1', displayName: 'Group one' }],
         showCreateOffer: false,
+        canCreateGroup: true,
         catchAll,
     }
 })
 
-it('labels the target as the catch-all group or the target group by action', () => {
+test('labels the target as the catch-all group or the target group by action', () => {
     const { rerender } = render(<ActionStep {...base} />)
     expect(screen.getByText('Catch-all group')).toBeInTheDocument()
     rerender(<ActionStep {...base} action="assignAll" />)
     expect(screen.getByText('Target group')).toBeInTheDocument()
 })
 
-it('offers to create a group only when asked to', () => {
+test('offers to create a group only when asked to', () => {
     const { rerender } = render(<ActionStep {...base} />)
     expect(
         screen.queryByRole('button', { name: 'Create group' })
@@ -70,7 +72,7 @@ it('offers to create a group only when asked to', () => {
     expect(catchAll.create).toHaveBeenCalledTimes(1)
 })
 
-it('shows the create error as its own notice', () => {
+test('shows the create error as its own notice', () => {
     render(
         <ActionStep
             {...base}
@@ -79,4 +81,14 @@ it('shows the create error as its own notice', () => {
         />
     )
     expect(screen.getByText('Could not create the group')).toBeInTheDocument()
+})
+
+test('explains, instead of offering the form, when the user cannot create a group', () => {
+    render(<ActionStep {...base} showCreateOffer canCreateGroup={false} />)
+    expect(
+        screen.queryByRole('button', { name: 'Create group' })
+    ).not.toBeInTheDocument()
+    expect(
+        screen.getByText(/Creating one needs the authority to add groups/)
+    ).toBeInTheDocument()
 })

@@ -1,13 +1,12 @@
-import i18n from '@dhis2/d2-i18n'
 import React, { useEffect, useState } from 'react'
 import { MAX_SHORT_NAME_LENGTH } from './constants'
+import { catchAllCreationErrorMessage } from '@/data/metadataWriteMessages'
 import {
     createCatchAllGroup,
     generateCatchAllNames,
-    NAME_OWNED_BY_ANOTHER_SET,
 } from '@/data/metadataWrites'
-import { Fetcher } from '@/data/sources/DataSource'
-import { GroupSetMeta } from '@/engine/types'
+import type { Fetcher } from '@/data/sources/DataSource'
+import type { GroupSetMeta } from '@/engine/types'
 
 export interface CatchAllNames {
     displayName: string
@@ -47,6 +46,7 @@ export function useCatchAllCreation({
         generateCatchAllNames(set)
     )
     useEffect(() => {
+        // oxlint-disable-next-line react/no-deriving-state-in-effects -- the names are user-edited state, seeded from `set` and re-seeded only when `set` changes
         setCatchAllNames(generateCatchAllNames(set))
     }, [set])
     // A group `createCatchAllGroup` just created is not yet part of
@@ -108,18 +108,10 @@ export function useCatchAllCreation({
             onCreated(created)
             await reload(false)
         } catch (e) {
-            const message = e instanceof Error ? e.message : String(e)
             // The data layer has no i18n.t and must not build user-facing
-            // prose, so it throws a locale-neutral sentinel (the same
-            // convention writes.ts's UNPARSEABLE_RESPONSE uses) and this is
-            // where it becomes a sentence.
-            setCreateError(
-                message === NAME_OWNED_BY_ANOTHER_SET
-                    ? i18n.t(
-                          'A group with this name already belongs to a different group set. Choose another name — one group must not be shared between two sets.'
-                      )
-                    : message
-            )
+            // prose, so it throws a sentinel or a structured error, and
+            // this is where it becomes one translated sentence.
+            setCreateError(catchAllCreationErrorMessage(e))
         } finally {
             setCreating(false)
         }

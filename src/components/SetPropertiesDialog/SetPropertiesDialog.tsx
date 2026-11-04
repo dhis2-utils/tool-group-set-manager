@@ -1,4 +1,3 @@
-import { useConfig } from '@dhis2/app-runtime'
 import i18n from '@dhis2/d2-i18n'
 import {
     Button,
@@ -10,11 +9,11 @@ import {
     ModalTitle,
     NoticeBox,
 } from '@dhis2/ui'
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 import styles from './SetPropertiesDialog.module.css'
-import { createFetcher } from '@/data/fetcher'
-import { setGroupSetProperties } from '@/data/metadataWrites'
-import { GroupSetMeta } from '@/engine/types'
+import { setPropertiesErrorMessage } from '@/data/metadataWriteMessages'
+import type { GroupSetMeta } from '@/engine/types'
+import { useSetPropertiesWrite } from '@/hooks/useSetPropertiesWrite'
 import { interpolate } from '@/utils/interpolate'
 
 interface Props {
@@ -41,14 +40,7 @@ type Stage = 'edit' | 'confirm'
  * must not offer a write the server will reject).
  */
 export const SetPropertiesDialog = ({ set, onClose, onApplied }: Props) => {
-    const { baseUrl, apiVersion } = useConfig() as {
-        baseUrl: string
-        apiVersion: number
-    }
-    const fetcher = useMemo(
-        () => createFetcher(baseUrl, apiVersion),
-        [baseUrl, apiVersion]
-    )
+    const { write } = useSetPropertiesWrite()
     // What the server is believed to hold. Seeded from the group set the
     // caller has, and advanced to what was just patched once the server
     // confirms it -- so after a successful save the dialog shows "no
@@ -64,6 +56,7 @@ export const SetPropertiesDialog = ({ set, onClose, onApplied }: Props) => {
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [done, setDone] = useState(false)
+    const [historyError, setHistoryError] = useState(false)
 
     const changed: { compulsory?: boolean; dataDimension?: boolean } = {}
     if (compulsory !== saved.compulsory) {
@@ -108,26 +101,30 @@ export const SetPropertiesDialog = ({ set, onClose, onApplied }: Props) => {
     const handleApply = async () => {
         setBusy(true)
         setError(null)
+        setHistoryError(false)
+        const before: typeof changed = {}
+        if (changed.compulsory !== undefined) {
+            before.compulsory = saved.compulsory
+        }
+        if (changed.dataDimension !== undefined) {
+            before.dataDimension = saved.dataDimension
+        }
         try {
-            await setGroupSetProperties(
-                fetcher,
-                { id: set.id, objectType: set.objectType },
-                changed
-            )
+            // M11: recorded in History, and revertible from there for 24
+            // hours, like a membership change.
+            const result = await write({
+                set,
+                before,
+                after: changed,
+                action: 'properties',
+            })
+            setHistoryError(Boolean(result.historyError))
             setSaved({ compulsory, dataDimension })
             setDone(true)
             setStage('edit')
             onApplied()
         } catch (e) {
-            // `setGroupSetProperties` throws untranslated text carrying only
-            // an HTTP status, so it is placed inside one whole translated
-            // sentence rather than shown raw.
-            setError(
-                interpolate(
-                    i18n.t('The group set could not be updated — {message}'),
-                    { message: e instanceof Error ? e.message : String(e) }
-                )
-            )
+            setError(setPropertiesErrorMessage(e))
             setStage('edit')
         } finally {
             setBusy(false)
@@ -153,6 +150,16 @@ export const SetPropertiesDialog = ({ set, onClose, onApplied }: Props) => {
                 {done && (
                     <NoticeBox valid>
                         {i18n.t('The group set was updated on the server.')}
+                    </NoticeBox>
+                )}
+                {done && historyError && (
+                    <NoticeBox
+                        warning
+                        title={i18n.t('Not recorded in History')}
+                    >
+                        {i18n.t(
+                            'The change was applied but could not be recorded in History, so it cannot be reverted from there'
+                        )}
                     </NoticeBox>
                 )}
                 {stage === 'edit' ? (
@@ -195,6 +202,11 @@ export const SetPropertiesDialog = ({ set, onClose, onApplied }: Props) => {
                         <p>
                             {i18n.t(
                                 'This changes the group set itself on the server, and with it what counts as a violation on every screen for this set.'
+                            )}
+                        </p>
+                        <p>
+                            {i18n.t(
+                                'The change is recorded in History, and can be reverted from there for 24 hours.'
                             )}
                         </p>
                         <ul className={styles.confirmList}>

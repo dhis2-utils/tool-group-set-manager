@@ -1,4 +1,4 @@
-import { ObjectType } from './types'
+import type { ObjectType } from './types'
 
 /** One group's membership delta: ids added and ids removed. */
 export interface GroupChange {
@@ -10,7 +10,7 @@ export interface GroupChange {
 /**
  * A record of one user action against one group set, holding exactly the
  * membership additions and deletions the server confirmed (not what the
- * user asked for -- see docs/superpowers/notes/2026-09-plan2-write-api-findings.md
+ * user asked for -- see docs/developer/dhis2-behavior.md
  * finding 2: a batch write can silently drop an id). A History page lists
  * these and can undo one by reverting it.
  */
@@ -21,11 +21,54 @@ export interface ChangeSet {
     objectType: ObjectType
     groupSetId: string
     groupSetName: string
-    action: 'move' | 'assign' | 'revert'
+    action: 'move' | 'assign' | 'revert' | 'properties'
     note: string
     targetGroupId?: string
     changes: GroupChange[]
     revertOf?: string
+    /**
+     * `'pending'` while the write it records is still running, and for good
+     * if that write never finished (a closed tab, a lost connection):
+     * `changes` then holds only the groups confirmed before it stopped.
+     * Absent on a finished record, which is also how every record written
+     * before this field existed reads.
+     */
+    status?: 'pending'
+    /** On a pending record, how many membership changes the write set out to make. */
+    planned?: number
+    /**
+     * Set on a change to the group set itself (action `properties`, and
+     * the `revert` of one), which has no membership changes: the
+     * properties that changed, before and after. Only changed properties
+     * are present.
+     */
+    properties?: {
+        before: Partial<GroupSetProperties>
+        after: Partial<GroupSetProperties>
+    }
+}
+
+/** The group set properties this app can change (SetPropertiesDialog). */
+export interface GroupSetProperties {
+    compulsory: boolean
+    dataDimension: boolean
+}
+
+export const GROUP_SET_PROPERTY_KEYS: (keyof GroupSetProperties)[] = [
+    'compulsory',
+    'dataDimension',
+]
+
+/** Whether a record is a change to the group set's properties rather than to memberships. */
+export function isPropertiesChange(
+    changeSet: Pick<ChangeSet, 'properties'>
+): boolean {
+    return changeSet.properties !== undefined
+}
+
+/** Whether a record's write finished. A record without `status` always did. */
+export function isPending(changeSet: Pick<ChangeSet, 'status'>): boolean {
+    return changeSet.status === 'pending'
 }
 
 /**

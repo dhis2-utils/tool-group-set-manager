@@ -1,16 +1,19 @@
-import { CACHE_TTL_MS, Cache, CachedType } from './cache'
+import type { Cache, CachedType } from './cache'
+import { CACHE_TTL_MS } from './cache'
 import { ENDPOINTS } from './endpoints'
+import type { RestrictedGroupSet } from './groupSets'
 import { groupIdsFor, loadGroupSets } from './groupSets'
-import {
+import type {
     DataSource,
-    fetchJson,
     Fetcher,
     NamedId,
     Progress,
 } from './sources/DataSource'
+import { fetchJson } from './sources/DataSource'
 import { createMetadataSource } from './sources/metadataSource'
-import { EngineClient } from '@/engine/client'
-import { GroupSetMeta, OBJECT_TYPES, ObjectType } from '@/engine/types'
+import type { EngineClient } from '@/engine/client'
+import type { GroupSetMeta, ObjectType } from '@/engine/types'
+import { OBJECT_TYPES } from '@/engine/types'
 
 export type LoadPhase =
     | 'groupSets'
@@ -54,6 +57,46 @@ interface Deps {
     engine: EngineLike
     onStatus: (s: LoadStatus) => void
     forceRefresh?: boolean
+    /**
+     * False once a newer load has started. From then on this load makes no
+     * further engine call (it would interleave with the newer load's) and
+     * writes nothing to the cache (what it read is older than what the
+     * newer load is reading); it rejects with `LoadSuperseded` instead.
+     */
+    isCurrent?: () => boolean
+    /**
+     * False once the cache has been invalidated since this load started (a
+     * write landed while it was reading). The load still finishes, but its
+     * payloads may predate the write, so they are not cached.
+     */
+    mayCache?: () => boolean
+}
+
+/** Thrown by a load that a newer one superseded; see `Deps.isCurrent`. */
+export class LoadSuperseded extends Error {
+    constructor() {
+        super('Superseded by a newer load')
+        this.name = 'LoadSuperseded'
+    }
+}
+
+/**
+ * The engine as this load sees it: every call first checks that the load is
+ * still the current one, so a superseded load stops at its next engine call
+ * rather than writing over the newer load's data.
+ */
+function guardedEngine(deps: Deps): EngineLike {
+    return {
+        call<T>(
+            method: Parameters<EngineLike['call']>[0],
+            ...args: unknown[]
+        ): Promise<T> {
+            if (deps.isCurrent && !deps.isCurrent()) {
+                return Promise.reject(new LoadSuperseded())
+            }
+            return deps.engine.call<T>(method, ...args)
+        },
+    }
 }
 
 function sameIds(a: string[], b: string[]): boolean {
@@ -75,7 +118,7 @@ async function objectTotal(
  * The `lastUpdated` stamp of every group of the type, keyed by id (spec 4.4).
  * Whether a membership write bumps this stamp is version-dependent -- 2.40
  * does, 2.43 does not (see
- * docs/superpowers/notes/2026-09-plan2-write-compatibility.md section 4) --
+ * docs/developer/dhis2-behavior.md) --
  * but `tryCache` below treats any stamp it cannot fetch, or any mismatch, as
  * a reason to reload rather than trust the cache, so this is still what
  * tells a cached membership payload apart from the current one on either
@@ -144,6 +187,11 @@ async function commitOrRollback(
     try {
         await commit()
     } catch (error) {
+        if (error instanceof LoadSuperseded) {
+            // The newer load owns the engine now; dropping the type here
+            // would remove what it has loaded.
+            throw error
+        }
         try {
             await engine.call('dropType', type)
         } catch {
@@ -193,6 +241,12 @@ function withSourceFallback(deps: Deps): {
 
 export async function loadAll(deps: Deps): Promise<{
     groupSets: GroupSetMeta[]
+    /**
+     * Sets with a group the user cannot read. They are not in `groupSets`
+     * and never reach the engine: `groupIdsFor` below, the membership load
+     * and the cache's group id check all see only the checkable sets.
+     */
+    restrictedSets: RestrictedGroupSet[]
     sourceKind: DataSource['kind']
     /**
      * Where organisation unit names came from, which is not always where
@@ -213,6 +267,7 @@ export async function loadAll(deps: Deps): Promise<{
     fellBack: boolean
 }> {
     const source = withSourceFallback(deps)
+    const engine = guardedEngine(deps)
     const status: LoadStatus = {
         phase: 'groupSets',
         type: null,
@@ -234,9 +289,11 @@ export async function loadAll(deps: Deps): Promise<{
     }
 
     emit({ phase: 'groupSets' })
-    const { sets: groupSets, errors: groupSetErrors } = await loadGroupSets(
-        deps.fetcher
-    )
+    const {
+        sets: groupSets,
+        restricted: restrictedSets,
+        errors: groupSetErrors,
+    } = await loadGroupSets(deps.fetcher)
     // A type whose group sets could not be read is recorded and skipped
     // (spec 6.4); the types that did load carry on.
     Object.assign(status.errors, groupSetErrors)
@@ -248,10 +305,11 @@ export async function loadAll(deps: Deps): Promise<{
     // does, since evaluate is only ever reached inside or after the loop
     // that follows) or every set would evaluate against stale/no group
     // definitions.
-    await deps.engine.call('setGroupSets', groupSets)
+    await engine.call('setGroupSets', groupSets)
 
     // Org units are the heavy type; load them first so the dashboard can show
     // their numbers while the small types finish.
+    /* oxlint-disable no-await-in-loop -- one type at a time, org units first: the dashboard fills in while the small types load, the server serves one heavy read at a time, and each type's engine calls land in order */
     for (const type of OBJECT_TYPES) {
         const groupIds = groupIdsFor(groupSets, type)
         if (groupIds.length === 0) {
@@ -269,14 +327,11 @@ export async function loadAll(deps: Deps): Promise<{
                 // themselves can still fail (e.g. a worker crash) between
                 // loadObjects landing and loadMemberships landing;
                 // commitOrRollback is what protects against that.
-                await commitOrRollback(deps.engine, type, async () => {
-                    await deps.engine.call('loadObjects', reused.objects)
-                    await deps.engine.call(
-                        'loadMemberships',
-                        reused.memberships
-                    )
+                await commitOrRollback(engine, type, async () => {
+                    await engine.call('loadObjects', reused.objects)
+                    await engine.call('loadMemberships', reused.memberships)
                     if (reused.names) {
-                        await deps.engine.call('setNames', type, reused.names)
+                        await engine.call('setNames', type, reused.names)
                     }
                 })
                 status.fromCache[type] = true
@@ -316,12 +371,12 @@ export async function loadAll(deps: Deps): Promise<{
             // the worker crashes) between loadObjects landing and
             // loadMemberships landing -- commitOrRollback is what protects
             // against that half.
-            await commitOrRollback(deps.engine, type, async () => {
-                await deps.engine.call('loadObjects', objects)
-                await deps.engine.call('loadMemberships', memberships)
+            await commitOrRollback(engine, type, async () => {
+                await engine.call('loadObjects', objects)
+                await engine.call('loadMemberships', memberships)
             })
             emit({ phase: 'evaluate', type })
-            await deps.engine.call('evaluate')
+            await engine.call('evaluate')
 
             let names = objects.names
             let namesFailed = false
@@ -332,8 +387,11 @@ export async function loadAll(deps: Deps): Promise<{
                         objects.ids,
                         await source.call((s) => s.loadNames(type))
                     )
-                    await deps.engine.call('setNames', type, names)
+                    await engine.call('setNames', type, names)
                 } catch (error) {
+                    if (error instanceof LoadSuperseded) {
+                        throw error
+                    }
                     // Objects, memberships and evaluate already succeeded
                     // above -- the counts are good. Only the names are
                     // missing, so this is recorded as that, not folded
@@ -365,7 +423,10 @@ export async function loadAll(deps: Deps): Promise<{
             // did.
             const savedAt = Date.now()
             status.loadedAt[type] = savedAt
-            if (!namesFailed) {
+            const mayCache =
+                (!deps.isCurrent || deps.isCurrent()) &&
+                (!deps.mayCache || deps.mayCache())
+            if (!namesFailed && mayCache) {
                 const entry: CachedType = {
                     objects,
                     memberships,
@@ -378,17 +439,22 @@ export async function loadAll(deps: Deps): Promise<{
                 await deps.cache.put(type, entry)
             }
         } catch (error) {
+            if (error instanceof LoadSuperseded) {
+                throw error
+            }
             status.errors[type] =
                 error instanceof Error ? error.message : String(error)
             emit({ type })
         }
     }
+    /* oxlint-enable no-await-in-loop */
 
     emit({ phase: 'evaluate', type: null, progress: null })
-    await deps.engine.call('evaluate')
+    await engine.call('evaluate')
     emit({ phase: 'done', type: null, progress: null })
     return {
         groupSets,
+        restrictedSets,
         sourceKind: source.current().kind,
         nameSource: source.current().nameSource,
         fellBack: source.fellBack(),

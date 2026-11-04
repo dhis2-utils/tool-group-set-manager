@@ -1,7 +1,8 @@
-import { GroupChange } from './changeSet'
+import type { GroupChange } from './changeSet'
 import * as rules from './rules'
 import { EngineStore } from './store'
-import { GroupSetMeta, Status } from './types'
+import type { GroupSetMeta } from './types'
+import { Status } from './types'
 
 const indicatorSet: GroupSetMeta = {
     id: 'ind',
@@ -147,6 +148,113 @@ describe('EngineStore', () => {
                 .items.slice(2)
                 .map((i) => i.id)
         )
+    })
+
+    it('M9a: pages by cursor, so a row moved out of the filter does not shift the next page', () => {
+        // Missing in the whole tree: root, A, B (levels 1-2, in no group).
+        // A conflict filter would be smaller; "missing" is three rows here.
+        const store = loadedStore()
+        const scope = {
+            objectType: 'organisationUnit' as const,
+            rootId: null,
+        }
+        const filter = { statuses: [Status.MissingError] }
+        const all = store
+            .objectsFor('own', scope, filter, 0, 10)
+            .items.map((i) => i.id)
+        expect(all).toEqual(['root', 'A', 'B'])
+        const first = store.objectsFor('own', scope, filter, 0, 2)
+        expect(first.items.map((i) => i.id)).toEqual(['root', 'A'])
+        expect(first.hasMore).toBe(true)
+        // An inline fix moves "root" out of the filter.
+        store.applyChangeSet('organisationUnit', [
+            { groupId: 'pub', additions: ['root'], deletions: [] },
+        ])
+        // By offset, the next page now starts one row too far and skips B.
+        expect(
+            store.objectsFor('own', scope, filter, 2, 2).items.map((i) => i.id)
+        ).toEqual([])
+        // By cursor (the last row held), it starts right after A.
+        const second = store.objectsFor('own', scope, filter, 2, 2, 'A')
+        expect(second.items.map((i) => i.id)).toEqual(['B'])
+        expect(second.offset).toBe(2)
+        expect(second.hasMore).toBe(false)
+    })
+
+    it('M9a: a cursor that has itself left the list still finds the rows after it', () => {
+        const store = loadedStore()
+        const scope = {
+            objectType: 'organisationUnit' as const,
+            rootId: null,
+        }
+        const filter = { statuses: [Status.MissingError] }
+        store.applyChangeSet('organisationUnit', [
+            { groupId: 'pub', additions: ['A'], deletions: [] },
+        ])
+        expect(
+            store
+                .objectsFor('own', scope, filter, 2, 10, 'A')
+                .items.map((i) => i.id)
+        ).toEqual(['B'])
+    })
+
+    it('M9a: pages a flat type by cursor in index order', () => {
+        const store = flatIndicatorStore()
+        const scope = { objectType: 'indicator' as const, rootId: null }
+        const page = store.objectsFor('ind', scope, {}, 1, 10, 'i1')
+        expect(page.items.map((i) => i.id)).toEqual(['i2'])
+    })
+
+    it('M9c: bumps its revision on every change that alters an answer', () => {
+        const store = loadedStore()
+        const steps: [string, () => void][] = [
+            ['evaluate', () => store.evaluate()],
+            ['setConfig', () => store.setConfig({ includeTracker: true })],
+            [
+                'applyChangeSet',
+                () =>
+                    store.applyChangeSet('organisationUnit', [
+                        { groupId: 'pub', additions: ['b1'], deletions: [] },
+                    ]),
+            ],
+            [
+                'setGroupMembers',
+                () =>
+                    store.setGroupMembers('organisationUnit', [
+                        { groupId: 'pub', memberIds: ['a1'] },
+                    ]),
+            ],
+            [
+                'setNames',
+                () =>
+                    store.setNames('organisationUnit', [
+                        'r',
+                        'a',
+                        'b',
+                        'x',
+                        'y',
+                        'z',
+                    ]),
+            ],
+            ['dropType', () => store.dropType('indicator')],
+            ['reset', () => store.reset()],
+        ]
+        for (const [name, step] of steps) {
+            const before = store.revision
+            step()
+            expect([name, store.revision]).toEqual([name, before + 1])
+        }
+    })
+
+    it('M9b: reports a set with no groups as having data, so it never shows as loading', () => {
+        const store = new EngineStore()
+        store.setGroupSets([{ ...indicatorSet, groups: [] }])
+        const [entry] = store.dashboard({
+            objectType: 'indicator',
+            rootId: null,
+        })
+        expect(entry.hasData).toBe(true)
+        expect(entry.summary.population).toBe(0)
     })
 
     it('resolves the level of one object by id', () => {
@@ -524,8 +632,7 @@ describe('EngineStore', () => {
         })
         store.evaluate()
 
-        const a1 = store.indexOf('organisationUnit', 'a1')
-        const a2 = store.indexOf('organisationUnit', 'a2')
+        const [a1, a2] = store.indexesOf('organisationUnit', ['a1', 'a2'])
 
         const pageA = store.objectsFor(
             'setA',
@@ -678,10 +785,12 @@ describe('EngineStore', () => {
 
     it('resolveParents resolves the parent ref of each given object', () => {
         const store = loadedStore()
-        const a1 = store.indexOf('organisationUnit', 'a1')
-        const a2 = store.indexOf('organisationUnit', 'a2')
-        const b1 = store.indexOf('organisationUnit', 'b1')
-        const root = store.indexOf('organisationUnit', 'root')
+        const [a1, a2, b1, root] = store.indexesOf('organisationUnit', [
+            'a1',
+            'a2',
+            'b1',
+            'root',
+        ])
 
         const parents = store.resolveParents('organisationUnit', [
             a1,
@@ -977,7 +1086,7 @@ describe('EngineStore.planAssignment', () => {
         const plan = store.planAssignment('own', scope, { level: 3 }, 'pub')
         // a2 and b1 both need a deletion from priv, which is read-only.
         expect(plan.skippedCount).toBe(2)
-        expect(plan.skippedSample.slice().sort()).toEqual(['a2', 'b1'])
+        expect([...plan.skippedSample].sort()).toEqual(['a2', 'b1'])
         expect(plan.affected).toBe(0)
         expect(plan.changes).toEqual([])
     })
@@ -1290,11 +1399,7 @@ describe('EngineStore.indexesOf', () => {
 
         expect(
             store.indexesOf('organisationUnit', ['a2', 'nope', 'root'])
-        ).toEqual([
-            store.indexOf('organisationUnit', 'a2'),
-            -1,
-            store.indexOf('organisationUnit', 'root'),
-        ])
+        ).toEqual([4, -1, 0])
     })
 
     it('returns -1 for every id of a type that is not loaded', () => {

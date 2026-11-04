@@ -1,12 +1,13 @@
 import { ENDPOINTS } from './endpoints'
 import {
+    ADDITION_NOT_CONFIRMED,
     DEFAULT_BATCH_SIZE,
     UNPARSEABLE_RESPONSE,
     takesPatchRoute,
     writeMemberships,
 } from './writes'
-import { GroupChange } from '@/engine/changeSet'
-import { ObjectType } from '@/engine/types'
+import type { GroupChange } from '@/engine/changeSet'
+import type { ObjectType } from '@/engine/types'
 
 const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status })
@@ -19,13 +20,13 @@ const okStats = (total: number) =>
 describe('writeMemberships', () => {
     it("sends one group's additions and deletions as a single request", async () => {
         const calls: { path: string; method: string; body: unknown }[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push({
                 path,
                 method: init?.method ?? 'GET',
                 body: init?.body ? JSON.parse(init.body as string) : undefined,
             })
-            return okStats(2)
+            return Promise.resolve(okStats(3))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a', 'b'], deletions: ['c'] },
@@ -53,17 +54,19 @@ describe('writeMemberships', () => {
     // preference: batch 5000 wrote 91,892 memberships in 47.4s against
     // batch 1000's 192s, and cost 2.9x less server work per object while
     // doing it (19.5 rows fetched per object against 56.1). See
-    // docs/superpowers/notes/2026-09-plan7-write-shapes.md and spec 6.4.
+    // docs/developer/dhis2-behavior.md and spec 6.4.
     // Pinned here so a future change to it has to be a deliberate one.
     it('defaults to the batch size measured fastest in Plan 7', async () => {
         expect(DEFAULT_BATCH_SIZE).toBe(5000)
 
         const calls: unknown[] = []
-        const fetcher = async (_path: string, init?: RequestInit) => {
+        const fetcher = (_path: string, init?: RequestInit) => {
             calls.push(JSON.parse(String(init?.body)))
-            return okStats(
-                (JSON.parse(String(init?.body)) as { additions: unknown[] })
-                    .additions.length
+            return Promise.resolve(
+                okStats(
+                    (JSON.parse(String(init?.body)) as { additions: unknown[] })
+                        .additions.length
+                )
             )
         }
         // One more than a single batch's worth, so the split is observable.
@@ -82,13 +85,15 @@ describe('writeMemberships', () => {
 
     it('splits a change larger than the batch size and reports progress once per batch', async () => {
         const calls: unknown[] = []
-        const fetcher = async (path: string, init?: RequestInit) => {
+        const fetcher = (path: string, init?: RequestInit) => {
             calls.push(JSON.parse(init?.body as string))
             const body = JSON.parse(init?.body as string) as {
                 additions: unknown[]
                 deletions: unknown[]
             }
-            return okStats(body.additions.length + body.deletions.length)
+            return Promise.resolve(
+                okStats(body.additions.length + body.deletions.length)
+            )
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
@@ -116,15 +121,12 @@ describe('writeMemberships', () => {
         ])
     })
 
-    it('reports a partial failure when the server accepts fewer changes than it was sent', async () => {
-        const fetcher = async () =>
-            new Response(
-                JSON.stringify({
-                    response: {
-                        stats: { total: 1, updated: 1, deleted: 0, ignored: 0 },
-                    },
-                }),
-                { status: 200 }
+    it('reports a partial failure when the server accepts fewer changes than it was sent and the group cannot be re-read', async () => {
+        const fetcher = (_path: string, init?: RequestInit) =>
+            Promise.resolve(
+                (init?.method ?? 'GET') === 'GET'
+                    ? new Response('unavailable', { status: 503 })
+                    : okStats(1)
             )
         const result = await writeMemberships(
             fetcher,
@@ -143,8 +145,130 @@ describe('writeMemberships', () => {
         expect(result.applied).toEqual([])
     })
 
+    // Finding M2: one dropped id in a 5,000-id batch used to leave all
+    // 5,000 out of History. The group is re-read for exactly the batch's
+    // ids, and what is in place is recorded.
+    it('re-reads a short batch and records the part the server confirms, leaving only the rest for Retry', async () => {
+        const reads: { path: string; init?: RequestInit }[] = []
+        const fetcher = (path: string, init?: RequestInit) => {
+            if ((init?.method ?? 'GET') === 'GET') {
+                reads.push({ path, init })
+                // a and b landed, c (deleted since load) did not; d was
+                // removed, e was not.
+                return Promise.resolve(
+                    json({
+                        organisationUnits: [
+                            { id: 'a' },
+                            { id: 'b' },
+                            { id: 'e' },
+                        ],
+                    })
+                )
+            }
+            return Promise.resolve(okStats(3))
+        }
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            [
+                {
+                    groupId: 'g1',
+                    additions: ['a', 'b', 'c'],
+                    deletions: ['d', 'e'],
+                },
+            ],
+            () => undefined
+        )
+
+        expect(result.applied).toEqual([
+            { groupId: 'g1', additions: ['a', 'b'], deletions: ['d'] },
+        ])
+        expect(result.unaccounted).toEqual([
+            { groupId: 'g1', additions: ['c'], deletions: ['e'] },
+        ])
+        expect(result.outcomes).toEqual([
+            { groupId: 'g1', requested: 5, accepted: 3 },
+        ])
+        expect(reads).toHaveLength(1)
+        expect(decodeURIComponent(reads[0].path)).toBe(
+            'organisationUnitGroups/g1/organisationUnits?fields=id&filter=id:in:[a,b,c,d,e]&paging=false'
+        )
+        expect(reads[0].init?.cache).toBe('no-store')
+    })
+
+    it('records a short batch in full when the re-read finds every change in place', async () => {
+        const fetcher = (_path: string, init?: RequestInit) =>
+            Promise.resolve(
+                (init?.method ?? 'GET') === 'GET'
+                    ? json({ organisationUnits: [{ id: 'a' }] })
+                    : okStats(0)
+            )
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            [{ groupId: 'g1', additions: ['a'], deletions: ['b'] }],
+            () => undefined
+        )
+        expect(result.applied).toEqual([
+            { groupId: 'g1', additions: ['a'], deletions: ['b'] },
+        ])
+        expect(result.unaccounted).toEqual([])
+        expect(result.outcomes).toEqual([
+            { groupId: 'g1', requested: 2, accepted: 2 },
+        ])
+    })
+
+    it('reports each finished change, except the last, with everything confirmed so far', async () => {
+        const fetcher = (_path: string, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body)) as {
+                additions: unknown[]
+            }
+            return Promise.resolve(okStats(body.additions.length))
+        }
+        const settled: GroupChange[][] = []
+        await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            [
+                { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
+                { groupId: 'g2', additions: ['d'], deletions: [] },
+            ],
+            () => undefined,
+            {
+                batchSize: 2,
+                onChangeSettled: (applied) => {
+                    settled.push(applied)
+                },
+            }
+        )
+        expect(settled).toEqual([
+            [
+                { groupId: 'g1', additions: ['a', 'b'], deletions: [] },
+                { groupId: 'g1', additions: ['c'], deletions: [] },
+            ],
+        ])
+    })
+
+    it('carries on writing when the progress callback fails', async () => {
+        const fetcher = () => Promise.resolve(okStats(1))
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            [
+                { groupId: 'g1', additions: ['a'], deletions: [] },
+                { groupId: 'g2', additions: ['b'], deletions: [] },
+            ],
+            () => undefined,
+            {
+                onChangeSettled: () =>
+                    Promise.reject(new Error('dataStore down')),
+            }
+        )
+        expect(result.applied).toHaveLength(2)
+    })
+
     it('treats a response with no stats at all as nothing accepted', async () => {
-        const fetcher = async () => json({})
+        const fetcher = () => Promise.resolve(json({}))
         const result = await writeMemberships(
             fetcher,
             'organisationUnit',
@@ -163,11 +287,13 @@ describe('writeMemberships', () => {
     })
 
     it('records a non-200 response as an error against that group without stopping the rest', async () => {
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             if (path.includes('g1')) {
-                return new Response('forbidden', { status: 403 })
+                return Promise.resolve(
+                    new Response('forbidden', { status: 403 })
+                )
             }
-            return okStats(1)
+            return Promise.resolve(okStats(1))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a'], deletions: [] },
@@ -198,18 +324,20 @@ describe('writeMemberships', () => {
     })
 
     it('an addition already present (ignored by the server) still counts as accepted', async () => {
-        const fetcher = async () =>
-            json({
-                response: {
-                    stats: {
-                        total: 1,
-                        created: 0,
-                        updated: 0,
-                        deleted: 0,
-                        ignored: 1,
+        const fetcher = () =>
+            Promise.resolve(
+                json({
+                    response: {
+                        stats: {
+                            total: 1,
+                            created: 0,
+                            updated: 0,
+                            deleted: 0,
+                            ignored: 1,
+                        },
                     },
-                },
-            })
+                })
+            )
         const result = await writeMemberships(
             fetcher,
             'organisationUnit',
@@ -224,9 +352,9 @@ describe('writeMemberships', () => {
 
     it('one request per group, sequential, in the order the changes were given', async () => {
         const order: string[] = []
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             order.push(path)
-            return okStats(1)
+            return Promise.resolve(okStats(1))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a'], deletions: [] },
@@ -246,9 +374,9 @@ describe('writeMemberships', () => {
 
     it('a group with nothing to change makes no request', async () => {
         const calls: string[] = []
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             calls.push(path)
-            return okStats(0)
+            return Promise.resolve(okStats(0))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: [], deletions: [] },
@@ -287,10 +415,12 @@ describe('writeMemberships', () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {
             // silence the expected diagnostic log
         })
-        const fetcher = async () =>
-            new Response('<html>not json</html>', {
-                status: 200,
-            })
+        const fetcher = () =>
+            Promise.resolve(
+                new Response('<html>not json</html>', {
+                    status: 200,
+                })
+            )
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a'], deletions: [] },
         ]
@@ -310,11 +440,11 @@ describe('writeMemberships', () => {
     })
 
     it('a network failure on one group is recorded as an error and does not stop the rest', async () => {
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             if (path.includes('g1')) {
-                throw new Error('network down')
+                return Promise.reject(new Error('network down'))
             }
-            return okStats(1)
+            return Promise.resolve(okStats(1))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a'], deletions: [] },
@@ -347,13 +477,15 @@ describe('writeMemberships', () => {
         // skip", so this uses a group split into three one-id batches.
         const calls: string[] = []
         let requestCount = 0
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             calls.push(path)
             requestCount += 1
             if (requestCount === 1) {
-                return new Response('server error', { status: 500 })
+                return Promise.resolve(
+                    new Response('server error', { status: 500 })
+                )
             }
-            return okStats(1)
+            return Promise.resolve(okStats(1))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
@@ -390,13 +522,13 @@ describe('writeMemberships', () => {
         // got an HTTP response at all (a dropped connection, say).
         const calls: string[] = []
         let requestCount = 0
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             calls.push(path)
             requestCount += 1
             if (requestCount === 1) {
-                throw new Error('network down')
+                return Promise.reject(new Error('network down'))
             }
-            return okStats(1)
+            return Promise.resolve(okStats(1))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
@@ -435,12 +567,14 @@ describe('writeMemberships', () => {
 
     it("skips a group's remaining batches once one comes back forbidden, but still records an outcome for each", async () => {
         const calls: string[] = []
-        const fetcher = async (path: string) => {
+        const fetcher = (path: string) => {
             calls.push(path)
             if (path.includes('g1')) {
-                return new Response('forbidden', { status: 403 })
+                return Promise.resolve(
+                    new Response('forbidden', { status: 403 })
+                )
             }
-            return okStats(1)
+            return Promise.resolve(okStats(1))
         }
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
@@ -486,7 +620,7 @@ describe('writeMemberships', () => {
     })
 
     it('outcomes has one entry per batch, not one per group', async () => {
-        const fetcher = async () => okStats(1)
+        const fetcher = () => Promise.resolve(okStats(1))
         const changes: GroupChange[] = [
             { groupId: 'g1', additions: ['a', 'b', 'c'], deletions: [] },
             { groupId: 'g2', additions: ['d'], deletions: [] },
@@ -508,9 +642,9 @@ describe('writeMemberships', () => {
         'builds the request path from the endpoint map for %s',
         async (objectType, endpoint) => {
             const calls: string[] = []
-            const fetcher = async (path: string) => {
+            const fetcher = (path: string) => {
                 calls.push(path)
-                return okStats(1)
+                return Promise.resolve(okStats(1))
             }
             await writeMemberships(
                 fetcher,
@@ -531,12 +665,12 @@ describe('writeMemberships', () => {
 
         it('uses the collection endpoint for a change at the threshold', async () => {
             const calls: string[] = []
-            const fetcher = async (path: string, init?: RequestInit) => {
+            const fetcher = (path: string, init?: RequestInit) => {
                 calls.push(path)
                 const body = JSON.parse(String(init?.body)) as {
                     additions: unknown[]
                 }
-                return okStats(body.additions.length)
+                return Promise.resolve(okStats(body.additions.length))
             }
             await writeMemberships(
                 fetcher,
@@ -552,8 +686,7 @@ describe('writeMemberships', () => {
 
         // Plan 8: the large-change route is a JSON Patch against the
         // group's own endpoint, not a metadata import -- exact call shape
-        // proven by scripts/perf/json-patch-members.js and measured in
-        // docs/superpowers/notes/2026-09-plan8-json-patch.md. No pre-read
+        // proven on live servers (see docs/developer/dhis2-behavior.md). No pre-read
         // of the group's fields: a patch scoped to the members path cannot
         // touch anything else, so there is nothing to read first.
         it('uses a JSON Patch replacing the members collection for a change above the threshold', async () => {
@@ -562,13 +695,13 @@ describe('writeMemberships', () => {
                 method?: string
                 headers?: unknown
             }[] = []
-            const fetcher = async (path: string, init?: RequestInit) => {
+            const fetcher = (path: string, init?: RequestInit) => {
                 calls.push({
                     path,
                     method: init?.method,
                     headers: init?.headers,
                 })
-                return json({})
+                return Promise.resolve(json({}))
             }
             await writeMemberships(
                 fetcher,
@@ -590,9 +723,9 @@ describe('writeMemberships', () => {
             let body:
                 | { op: string; path: string; value: { id: string }[] }[]
                 | undefined
-            const fetcher = async (_path: string, init?: RequestInit) => {
+            const fetcher = (_path: string, init?: RequestInit) => {
                 body = JSON.parse(String(init?.body))
-                return json({})
+                return Promise.resolve(json({}))
             }
             await writeMemberships(
                 fetcher,
@@ -617,7 +750,7 @@ describe('writeMemberships', () => {
                     value: expect.any(Array),
                 },
             ])
-            const sent = body![0].value.map((o) => o.id)
+            const sent = body?.[0]?.value.map((o) => o.id)
             expect(sent).toContain('keep1')
             expect(sent).toContain('new0')
             expect(sent).not.toContain('gone1')
@@ -636,9 +769,11 @@ describe('writeMemberships', () => {
                 // silence the expected diagnostic log
             })
             const calls: string[] = []
-            const fetcher = async (path: string) => {
+            const fetcher = (path: string) => {
                 calls.push(path)
-                return new Response('not found', { status: 404 })
+                return Promise.resolve(
+                    new Response('not found', { status: 404 })
+                )
             }
             const result = await writeMemberships(
                 fetcher,
@@ -659,28 +794,33 @@ describe('writeMemberships', () => {
         // with an ObjectReport saying exactly what was wrong, and with the
         // membership untouched. That explanation used to be discarded,
         // leaving a failed large write diagnosable only as "HTTP 409" --
-        // see docs/superpowers/notes/2026-09-plan9-json-patch-rejection.md.
+        // see docs/developer/dhis2-behavior.md.
         // It belongs on `rawError`, not `error`: `error` is spliced into
         // translated sentences and must stay locale-neutral.
         it('keeps the server explanation for a rejected patch on rawError, never on error', async () => {
             const warn = jest.spyOn(console, 'warn').mockImplementation(() => {
                 // silence the expected diagnostic log
             })
-            const fetcher = async () =>
-                new Response(
-                    JSON.stringify({
-                        httpStatus: 'Conflict',
-                        httpStatusCode: 409,
-                        status: 'ERROR',
-                        message:
-                            'One or more errors occurred, please see full details in import report.',
-                        response: {
-                            errorReports: [
-                                { message: 'Invalid reference [Zz9GhOsT000]' },
-                            ],
-                        },
-                    }),
-                    { status: 409 }
+            const fetcher = () =>
+                Promise.resolve(
+                    new Response(
+                        JSON.stringify({
+                            httpStatus: 'Conflict',
+                            httpStatusCode: 409,
+                            status: 'ERROR',
+                            message:
+                                'One or more errors occurred, please see full details in import report.',
+                            response: {
+                                errorReports: [
+                                    {
+                                        message:
+                                            'Invalid reference [Zz9GhOsT000]',
+                                    },
+                                ],
+                            },
+                        }),
+                        { status: 409 }
+                    )
                 )
             const result = await writeMemberships(
                 fetcher,
@@ -699,12 +839,12 @@ describe('writeMemberships', () => {
         // The structural safety property: no fresh membership, no replace-all.
         it('falls back to batched above the threshold when no complete membership is given', async () => {
             const calls: { path: string; method?: string }[] = []
-            const fetcher = async (path: string, init?: RequestInit) => {
+            const fetcher = (path: string, init?: RequestInit) => {
                 calls.push({ path, method: init?.method })
                 const body = JSON.parse(String(init?.body)) as {
                     additions: unknown[]
                 }
-                return okStats(body.additions.length)
+                return Promise.resolve(okStats(body.additions.length))
             }
             await writeMemberships(
                 fetcher,
@@ -717,7 +857,7 @@ describe('writeMemberships', () => {
         })
 
         it('reports a patch group in WriteResult exactly as a batched one', async () => {
-            const fetcher = async () => json({})
+            const fetcher = () => Promise.resolve(json({}))
             const result = await writeMemberships(
                 fetcher,
                 'organisationUnit',
@@ -736,15 +876,15 @@ describe('writeMemberships', () => {
 
         it('routes exactly the changes takesPatchRoute flags, when every group has a complete membership', async () => {
             const patched: string[] = []
-            const fetcher = async (path: string, init?: RequestInit) => {
+            const fetcher = (path: string, init?: RequestInit) => {
                 if (init?.method === 'PATCH') {
                     patched.push(path)
-                    return json({})
+                    return Promise.resolve(json({}))
                 }
                 const body = JSON.parse(String(init?.body)) as {
                     additions: unknown[]
                 }
-                return okStats(body.additions.length)
+                return Promise.resolve(okStats(body.additions.length))
             }
             const changes = [
                 bigChange(DEFAULT_BATCH_SIZE),
@@ -771,15 +911,15 @@ describe('writeMemberships', () => {
 
         it('reports progress as one unit per patch group and one per batch, in the order written', async () => {
             const calls: { path: string; method: string }[] = []
-            const fetcher = async (path: string, init?: RequestInit) => {
+            const fetcher = (path: string, init?: RequestInit) => {
                 calls.push({ path, method: init?.method ?? 'GET' })
                 if (init?.method === 'PATCH') {
-                    return json({})
+                    return Promise.resolve(json({}))
                 }
                 const body = JSON.parse(String(init?.body)) as {
                     additions: unknown[]
                 }
-                return okStats(body.additions.length)
+                return Promise.resolve(okStats(body.additions.length))
             }
             const progress: [number, number][] = []
             const result = await writeMemberships(
@@ -836,5 +976,125 @@ describe('takesPatchRoute', () => {
     it('honours an explicit batch size, which only tests pass', () => {
         expect(takesPatchRoute(change(3), 2)).toBe(true)
         expect(takesPatchRoute(change(2), 2)).toBe(false)
+    })
+})
+
+describe('writeMemberships with holdUnplacedDeletions', () => {
+    // A move of u1 from g1 to the catch-all c, listed deletions first to
+    // show the writer itself puts the addition first.
+    const move: GroupChange[] = [
+        { groupId: 'g1', additions: [], deletions: ['u1', 'u2'] },
+        { groupId: 'c', additions: ['u1', 'u2'], deletions: [] },
+    ]
+
+    it('sends every addition before any deletion', async () => {
+        const sent: string[] = []
+        const fetcher = (path: string, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body)) as {
+                additions: unknown[]
+                deletions: unknown[]
+            }
+            sent.push(path)
+            return Promise.resolve(
+                okStats(body.additions.length + body.deletions.length)
+            )
+        }
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            move,
+            () => undefined,
+            { holdUnplacedDeletions: true }
+        )
+        expect(sent).toEqual([
+            'organisationUnitGroups/c/organisationUnits',
+            'organisationUnitGroups/g1/organisationUnits',
+        ])
+        expect(result.applied).toEqual([
+            { groupId: 'c', additions: ['u1', 'u2'], deletions: [] },
+            { groupId: 'g1', additions: [], deletions: ['u1', 'u2'] },
+        ])
+        expect(result.unaccounted).toEqual([])
+    })
+
+    it('does not remove an object from its old group when its addition failed, and leaves that deletion for Retry', async () => {
+        const sent: string[] = []
+        const fetcher = (path: string) => {
+            sent.push(path)
+            return Promise.resolve(
+                path.includes('/c/') ? json({}, 409) : okStats(2)
+            )
+        }
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            move,
+            () => undefined,
+            { holdUnplacedDeletions: true }
+        )
+        // Nothing was sent to g1: both objects would have ended up in no group.
+        expect(sent).toEqual(['organisationUnitGroups/c/organisationUnits'])
+        expect(result.applied).toEqual([])
+        expect(result.unaccounted).toEqual([
+            { groupId: 'c', additions: ['u1', 'u2'], deletions: [] },
+            { groupId: 'g1', additions: [], deletions: ['u1', 'u2'] },
+        ])
+        expect(result.outcomes).toContainEqual({
+            groupId: 'g1',
+            requested: 2,
+            accepted: 0,
+            error: ADDITION_NOT_CONFIRMED,
+        })
+    })
+
+    it('removes only the objects whose addition the server confirmed', async () => {
+        const sent: { path: string; body: unknown }[] = []
+        const fetcher = (path: string, init?: RequestInit) => {
+            if ((init?.method ?? 'GET') === 'GET') {
+                // The re-read after a short batch: only u1 landed in c.
+                return Promise.resolve(
+                    json({ organisationUnits: [{ id: 'u1' }] })
+                )
+            }
+            sent.push({ path, body: JSON.parse(String(init?.body)) })
+            return Promise.resolve(okStats(1))
+        }
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            move,
+            () => undefined,
+            { holdUnplacedDeletions: true }
+        )
+        expect(sent[1]).toEqual({
+            path: 'organisationUnitGroups/g1/organisationUnits',
+            body: { additions: [], deletions: [{ id: 'u1' }] },
+        })
+        expect(result.applied).toEqual([
+            { groupId: 'c', additions: ['u1'], deletions: [] },
+            { groupId: 'g1', additions: [], deletions: ['u1'] },
+        ])
+        expect(result.unaccounted).toEqual([
+            { groupId: 'c', additions: ['u2'], deletions: [] },
+            { groupId: 'g1', additions: [], deletions: ['u2'] },
+        ])
+    })
+
+    it('still sends a deletion of an object the write adds nowhere', async () => {
+        const fetcher = (path: string) =>
+            Promise.resolve(path.includes('/c/') ? json({}, 500) : okStats(1))
+        const result = await writeMemberships(
+            fetcher,
+            'organisationUnit',
+            [
+                { groupId: 'c', additions: ['u1'], deletions: [] },
+                { groupId: 'g1', additions: [], deletions: ['other'] },
+            ],
+            () => undefined,
+            { holdUnplacedDeletions: true }
+        )
+        expect(result.applied).toEqual([
+            { groupId: 'g1', additions: [], deletions: ['other'] },
+        ])
     })
 })

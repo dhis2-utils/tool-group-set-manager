@@ -1,7 +1,9 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { SetPropertiesDialog } from './SetPropertiesDialog'
-import { GroupSetMeta } from '@/engine/types'
+import { MetadataWriteError } from '@/data/metadataWrites'
+import type { GroupSetMeta } from '@/engine/types'
+import { actAndFlush } from '@/testing/actAndFlush'
 
 jest.mock('@dhis2/app-runtime', () => ({
     useConfig: () => ({ baseUrl: 'http://server', apiVersion: 42 }),
@@ -9,8 +11,18 @@ jest.mock('@dhis2/app-runtime', () => ({
 
 const mockSetGroupSetProperties = jest.fn()
 jest.mock('@/data/metadataWrites', () => ({
+    ...jest.requireActual('@/data/metadataWrites'),
     setGroupSetProperties: (...args: unknown[]) =>
         mockSetGroupSetProperties(...args),
+}))
+
+const mockSaveChangeSet = jest.fn()
+jest.mock('@/data/datastore', () => ({
+    saveChangeSet: (...args: unknown[]) => mockSaveChangeSet(...args),
+}))
+
+jest.mock('@/utils/useApiDataQuery', () => ({
+    useApiDataQuery: () => ({ data: { id: 'me1', displayName: 'Me' } }),
 }))
 
 const set: GroupSetMeta = {
@@ -41,6 +53,8 @@ const toggle = (name: RegExp) =>
 beforeEach(() => {
     jest.clearAllMocks()
     mockSetGroupSetProperties.mockResolvedValue(undefined)
+    mockSaveChangeSet.mockReset()
+    mockSaveChangeSet.mockResolvedValue(undefined)
 })
 
 describe('SetPropertiesDialog', () => {
@@ -69,13 +83,16 @@ describe('SetPropertiesDialog', () => {
         renderDialog()
         toggle(/data dimension/i)
         fireEvent.click(screen.getByRole('button', { name: /save/i }))
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
         })
 
         expect(mockSetGroupSetProperties).toHaveBeenCalledWith(
             expect.any(Function),
-            { id: 'own', objectType: 'organisationUnit' },
+            expect.objectContaining({
+                id: 'own',
+                objectType: 'organisationUnit',
+            }),
             { dataDimension: true }
         )
         await waitFor(() => expect(onApplied).toHaveBeenCalled())
@@ -85,7 +102,7 @@ describe('SetPropertiesDialog', () => {
         renderDialog()
         toggle(/compulsory/i)
         fireEvent.click(screen.getByRole('button', { name: /save/i }))
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
         })
 
@@ -94,16 +111,80 @@ describe('SetPropertiesDialog', () => {
     })
 
     it('reports a failed write rather than letting it vanish', async () => {
-        mockSetGroupSetProperties.mockRejectedValue(new Error('HTTP 409'))
+        mockSetGroupSetProperties.mockRejectedValue(
+            new MetadataWriteError('updateSet', 403)
+        )
         renderDialog()
         toggle(/compulsory/i)
         fireEvent.click(screen.getByRole('button', { name: /save/i }))
-        await act(async () => {
+        await actAndFlush(() => {
             fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
         })
 
-        expect(await screen.findByText(/HTTP 409/)).toBeInTheDocument()
+        expect(
+            await screen.findByText(
+                'You do not have permission to change this group set.'
+            )
+        ).toBeInTheDocument()
         expect(onApplied).not.toHaveBeenCalled()
+    })
+
+    // M11: a property change is recorded in History with its before and
+    // after values, so it can be reverted from there.
+    it('records the change in History with the values before and after', async () => {
+        renderDialog()
+        toggle(/compulsory/i)
+        fireEvent.click(screen.getByRole('button', { name: /save/i }))
+        await actAndFlush(() => {
+            fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
+        })
+
+        await waitFor(() => expect(mockSaveChangeSet).toHaveBeenCalled())
+        expect(mockSaveChangeSet.mock.calls[0][1]).toMatchObject({
+            action: 'properties',
+            groupSetId: 'own',
+            groupSetName: 'Ownership',
+            objectType: 'organisationUnit',
+            changes: [],
+            properties: {
+                before: { compulsory: true },
+                after: { compulsory: false },
+            },
+            createdBy: { id: 'me1', displayName: 'Me' },
+        })
+    })
+
+    it('says so when the change was made but could not be recorded in History', async () => {
+        mockSaveChangeSet.mockRejectedValue(new Error('dataStore down'))
+        renderDialog()
+        toggle(/compulsory/i)
+        fireEvent.click(screen.getByRole('button', { name: /save/i }))
+        await actAndFlush(() => {
+            fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
+        })
+
+        expect(
+            await screen.findByText('Not recorded in History')
+        ).toBeInTheDocument()
+        expect(onApplied).toHaveBeenCalled()
+    })
+
+    it('records nothing when the server refused the change', async () => {
+        mockSetGroupSetProperties.mockRejectedValue(
+            new MetadataWriteError('updateSet', 500)
+        )
+        renderDialog()
+        toggle(/compulsory/i)
+        fireEvent.click(screen.getByRole('button', { name: /save/i }))
+        await actAndFlush(() => {
+            fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
+        })
+        expect(
+            await screen.findByText(
+                'The group set could not be updated (HTTP 500).'
+            )
+        ).toBeInTheDocument()
+        expect(mockSaveChangeSet).not.toHaveBeenCalled()
     })
 
     it('offers no write at all on a group set the user cannot write to', () => {

@@ -1,303 +1,291 @@
-import { Fetcher } from './DataSource'
+import type { SqlViewSharing } from './sqlViewSharing'
+import type { UsageViewCheck } from './usageAdmin'
 import { checkUsageView, installUsageView, removeUsageView } from './usageAdmin'
-import { USAGE_SQL_CANDIDATES } from './usageSqlView'
+import { USAGE_SQL_CANDIDATES, USAGE_SQL_VIEW_CODE } from './usageSqlView'
 
-const ok = (body: unknown) =>
-    ({ ok: true, status: 200, json: async () => body }) as unknown as Response
-const created = (uid: string) =>
-    ({
-        ok: true,
-        status: 201,
-        json: async () => ({ response: { uid } }),
-    }) as unknown as Response
-const failed = (status: number) =>
-    ({ ok: false, status, json: async () => ({}) }) as unknown as Response
+const respond = (status: number, body: unknown = {}) =>
+    new Response(JSON.stringify(body), { status })
+
+const PUBLIC: SqlViewSharing = { kind: 'public' }
+const GROUP: SqlViewSharing = { kind: 'userGroup', userGroupId: 'ug1' }
+
+const healthy = {
+    id: 'v1',
+    code: USAGE_SQL_VIEW_CODE,
+    type: 'VIEW',
+    sqlQuery: USAGE_SQL_CANDIDATES[0].sqlQuery,
+    sharing: { public: 'r-r-----' },
+    access: { data: { read: true } },
+}
+
+const MISSING: UsageViewCheck = {
+    id: null,
+    status: 'missing',
+    usable: false,
+    view: null,
+}
+
+/** Records every call as "METHOD path"; answers from `answer`, else 200 {}. */
+const recorder = (
+    answer: (key: string, init?: RequestInit) => Response | undefined = () =>
+        undefined
+) => {
+    const calls: string[] = []
+    const bodies: unknown[] = []
+    const fetcher = (path: string, init?: RequestInit) => {
+        const key = `${init?.method ?? 'GET'} ${path}`
+        calls.push(key)
+        if (init?.body) {
+            bodies.push(JSON.parse(String(init.body)))
+        }
+        return Promise.resolve(answer(key, init) ?? respond(200))
+    }
+    return { calls, bodies, fetcher }
+}
+
+const createdAs =
+    (uid: string) =>
+    (key: string): Response | undefined =>
+        key === 'POST sqlViews'
+            ? respond(201, { response: { uid } })
+            : undefined
 
 describe('checkUsageView', () => {
-    it('reports id null when no view carries the code', async () => {
-        const fetcher = jest.fn(async () =>
-            ok({ sqlViews: [] })
-        ) as unknown as Fetcher
-        await expect(checkUsageView(fetcher)).resolves.toEqual({
-            id: null,
-            readable: false,
-            usable: false,
-        })
+    it('reports a missing view', async () => {
+        const { fetcher } = recorder(() => respond(200, { sqlViews: [] }))
+        await expect(checkUsageView(fetcher, PUBLIC)).resolves.toEqual(MISSING)
     })
 
-    it('refuses a materialised view, which would serve arbitrarily old counts', async () => {
-        const fetcher = jest.fn(async () =>
-            ok({
-                sqlViews: [
-                    {
-                        id: 'v1',
-                        code: 'GSI_GROUPSET_USAGE',
-                        type: 'MATERIALIZED_VIEW',
-                        access: { data: { read: true } },
-                    },
-                ],
-            })
-        ) as unknown as Fetcher
-        const check = await checkUsageView(fetcher)
-        expect(check).toMatchObject({ id: 'v1', usable: false })
+    it('refuses a materialised view without reading it', async () => {
+        const { calls, fetcher } = recorder((key) =>
+            key.startsWith('GET sqlViews?')
+                ? respond(200, {
+                      sqlViews: [{ ...healthy, type: 'MATERIALIZED_VIEW' }],
+                  })
+                : undefined
+        )
+        const check = await checkUsageView(fetcher, PUBLIC)
+        expect(check).toMatchObject({ id: 'v1', status: 'needsRepair' })
+        expect(calls).toHaveLength(1)
     })
 
-    it('is usable only once a real read of its data succeeds', async () => {
-        const calls: string[] = []
-        const fetcher = jest.fn(async (path: string) => {
-            calls.push(path)
-            if (path.startsWith('sqlViews?')) {
-                return ok({
-                    sqlViews: [
-                        {
-                            id: 'v1',
-                            code: 'GSI_GROUPSET_USAGE',
-                            type: 'VIEW',
-                            access: { data: { read: true } },
-                        },
-                    ],
-                })
-            }
-            return ok({ listGrid: { headers: [], rows: [] } })
-        }) as unknown as Fetcher
-        await expect(checkUsageView(fetcher)).resolves.toMatchObject({
+    it('is usable once a real read of its data succeeds', async () => {
+        const { fetcher } = recorder((key) =>
+            key.startsWith('GET sqlViews?')
+                ? respond(200, { sqlViews: [healthy] })
+                : undefined
+        )
+        await expect(checkUsageView(fetcher, PUBLIC)).resolves.toMatchObject({
+            status: 'usable',
             usable: true,
         })
-        expect(calls[1]).toBe('sqlViews/v1/data.json?pageSize=1')
     })
 
-    it('is not usable when the read probe fails, however healthy the metadata looks', async () => {
-        const fetcher = jest.fn(async (path: string) =>
-            path.startsWith('sqlViews?')
-                ? ok({
-                      sqlViews: [
-                          {
-                              id: 'v1',
-                              code: 'GSI_GROUPSET_USAGE',
-                              type: 'VIEW',
-                              access: { data: { read: true } },
-                          },
-                      ],
-                  })
-                : failed(500)
-        ) as unknown as Fetcher
-        await expect(checkUsageView(fetcher)).resolves.toEqual({
-            id: 'v1',
-            readable: true,
-            usable: false,
+    it('is not usable when the read fails, however healthy the metadata looks', async () => {
+        const { fetcher } = recorder((key) =>
+            key.startsWith('GET sqlViews?')
+                ? respond(200, { sqlViews: [healthy] })
+                : respond(500)
+        )
+        await expect(checkUsageView(fetcher, PUBLIC)).resolves.toMatchObject({
+            status: 'needsRepair',
         })
     })
 
-    it('costs one request, not two, when the metadata already rules the view out', async () => {
-        const fetcher = jest.fn(async () =>
-            ok({
-                sqlViews: [
-                    {
-                        id: 'v1',
-                        code: 'GSI_GROUPSET_USAGE',
-                        type: 'MATERIALIZED_VIEW',
-                        access: { data: { read: true } },
-                    },
-                ],
-            })
-        ) as unknown as Fetcher
-        await checkUsageView(fetcher)
-        // No read probe: a view the metadata already refuses is not worth a
-        // second round trip to confirm.
-        expect(fetcher).toHaveBeenCalledTimes(1)
+    it('judges the sharing against the choice, not this user’s own access', async () => {
+        const { fetcher } = recorder((key) =>
+            key.startsWith('GET sqlViews?')
+                ? respond(200, { sqlViews: [healthy] })
+                : undefined
+        )
+        await expect(checkUsageView(fetcher, GROUP)).resolves.toMatchObject({
+            status: 'needsRepair',
+        })
     })
 })
 
 describe('installUsageView', () => {
-    it('creates, executes and reads the first candidate, and reports its variant', async () => {
-        const calls: { path: string; method?: string }[] = []
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
-            calls.push({ path, method: init?.method })
-            if (path === 'sqlViews' && init?.method === 'POST') {
-                return created('new1')
-            }
-            return ok({ listGrid: { headers: [], rows: [] } })
-        }) as unknown as Fetcher
-        const result = await installUsageView(fetcher, {
-            id: null,
-            readable: false,
-            usable: false,
+    it('creates, executes and reads the first candidate, with NO_CACHE and public data read', async () => {
+        const { calls, bodies, fetcher } = recorder(createdAs('new1'))
+        const result = await installUsageView(fetcher, MISSING, {
+            sharing: PUBLIC,
         })
         expect(result).toMatchObject({
             installed: true,
             variant: USAGE_SQL_CANDIDATES[0].variant,
             failures: [],
         })
-        expect(calls.map((c) => c.path)).toEqual([
-            'sqlViews',
-            'sqlViews/new1/execute',
-            'sqlViews/new1/data.json?pageSize=1',
+        expect(calls).toEqual([
+            'POST sqlViews',
+            'POST sqlViews/new1/execute',
+            'GET sqlViews/new1?fields=access[data[read]]',
+            'GET sqlViews/new1/data.json?pageSize=1',
         ])
-    })
-
-    // Plan 7 Task 1: the same gap the GSI_* views had. Refusing
-    // MATERIALIZED_VIEW (above) stops the *database* serving stale counts;
-    // without this, the *browser* serves them instead -- for as long as the
-    // instance's keyCacheStrategy says, a fortnight on a stock install.
-    it('creates the view with NO_CACHE, so the browser cannot serve stale counts', async () => {
-        let body: Record<string, unknown> | undefined
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
-            if (path === 'sqlViews' && init?.method === 'POST') {
-                body = JSON.parse(String(init.body)) as Record<string, unknown>
-                return created('new1')
-            }
-            return ok({ listGrid: { headers: [], rows: [] } })
-        }) as unknown as Fetcher
-        await installUsageView(fetcher, {
-            id: null,
-            readable: false,
-            usable: false,
+        expect(bodies[0]).toMatchObject({
+            type: 'VIEW',
+            cacheStrategy: 'NO_CACHE',
+            sharing: { public: 'r-r-----' },
         })
-        expect(body).toMatchObject({ cacheStrategy: 'NO_CACHE' })
     })
 
-    it('deletes the view it just created when that view will not execute, then tries the next candidate', async () => {
-        const calls: string[] = []
-        let createCount = 0
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
-            calls.push(`${init?.method ?? 'GET'} ${path}`)
-            if (path === 'sqlViews' && init?.method === 'POST') {
-                createCount += 1
-                return created(`new${createCount}`)
-            }
-            if (path === 'sqlViews/new1/execute') {
-                return failed(409)
-            }
-            return ok({ listGrid: { headers: [], rows: [] } })
-        }) as unknown as Fetcher
-        const candidates = [
-            { variant: 'first', sqlQuery: 'with a as (select 1) select 1' },
-            { variant: 'second', sqlQuery: 'with b as (select 1) select 1' },
-        ]
-        const result = await installUsageView(
-            fetcher,
-            { id: null, readable: false, usable: false },
-            candidates
+    it('creates the view shared with only the chosen group', async () => {
+        const { bodies, fetcher } = recorder(createdAs('new1'))
+        await installUsageView(fetcher, MISSING, { sharing: GROUP })
+        expect(bodies[0]).toMatchObject({
+            sharing: {
+                public: '--------',
+                userGroups: { ug1: { id: 'ug1', access: 'r-r-----' } },
+            },
+        })
+    })
+
+    // An administrator outside the chosen group cannot read the rows, and
+    // that says nothing about whether the install worked.
+    it('does not read back a view this user may not read', async () => {
+        const { calls, fetcher } = recorder(
+            (key) =>
+                createdAs('new1')(key) ??
+                (key === 'GET sqlViews/new1?fields=access[data[read]]'
+                    ? respond(200, { access: { data: { read: false } } })
+                    : undefined)
         )
+        const result = await installUsageView(fetcher, MISSING, {
+            sharing: GROUP,
+        })
+        expect(result.installed).toBe(true)
+        expect(calls).not.toContain('GET sqlViews/new1/data.json?pageSize=1')
+    })
+
+    it('deletes the view it just created when it will not execute, then tries the next candidate', async () => {
+        let createCount = 0
+        const { calls, fetcher } = recorder((key) => {
+            if (key === 'POST sqlViews') {
+                createCount += 1
+                return respond(201, { response: { uid: `new${createCount}` } })
+            }
+            return key === 'POST sqlViews/new1/execute'
+                ? respond(409)
+                : undefined
+        })
+        const result = await installUsageView(fetcher, MISSING, {
+            sharing: PUBLIC,
+            candidates: [
+                { variant: 'first', sqlQuery: 'select 1' },
+                { variant: 'second', sqlQuery: 'select 2' },
+            ],
+        })
         expect(calls).toContain('DELETE sqlViews/new1')
         expect(result).toMatchObject({ installed: true, variant: 'second' })
-        expect(result.failures).toHaveLength(1)
-        expect(result.failures[0].variant).toBe('first')
+        expect(result.failures.map((f) => f.variant)).toEqual(['first'])
     })
 
     it('reports every candidate failing rather than claiming a partial install', async () => {
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) =>
-            path === 'sqlViews' && init?.method === 'POST'
-                ? failed(409)
-                : ok({})
-        ) as unknown as Fetcher
-        const result = await installUsageView(fetcher, {
-            id: null,
-            readable: false,
-            usable: false,
+        const { fetcher } = recorder((key) =>
+            key === 'POST sqlViews' ? respond(409) : undefined
+        )
+        const result = await installUsageView(fetcher, MISSING, {
+            sharing: PUBLIC,
         })
         expect(result.installed).toBe(false)
         expect(result.failures).toHaveLength(USAGE_SQL_CANDIDATES.length)
     })
 
-    it('re-executes an existing but unusable view instead of creating a second one', async () => {
-        const calls: string[] = []
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
-            calls.push(`${init?.method ?? 'GET'} ${path}`)
-            return ok({ listGrid: { headers: [], rows: [] } })
-        }) as unknown as Fetcher
-        const result = await installUsageView(fetcher, {
-            id: 'old1',
-            readable: true,
-            usable: false,
-        })
-        expect(calls).toEqual([
-            'POST sqlViews/old1/execute',
-            'GET sqlViews/old1/data.json?pageSize=1',
-        ])
-        expect(result).toMatchObject({ installed: true })
-    })
-
-    // Manual review 2: the same 409 E4312 the GSI_* views hit (see
-    // sqlViewAdmin.test.ts) -- `r-------` is metadata read only, and a
-    // non-superuser cannot read the data of a view shared that way, even
-    // one they created a second ago.
-    it('creates the view with public data read, so a non-superuser can read what it just installed', async () => {
-        let body: Record<string, unknown> | undefined
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
-            if (init?.method === 'POST' && path === 'sqlViews') {
-                body = JSON.parse(String(init.body))
-                return created('new1')
-            }
-            return ok({ listGrid: { headers: [], rows: [] } })
-        }) as unknown as Fetcher
-        await installUsageView(fetcher, {
-            id: null,
-            readable: false,
-            usable: false,
-        })
-        expect(body).toMatchObject({ sharing: { public: 'r-r-----' } })
-    })
-
-    it('grants public data read before re-executing an existing view the user cannot read', async () => {
-        const calls: string[] = []
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
-            calls.push(`${init?.method ?? 'GET'} ${path}`)
-            return ok({ listGrid: { headers: [], rows: [] } })
-        }) as unknown as Fetcher
-        const result = await installUsageView(fetcher, {
-            id: 'old1',
-            readable: false,
-            usable: false,
-        })
-        expect(calls).toEqual([
-            'PATCH sqlViews/old1',
-            'POST sqlViews/old1/execute',
-            'GET sqlViews/old1/data.json?pageSize=1',
-        ])
-        expect(result).toMatchObject({ installed: true })
-    })
-
     it('names the server reason when the read probe is refused, not just the status', async () => {
-        const fetcher = jest.fn(async (path: string, init?: RequestInit) => {
-            if (init?.method === 'POST' && path === 'sqlViews') {
-                return created('new1')
-            }
-            if (path.startsWith('sqlViews/new1/data.json')) {
-                return {
-                    ok: false,
-                    status: 409,
-                    json: async () => ({
-                        message:
-                            'Current user is not authorised to read data from SQL view: `new1`',
-                    }),
-                } as unknown as Response
-            }
-            return ok({})
-        }) as unknown as Fetcher
-        const result = await installUsageView(fetcher, {
-            id: null,
-            readable: false,
-            usable: false,
+        const { fetcher } = recorder(
+            (key) =>
+                createdAs('new1')(key) ??
+                (key === 'GET sqlViews/new1/data.json?pageSize=1'
+                    ? respond(409, {
+                          message:
+                              'Current user is not authorised to read data from SQL view: `new1`',
+                      })
+                    : undefined)
+        )
+        const result = await installUsageView(fetcher, MISSING, {
+            sharing: PUBLIC,
         })
         expect(result.installed).toBe(false)
         expect(result.failures[0].message).toBe(
             'The usage SQL view was created but cannot be read — HTTP 409 (Current user is not authorised to read data from SQL view: `new1`)'
         )
     })
+
+    it('patches an existing view’s type, query and sharing back instead of creating a second one', async () => {
+        const view = {
+            ...healthy,
+            type: 'MATERIALIZED_VIEW',
+            sqlQuery: 'select 1',
+            sharing: { public: 'r-------' },
+        }
+        const { calls, bodies, fetcher } = recorder((key) => {
+            if (key === 'GET sharing?type=sqlView&id=v1') {
+                return respond(200, { object: { publicAccess: 'r-------' } })
+            }
+            if (key === 'GET sqlViews/v1?fields=sharing') {
+                return respond(200, { sharing: { public: 'r-r-----' } })
+            }
+            return undefined
+        })
+        const result = await installUsageView(
+            fetcher,
+            { id: 'v1', status: 'needsRepair', usable: false, view },
+            { sharing: PUBLIC }
+        )
+        expect(result).toMatchObject({ installed: true, variant: null })
+        // A materialised view becomes a QUERY, which has nothing to execute.
+        expect(calls).toEqual([
+            'PATCH sqlViews/v1',
+            'GET sharing?type=sqlView&id=v1',
+            'POST sharing?type=sqlView&id=v1',
+            'GET sqlViews/v1?fields=sharing',
+            'GET sqlViews/v1?fields=access[data[read]]',
+            'GET sqlViews/v1/data.json?pageSize=1',
+        ])
+        expect(bodies[0]).toEqual([
+            { op: 'replace', path: '/type', value: 'QUERY' },
+            {
+                op: 'replace',
+                path: '/sqlQuery',
+                value: USAGE_SQL_CANDIDATES[0].sqlQuery,
+            },
+        ])
+        expect(bodies[1]).toEqual({ object: { publicAccess: 'r-r-----' } })
+    })
+
+    it('reports an existing view another administrator owns as forbidden', async () => {
+        const { fetcher } = recorder((key) =>
+            key === 'GET sharing?type=sqlView&id=v1' ? respond(403) : undefined
+        )
+        const result = await installUsageView(
+            fetcher,
+            {
+                id: 'v1',
+                status: 'needsRepair',
+                usable: false,
+                view: { ...healthy, sharing: { public: 'r-------' } },
+            },
+            { sharing: PUBLIC }
+        )
+        expect(result.installed).toBe(false)
+        expect(result.failures).toEqual([
+            expect.objectContaining({
+                variant: 'existing',
+                reason: 'forbidden',
+            }),
+        ])
+    })
 })
 
 describe('removeUsageView', () => {
-    it('deletes by id and reports a refusal', async () => {
-        const fetcher = jest.fn(async () => failed(403)) as unknown as Fetcher
-        await expect(removeUsageView(fetcher, 'v1')).rejects.toThrow(/403/)
+    it('reports a 403 as forbidden', async () => {
+        await expect(
+            removeUsageView(() => Promise.resolve(respond(403)), 'v1')
+        ).rejects.toMatchObject({ reason: 'forbidden' })
     })
 
     it('deletes the view by id and resolves when the server accepts', async () => {
-        const fetcher = jest.fn(async () => ok({})) as unknown as Fetcher
+        const { calls, fetcher } = recorder()
         await expect(removeUsageView(fetcher, 'v1')).resolves.toBeUndefined()
-        expect(fetcher).toHaveBeenCalledWith('sqlViews/v1', {
-            method: 'DELETE',
-        })
+        expect(calls).toEqual(['DELETE sqlViews/v1'])
     })
 })

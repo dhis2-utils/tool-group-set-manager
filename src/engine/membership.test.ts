@@ -9,15 +9,15 @@ describe('buildSetMembership', () => {
     ])
 
     it('counts memberships per object', () => {
-        expect(Array.from(m.memberCount)).toEqual([1, 2, 1, 0, 1, 0])
+        expect([...m.memberCount]).toEqual([1, 2, 1, 0, 1, 0])
     })
 
     it('resolves the single group, -1 for none and -2 for conflicts', () => {
-        expect(Array.from(m.groupOf)).toEqual([0, -2, 1, -1, 0, -1])
+        expect([...m.groupOf]).toEqual([0, -2, 1, -1, 0, -1])
     })
 
     it('stores sorted member lists', () => {
-        expect(Array.from(m.groupMembers[0])).toEqual([0, 1, 4])
+        expect([...m.groupMembers[0]]).toEqual([0, 1, 4])
     })
 
     it('lists all groups of a conflicting object', () => {

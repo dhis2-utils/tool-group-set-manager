@@ -4,15 +4,6 @@ on:
     push:
         tags:
             - 'v*.*.*'
-    # For a tag pushed before this workflow existed (v1.0.0), or a release
-    # that needs re-creating: `gh workflow run release.yml -f tag=v1.0.0`.
-    # The job then checks out and builds that tag, not the default branch.
-    workflow_dispatch:
-        inputs:
-            tag:
-                description: 'Existing tag to release (e.g. v1.0.0)'
-                required: true
-                type: string
 
 permissions:
     contents: write
@@ -20,28 +11,25 @@ permissions:
 jobs:
     release:
         runs-on: ubuntu-latest
-        env:
-            TAG: ${{ inputs.tag || github.ref_name }}
-            DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         steps:
             - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-              with:
-                  ref: ${{ inputs.tag || github.ref }}
 
             - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
+            # No dependency cache: this job holds a write token, and whatever a
+            # poisoned cache delivers would run with it (RELEASE-WORKFLOW.md).
             - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
               with:
                   node-version: 22
-                  cache: pnpm
 
             # Warn, never fail: a wrong release can be deleted and recreated, but a
             # protected tag cannot be moved, so exiting here would burn the version.
             - name: Check tag against package.json version
               run: |
                   VERSION=$(node -p "require('./package.json').version")
-                  if [ "$VERSION" != "${TAG#v}" ]; then
-                    echo "::warning::Tag $TAG does not match package.json version $VERSION; the attached bundle will carry $VERSION"
+                  TAG="${GITHUB_REF_NAME#v}"
+                  if [ "$VERSION" != "$TAG" ]; then
+                    echo "::warning::Tag $GITHUB_REF_NAME does not match package.json version $VERSION; the attached bundle will carry $VERSION"
                   fi
 
             - name: Install dependencies
@@ -57,18 +45,8 @@ jobs:
               # changelog section must NOT fail the job — that would burn the
               # version number with no way to retry it. Warn and fall back to a
               # generic note instead.
-              #
-              # A tag from before CHANGELOG.md existed (v1.0.0, released by
-              # hand through workflow_dispatch) has no changelog in its own
-              # tree; the default branch's copy is used for it.
               run: |
-                  VERSION="${TAG#v}"
-                  if [ ! -f CHANGELOG.md ]; then
-                    echo "::notice::No CHANGELOG.md at $TAG; reading the one on $DEFAULT_BRANCH"
-                    git fetch --depth=1 origin "$DEFAULT_BRANCH" \
-                      && git show FETCH_HEAD:CHANGELOG.md > CHANGELOG.md \
-                      || : > CHANGELOG.md
-                  fi
+                  VERSION="${GITHUB_REF_NAME#v}"
                   awk -v ver="$VERSION" '
                     BEGIN { pat = ver; gsub(/\./, "\\.", pat) }
                     # Accept both "## [1.2.3] - date" and "## 1.2.3 - date"
@@ -78,14 +56,20 @@ jobs:
                   ' CHANGELOG.md > release-notes.md
                   if [ ! -s release-notes.md ]; then
                     echo "::warning::No CHANGELOG.md section for $VERSION; using a generic note"
-                    echo "Release $TAG" > release-notes.md
+                    echo "Release $GITHUB_REF_NAME" > release-notes.md
                   fi
 
             - name: Create GitHub release
+              # A re-run after a transient failure finds the release an earlier
+              # attempt created; upload to it instead of failing on "already exists".
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
-                  gh release create "$TAG" \
-                    --title "$TAG" \
-                    --notes-file release-notes.md \
-                    build/bundle/*.zip
+                  if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+                    gh release upload "$GITHUB_REF_NAME" --clobber build/bundle/*.zip
+                  else
+                    gh release create "$GITHUB_REF_NAME" \
+                      --title "$GITHUB_REF_NAME" \
+                      --notes-file release-notes.md \
+                      build/bundle/*.zip
+                  fi

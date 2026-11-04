@@ -1,9 +1,9 @@
+import type { UsageListGrid } from './usageSqlView'
 import {
     parseUsageListGrid,
     USAGE_SQL_CANDIDATES,
     usageApplies,
     usageByGroupSet,
-    UsageListGrid,
 } from './usageSqlView'
 
 const grid = (rows: unknown[][]): UsageListGrid => ({

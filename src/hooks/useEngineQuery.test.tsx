@@ -6,13 +6,15 @@ import { useEngineQuery } from './useEngineQuery'
 // out-of-scope variables whose names start with "mock" (see the matching
 // comment in Dashboard.test.tsx), since jest.mock() calls are hoisted above
 // other top-level statements in this file.
-const mockCall = jest.fn(
-    async (_m: string, ...args: unknown[]) => `result:${JSON.stringify(args)}`
+const mockCall = jest.fn((_m: string, ...args: unknown[]) =>
+    Promise.resolve(`result:${JSON.stringify(args)}`)
 )
 let mockPhase = 'objects'
+let mockRevision = 0
 jest.mock('./useEngine', () => ({
     useEngine: () => ({
         client: { call: mockCall },
+        revision: mockRevision,
         status: {
             phase: mockPhase,
             type: null,
@@ -24,7 +26,7 @@ jest.mock('./useEngine', () => ({
 }))
 
 const Probe = ({ x }: { x: number }) => {
-    const { data, isLoading } = useEngineQuery<string>('indexOf', [
+    const { data, isLoading } = useEngineQuery<string>('levelOf', [
         'organisationUnit',
         x,
     ])
@@ -38,12 +40,13 @@ const Probe = ({ x }: { x: number }) => {
 
 afterEach(() => {
     mockPhase = 'objects'
+    mockRevision = 0
     mockCall.mockClear()
 })
 
 const data = () => screen.getByTestId('data')
 
-it('calls the engine and re-runs when args change', async () => {
+test('calls the engine and re-runs when args change', async () => {
     const { rerender } = render(<Probe x={1} />)
     await waitFor(() =>
         expect(data()).toHaveTextContent('result:["organisationUnit",1]')
@@ -55,7 +58,7 @@ it('calls the engine and re-runs when args change', async () => {
     expect(mockCall).toHaveBeenCalledTimes(2)
 })
 
-it('clears data when the args change, so no consumer sees a result for a query it has stopped asking', async () => {
+test('clears data when the args change, so no consumer sees a result for a query it has stopped asking', async () => {
     // The objects table appends pages; left holding the previous filter's
     // page 0 while the new filter's page 0 was in flight, it folded those
     // rows into the new, freshly reset list and then rejected the real
@@ -75,7 +78,7 @@ it('clears data when the args change, so no consumer sees a result for a query i
     )
 })
 
-it('keeps the current data when only the engine load phase changes', async () => {
+test('keeps the current data when only the engine load phase changes', async () => {
     // The precise other half: this effect also re-runs on every load phase
     // and type change, and those re-runs ask the same question -- clearing
     // there would blank an already rendered matrix repeatedly during a load.
@@ -93,18 +96,21 @@ it('keeps the current data when only the engine load phase changes', async () =>
     expect(mockCall).toHaveBeenCalledTimes(2)
 })
 
-it('refetch re-issues the same call after a failure and clears the error once it succeeds', async () => {
+test('refetch re-issues the same call after a failure and clears the error once it succeeds', async () => {
     mockCall.mockRejectedValueOnce(new Error('worker went away'))
     const RetryProbe = () => {
-        const { data, error, refetch } = useEngineQuery<string>('indexOf', [
-            'organisationUnit',
-            7,
-        ])
+        const {
+            data: value,
+            error,
+            refetch,
+        } = useEngineQuery<string>('levelOf', ['organisationUnit', 7])
         return (
             <div>
                 <div data-test="error">{error ?? 'no-error'}</div>
-                <div data-test="data">{data ?? 'no-data'}</div>
-                <button onClick={refetch}>retry</button>
+                <div data-test="data">{value ?? 'no-data'}</div>
+                <button type="button" onClick={refetch}>
+                    retry
+                </button>
             </div>
         )
     }
@@ -120,4 +126,12 @@ it('refetch re-issues the same call after a failure and clears the error once it
     )
     expect(screen.getByTestId('error')).toHaveTextContent('no-error')
     expect(mockCall).toHaveBeenCalledTimes(2)
+})
+
+test('M9c: re-asks when the engine revision moves, as after a write', async () => {
+    const { rerender } = render(<Probe x={1} />)
+    await waitFor(() => expect(mockCall).toHaveBeenCalledTimes(1))
+    mockRevision = 1
+    rerender(<Probe x={1} />)
+    await waitFor(() => expect(mockCall).toHaveBeenCalledTimes(2))
 })

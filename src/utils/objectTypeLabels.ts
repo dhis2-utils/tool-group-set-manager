@@ -1,5 +1,5 @@
 import i18n from '@dhis2/d2-i18n'
-import { ObjectType } from '@/engine/types'
+import type { ObjectType } from '@/engine/types'
 
 // Shared between Dashboard (section headings) and LoadProgress (progress
 // line, per-type error listing) so both read the same translated section
@@ -26,6 +26,8 @@ export function typeLabel(type: ObjectType): string {
             return i18n.t('Indicator group sets')
         case 'categoryOption':
             return i18n.t('Category option group sets')
+        // Exhaustive: TypeScript rejects this function if a case is missing.
+        // no default
     }
 }
 
@@ -45,5 +47,7 @@ export function typeObjectsLabel(type: ObjectType): string {
             return i18n.t('indicators')
         case 'categoryOption':
             return i18n.t('category options')
+        // Exhaustive: TypeScript rejects this function if a case is missing.
+        // no default
     }
 }

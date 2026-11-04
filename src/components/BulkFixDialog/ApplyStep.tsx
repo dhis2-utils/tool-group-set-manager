@@ -3,8 +3,8 @@ import { CircularLoader, NoticeBox } from '@dhis2/ui'
 import React from 'react'
 import styles from './BulkFixDialog.module.css'
 import { aggregateOutcomes, outcomeText } from '@/data/writeOutcomes'
-import { BatchOutcome } from '@/data/writes'
-import { MembershipWriteResult } from '@/hooks/useMembershipWrite'
+import type { BatchOutcome } from '@/data/writes'
+import type { MembershipWriteResult } from '@/hooks/useMembershipWrite'
 import { interpolate } from '@/utils/interpolate'
 
 export interface ApplyStepProps {

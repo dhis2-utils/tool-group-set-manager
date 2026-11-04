@@ -85,3 +85,9 @@
     display: flex;
     justify-content: space-between;
 }
+/* Why the bulk fix button is disabled, shown in text rather than a tooltip. */
+.bulkFixNote {
+    margin: 0;
+    font-size: 13px;
+    color: var(--colors-grey700);
+}

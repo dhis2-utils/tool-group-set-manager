@@ -1,4 +1,4 @@
-import { ObjectType } from './types'
+import type { ObjectType } from './types'
 
 export interface ObjectsPayload {
     objectType: ObjectType
@@ -35,7 +35,6 @@ export type EngineMethod =
     | 'planRevert'
     | 'resolve'
     | 'resolveParents'
-    | 'indexOf'
     | 'indexesOf'
     | 'levelOf'
     | 'reset'
@@ -47,6 +46,11 @@ export interface EngineRequest {
     args: unknown[]
 }
 
+/**
+ * `revision` is the store's revision after the call (see
+ * `EngineStore.revision`). Optional so a response from something that does
+ * not track it (a test double) still reads as a response.
+ */
 export type EngineResponse =
-    | { id: number; ok: true; result: unknown }
-    | { id: number; ok: false; error: string }
+    | { id: number; ok: true; result: unknown; revision?: number }
+    | { id: number; ok: false; error: string; revision?: number }
