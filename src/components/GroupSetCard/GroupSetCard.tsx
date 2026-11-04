@@ -143,7 +143,7 @@ export const GroupSetCard = ({
                                     {summary.unassigned.toLocaleString()}
                                 </div>
                                 <div className={styles.label}>
-                                    {i18n.t('No group (not required)')}
+                                    {i18n.t('No group')}
                                 </div>
                             </div>
                         )}

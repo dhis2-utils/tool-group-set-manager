@@ -279,7 +279,7 @@ export const SummaryMatrix = ({
                                 align="right"
                                 className={styles.numericHeader}
                             >
-                                {i18n.t('No group (not required)')}
+                                {i18n.t('No group')}
                             </DataTableColumnHeader>
                         )}
                         <DataTableColumnHeader

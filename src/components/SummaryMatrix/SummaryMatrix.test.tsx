@@ -206,14 +206,12 @@ test('shows the "no group, not required" column only when the caller asks for it
     )
     // Without the flag the column is not there at all -- for a compulsory or
     // data dimension set it could only ever be zero.
-    expect(
-        screen.queryByText('No group (not required)')
-    ).not.toBeInTheDocument()
+    expect(screen.queryByText('No group')).not.toBeInTheDocument()
 
     rerender(
         <SummaryMatrix result={permissive} onCell={onCell} showUnassigned />
     )
-    expect(screen.getByText('No group (not required)')).toBeInTheDocument()
+    expect(screen.getByText('No group')).toBeInTheDocument()
     await userEvent.click(screen.getByText('9'))
     expect(onCell).toHaveBeenCalledWith(permissive.rows[0].row, {
         kind: 'unassigned',

@@ -259,7 +259,7 @@ test('shows the "no group, not required" count only for a set where being in no 
         },
     }
     const { rerender } = renderCard({ entry: permissive })
-    expect(screen.getByText('No group (not required)')).toBeInTheDocument()
+    expect(screen.getByText('No group')).toBeInTheDocument()
     expect(screen.getByText('70')).toBeInTheDocument()
 
     rerender(
@@ -269,9 +269,7 @@ test('shows the "no group, not required" count only for a set where being in no 
             onOpenUsage={() => undefined}
         />
     )
-    expect(
-        screen.queryByText('No group (not required)')
-    ).not.toBeInTheDocument()
+    expect(screen.queryByText('No group')).not.toBeInTheDocument()
 })
 
 describe('GroupSetCard — usage', () => {

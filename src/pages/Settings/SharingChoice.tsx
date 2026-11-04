@@ -159,7 +159,7 @@ export const SharingChoice = ({
                     {groups.message}
                 </NoticeBox>
             )}
-            <div>
+            <div className={styles.actions}>
                 <Button
                     small
                     disabled={!canApply || busy}

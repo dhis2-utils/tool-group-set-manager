@@ -44,6 +44,10 @@
 .viewName {
     flex: 1;
 }
+/* Space between the last field of a choice and its apply button. */
+.actions {
+    margin-top: var(--spacers-dp12);
+}
 .note {
     font-size: 13px;
     color: var(--colors-grey700);

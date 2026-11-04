@@ -62,6 +62,44 @@ Users who do not have the `ALL` authority can open the tool only when it is in o
 >
 > Version 1.0.0 was installed under the app key `group-set-integrity-tool`. DHIS2 treats later versions as a different app. After you install the new version, uninstall the old one in **App Management**, and add the new app to the user roles that had the old one. History, settings, and the SQL views are kept.
 
+## Understand compulsory, data dimension, and catch-all groups { #tool-group-set-manager-concepts }
+
+Two properties of a group set decide what the tool reports as an error: **Compulsory** and **Data dimension**. Most problems that the tool finds matter because of these two properties, so read this section before you fix anything.
+
+### Compulsory group sets { #tool-group-set-manager-compulsory }
+
+A compulsory group set says that **every object of its type must be in exactly one group of the set**. For example, if the organisation unit group set "Facility Ownership" is compulsory, every organisation unit must be in one of its groups, such as "Public", "Private", or "Mission".
+
+DHIS2 does not stop anyone from saving an object that is in no group, or in two groups, of a compulsory set. It only reports it in its data integrity checks. The tool finds these objects and helps you fix them:
+
+- An object in **no group** of a compulsory set is an error (**Missing**).
+- An object in **more than one group** of any set is an error (**Conflicts**).
+
+### Data dimension group sets { #tool-group-set-manager-data-dimension }
+
+A group set that is a data dimension is included in analytics. Users can choose it as a dimension in the analytics apps, for example to show the data of every facility by ownership. Each data dimension adds a column to the analytics tables, which DHIS2 fills when it runs analytics table generation.
+
+If the groups of a data dimension are wrong, **the numbers in analytics are wrong**, and nothing in the analytics apps shows it:
+
+- The data of an object in **no group** is left out when users break the data down by the groups of the set. The groups add up to less than the total.
+- The data of an object in **more than one group** is counted under only one of them, and you cannot choose which one.
+
+A data dimension that nobody uses for analysis still costs something. It adds to the time that analytics table generation takes, and it adds one more dimension to the lists in the analytics apps, which distracts users. The **Usage** tab shows how many saved favourites use the set, so that you can find data dimensions that nothing uses and turn **Data dimension** off. See [Check how the group set is used](#tool-group-set-manager-usage) and [Change the properties of a group set](#tool-group-set-manager-properties).
+
+A set that is a data dimension but not compulsory is reported less strictly: an object in no group is a warning, not an error. A set that is both follows the rules of a compulsory set.
+
+### Catch-all groups { #tool-group-set-manager-catch-all-groups }
+
+A catch-all group is a group of the set for the objects that do not fit any other group, or that you cannot put in the right group yet. It often has a name such as "Other" or "Unknown".
+
+For a group set that is a data dimension, a catch-all group is recommended in most cases. If every object is in one group, even when that group is "Unknown", the numbers in analytics are true: the groups add up to the total, and what is unknown shows as unknown, rather than being dropped or counted in the wrong group. You can move the objects to their right group later.
+
+The tool helps you work with a catch-all group:
+
+- In Settings, you can choose an existing group of each set as its catch-all group. See [Choose a catch-all group for a set](#tool-group-set-manager-catch-all).
+- In a bulk fix, **Move to catch-all group** moves every object that is missing or in conflict to the catch-all group. If you did not choose one in Settings, the tool suggests a group whose name contains "other" or "unknown".
+- If the set has no such group, you can create one in the bulk fix dialog. See [Choose the objects and the action](#tool-group-set-manager-bulk-fix-choose).
+
 ## Review the dashboard { #tool-group-set-manager-dashboard }
 
 The dashboard shows one card for each group set, grouped by object type. Each card counts the objects that break the rules of the set, so you can see which sets need work.
@@ -80,18 +118,18 @@ The tool keeps these choices until you close the browser tab.
 
 The tool checks each object against each group set in the same way at every organisation unit level:
 
-| What the object is in          | Compulsory set        | Data dimension set    | Other set                             |
-| ------------------------------ | --------------------- | --------------------- | ------------------------------------- |
-| More than one group of the set | Error (**Conflicts**) | Error (**Conflicts**) | Error (**Conflicts**)                 |
-| One group of the set           | **OK**                | **OK**                | **OK**                                |
-| No group of the set            | Error (**Missing**)   | Warning (**Missing**) | Allowed (**No group (not required)**) |
+| What the object is in          | Compulsory set        | Data dimension set    | Other set              |
+| ------------------------------ | --------------------- | --------------------- | ---------------------- |
+| More than one group of the set | Error (**Conflicts**) | Error (**Conflicts**) | Error (**Conflicts**)  |
+| One group of the set           | **OK**                | **OK**                | **OK**                 |
+| No group of the set            | Error (**Missing**)   | Warning (**Missing**) | Allowed (**No group**) |
 
-A set that is both compulsory and a data dimension follows the **Compulsory** column.
+A set that is both compulsory and a data dimension follows the **Compulsory** column. For what the two properties mean, see [Understand compulsory, data dimension, and catch-all groups](#tool-group-set-manager-concepts).
 
 A card shows these items:
 
 - The tags **Compulsory** and **Data dimension**, if they apply, and the number of groups.
-- The counts **Conflicts**, **Missing**, and **OK**. A set that is neither compulsory nor a data dimension also shows **No group (not required)**.
+- The counts **Conflicts**, **Missing**, and **OK**. A set that is neither compulsory nor a data dimension also shows **No group**: the objects that are in no group, which this set allows.
 - **You can edit all groups**, or the number of groups that are read-only for you.
 - If the usage SQL view is installed, the number of favourites that use the set. A set with no favourites shows **Appears unused**. Click it to open the **Usage** tab of the set.
 
@@ -131,7 +169,7 @@ The **Overview** tab shows a matrix of organisation units against the groups of 
 The matrix has these columns:
 
 - One column for each group, for up to 8 groups. The other groups are added together in **Other groups**. To choose which groups get their own column, click a number in **Other groups**, choose up to 8 groups, and click **Save**.
-- **No group (not required)**, only for a set that is neither compulsory nor a data dimension.
+- **No group**, only for a set that is neither compulsory nor a data dimension.
 - **Missing**, **Conflict**, and **Total**.
 
 The row **Above the row level** counts the organisation units above the level that you chose in **Rows**. You cannot filter on the numbers in this row.
@@ -261,7 +299,7 @@ You can turn **Compulsory** and **Data dimension** on or off for a group set fro
 
 > **Warning**
 >
-> This changes the group set on the server. Turning **Data dimension** off removes the set from the dimensions in analytics apps.
+> This changes the group set on the server. Turning **Data dimension** off removes the set from the dimensions in analytics apps. Check the **Usage** tab first, to see which favourites use the set. For what the two properties mean, see [Understand compulsory, data dimension, and catch-all groups](#tool-group-set-manager-concepts).
 
 1. Open the group set.
 2. In the filter bar, click **Group set properties…**.
@@ -367,7 +405,7 @@ The settings in this section apply to every user of the tool on the instance. Th
 
 ### Choose a catch-all group for a set { #tool-group-set-manager-catch-all }
 
-The catch-all group of a set is the group that **Move to catch-all group** suggests in a bulk fix.
+The catch-all group of a set is the group that **Move to catch-all group** suggests in a bulk fix. For why a set needs one, see [Catch-all groups](#tool-group-set-manager-catch-all-groups).
 
 1. In the navigation bar, click **Settings**.
 2. Under **Catch-all group**, find the group set.

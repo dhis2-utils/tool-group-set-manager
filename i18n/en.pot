@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-11-03T14:46:49.238Z\n"
-"PO-Revision-Date: 2026-11-03T14:46:49.238Z\n"
+"POT-Creation-Date: 2026-11-04T09:23:35.575Z\n"
+"PO-Revision-Date: 2026-11-04T09:23:35.579Z\n"
 
 msgid "Move to catch-all group"
 msgstr "Move to catch-all group"
@@ -256,9 +256,6 @@ msgstr "Conflicts"
 
 msgid "Missing"
 msgstr "Missing"
-
-msgid "No group (not required)"
-msgstr "No group (not required)"
 
 msgid "OK"
 msgstr "OK"

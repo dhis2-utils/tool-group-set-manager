@@ -45,6 +45,10 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The count and matrix column for objects in no group of a set that allows
+  it is named **No group** (was **No group (not required)**).
+- The user guide explains what **Compulsory** and **Data dimension** mean for
+  analytics, and why a data dimension usually needs a catch-all group.
 - History offers **Revert** only for changes made in the last 24 hours. Older
   changes stay listed and can still be exported.
 - Every bulk fix and every revert checks the groups that it changes on the
