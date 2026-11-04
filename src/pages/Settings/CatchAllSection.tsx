@@ -69,24 +69,26 @@ const CatchAllRow = ({
                         />
                     ))}
                 </SingleSelectField>
+                {/* Under the select, not beside it: beside it, a long
+                    reason squeezed the select to a few characters. */}
+                {stale && (
+                    <p className={styles.fieldNote}>
+                        {i18n.t(
+                            'The configured catch-all group no longer exists in this set.'
+                        )}
+                    </p>
+                )}
+                {!canEdit && showReason && (
+                    <p className={styles.fieldNote}>
+                        {i18n.t(
+                            'You cannot change the catch-all group because you cannot edit this group set.'
+                        )}
+                    </p>
+                )}
             </fieldset>
-            {stale && (
-                <span className={styles.note}>
-                    {i18n.t(
-                        'The configured catch-all group no longer exists in this set.'
-                    )}
-                </span>
-            )}
             {/* A select cannot unset itself: @dhis2/ui's SingleSelect has no
                 empty option once a value is chosen. Shown only when there is
                 something to clear. */}
-            {!canEdit && showReason && (
-                <span className={styles.note}>
-                    {i18n.t(
-                        'You cannot change the catch-all group because you cannot edit this group set.'
-                    )}
-                </span>
-            )}
             {configured && canEdit && (
                 <Button
                     small

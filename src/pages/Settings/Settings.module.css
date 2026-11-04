@@ -48,6 +48,11 @@
 .actions {
     margin-top: var(--spacers-dp12);
 }
+.fieldNote {
+    font-size: 13px;
+    color: var(--colors-grey700);
+    margin: var(--spacers-dp4) 0 0 0;
+}
 .note {
     font-size: 13px;
     color: var(--colors-grey700);
