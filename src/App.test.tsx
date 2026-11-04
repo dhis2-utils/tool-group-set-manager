@@ -10,6 +10,7 @@ jest.mock('@/hooks/useEngine', () => ({
         client: null,
         status: null,
         groupSets: [],
+        restrictedSets: [],
         sourceKind: null,
         error: null,
         reload: () => Promise.resolve(undefined),

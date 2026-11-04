@@ -42,6 +42,10 @@ the project uses [Semantic Versioning](https://semver.org/).
   exist, or you cannot see it.**
 - Settings shows a note when the stored catch-all group no longer exists in
   its set.
+- A group set with groups that are not shared with you is no longer checked.
+  The dashboard shows it as **Not checked**, with the number of groups you
+  cannot see and no counts, and a link to it explains why. Its changes in
+  History cannot be reverted, and Settings does not list it.
 
 ### Changed
 
@@ -119,6 +123,10 @@ the project uses [Semantic Versioning](https://semver.org/).
   fields have labels for screen readers.
 - The tool checks the header row of a SQL view before it reads it, and uses
   the metadata API if the columns differ.
+- The groups of a set are always shown in the same order, sorted by name.
+  They followed the server's order, which can change between sessions.
+- A group set with a group that is not shared with you is no longer opened
+  with that group listed without a name and counts that leave it out.
 
 ### Security
 

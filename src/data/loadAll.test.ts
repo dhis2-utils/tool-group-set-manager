@@ -184,6 +184,108 @@ describe('loadAll', () => {
         expect(statuses[statuses.length - 1].phase).toBe('done')
     })
 
+    it('keeps a set with a group the user cannot read out of the engine and the cache key', async () => {
+        // A second org unit set, one of whose groups is or is not readable.
+        const withPartlyShared =
+            (secretReadable: boolean) => (path: string) => {
+                if (path.startsWith('organisationUnitGroupSets?')) {
+                    const body = {
+                        organisationUnitGroupSets: [
+                            ...groupSetsBody.organisationUnitGroupSets,
+                            {
+                                id: 'part',
+                                displayName: 'Partly shared',
+                                access: { read: true, write: true },
+                                organisationUnitGroups: [
+                                    {
+                                        id: 'open',
+                                        displayName: 'Open',
+                                        access: { read: true, write: true },
+                                    },
+                                    secretReadable
+                                        ? {
+                                              id: 'secret',
+                                              displayName: 'Secret',
+                                              access: {
+                                                  read: true,
+                                                  write: true,
+                                              },
+                                          }
+                                        : {
+                                              id: 'secret',
+                                              access: {
+                                                  read: false,
+                                                  write: false,
+                                              },
+                                          },
+                                ],
+                            },
+                        ],
+                    }
+                    return Promise.resolve(
+                        new Response(JSON.stringify(body), { status: 200 })
+                    )
+                }
+                return fetcher(path)
+            }
+        const cache = createMemoryCache()
+
+        // First load: the user can read every group, so all three are
+        // loaded and become the cache key.
+        const first = fakeSource()
+        await loadAll({
+            source: first,
+            fetcher: withPartlyShared(true),
+            cache,
+            engine: inlineEngine(),
+            onStatus: () => {},
+        })
+        expect((await cache.get('organisationUnit'))?.groupIds).toEqual([
+            'pub',
+            'open',
+            'secret',
+        ])
+
+        // Second load: one group is no longer shared with the user.
+        const source = fakeSource()
+        const groupIdsLoaded: string[][] = []
+        const loadMemberships = source.loadMemberships.bind(source)
+        source.loadMemberships = (type, groupIds, onProgress) => {
+            if (type === 'organisationUnit') {
+                groupIdsLoaded.push(groupIds)
+            }
+            return loadMemberships(type, groupIds, onProgress)
+        }
+        const engine = inlineEngine()
+        const { groupSets, restrictedSets } = await loadAll({
+            source,
+            fetcher: withPartlyShared(false),
+            cache,
+            engine,
+            onStatus: () => {},
+        })
+        expect(groupSets.map((s) => s.id)).toEqual(['own', 'igs'])
+        expect(restrictedSets).toEqual([
+            {
+                id: 'part',
+                displayName: 'Partly shared',
+                objectType: 'organisationUnit',
+                hiddenGroups: 1,
+                totalGroups: 2,
+            },
+        ])
+        expect(
+            engine.store
+                .dashboard({ objectType: 'organisationUnit', rootId: null })
+                .map((e) => e.set.id)
+        ).toEqual(['own'])
+        // The cache built when every group was readable is not reused: the
+        // group ids differ, so the type is read again, without the set.
+        expect(source.loads).toContain('objects:organisationUnit')
+        expect(groupIdsLoaded).toEqual([['pub']])
+        expect((await cache.get('organisationUnit'))?.groupIds).toEqual(['pub'])
+    })
+
     it('M9d: a superseded load makes no further engine call and writes nothing to the cache', async () => {
         const source = fakeSource()
         const cache = createMemoryCache()

@@ -24,6 +24,7 @@ import type { ScopeCrumb } from '@/components/ScopeTrail/ScopeTrail'
 import { ScopeTrail } from '@/components/ScopeTrail/ScopeTrail'
 import { SetPropertiesDialog } from '@/components/SetPropertiesDialog/SetPropertiesDialog'
 import type { MatrixColumn } from '@/components/SummaryMatrix/SummaryMatrix'
+import type { RestrictedGroupSet } from '@/data/groupSets'
 import type { ObjectFilter } from '@/engine/queries'
 import type { ObjectRef, ScopeRef } from '@/engine/store'
 import type { GroupSetMeta } from '@/engine/types'
@@ -35,6 +36,7 @@ import { useScope } from '@/hooks/useScope'
 import { useUserScope } from '@/hooks/useUserScope'
 import { groupsLabel } from '@/utils/groupsLabel'
 import { interpolate } from '@/utils/interpolate'
+import { restrictedSetLabel } from '@/utils/restrictedSetLabel'
 import { useApiDataQuery } from '@/utils/useApiDataQuery'
 
 interface LevelsResponse {
@@ -525,11 +527,28 @@ const GroupSetPage = ({ set }: { set: GroupSetMeta }) => {
     )
 }
 
+/**
+ * A deep link to a set the user can see but not check, because some of its
+ * groups are not shared with them: say why, rather than "not found".
+ */
+const SetRestricted = ({ set }: { set: RestrictedGroupSet }) => (
+    <div className={styles.page}>
+        <NoticeBox warning title={set.displayName}>
+            <p>{restrictedSetLabel(set.hiddenGroups, set.totalGroups)}</p>
+            <Link to="/">{i18n.t('Back to the dashboard')}</Link>
+        </NoticeBox>
+    </div>
+)
+
 export const GroupSetDetail = () => {
     const { setId = '' } = useParams()
-    const { groupSets } = useEngine()
+    const { groupSets, restrictedSets } = useEngine()
     const set = groupSets.find((s) => s.id === setId)
-    // Keyed by id, so moving from one set to another starts afresh rather
-    // than carrying one set's filter or tab into the next.
-    return set ? <GroupSetPage key={set.id} set={set} /> : <SetNotFound />
+    if (set) {
+        // Keyed by id, so moving from one set to another starts afresh
+        // rather than carrying one set's filter or tab into the next.
+        return <GroupSetPage key={set.id} set={set} />
+    }
+    const restricted = restrictedSets.find((s) => s.id === setId)
+    return restricted ? <SetRestricted set={restricted} /> : <SetNotFound />
 }

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { History } from './History'
+import type { RestrictedGroupSet } from '@/data/groupSets'
 import type { ChangeSet } from '@/engine/changeSet'
 import type { GroupSetMeta } from '@/engine/types'
 import { actAndFlush } from '@/testing/actAndFlush'
@@ -44,6 +45,7 @@ const ownershipSet: GroupSetMeta = {
 }
 
 let mockGroupSets: GroupSetMeta[] = [ownershipSet]
+let mockRestrictedSets: RestrictedGroupSet[] = []
 // True in every test but the two that specifically exercise the
 // still-loading tri-state: most of this file's tests set up `mockGroupSets`
 // as if the engine has already finished its first load.
@@ -61,6 +63,7 @@ jest.mock('@/hooks/useEngine', () => ({
         client: mockClient,
         reload: mockReload,
         groupSets: mockGroupSets,
+        restrictedSets: mockRestrictedSets,
         groupSetsLoaded: mockGroupSetsLoaded,
         error: mockEngineError,
     }),
@@ -182,6 +185,7 @@ beforeEach(() => {
     mockPropertiesWrite.mockResolvedValue({ changeSet: {} })
     mockIsWriting = false
     mockGroupSets = [ownershipSet]
+    mockRestrictedSets = []
     mockGroupSetsLoaded = true
     mockEngineError = null
     mockChangeSets.changeSets = []
@@ -256,6 +260,35 @@ describe('History', () => {
                 'This group set no longer exists, so this change cannot be reverted from here'
             )
         ).toBeInTheDocument()
+    })
+
+    it('a change set for a set with groups the user cannot see is not revertable, and says why', () => {
+        mockGroupSets = []
+        mockRestrictedSets = [
+            {
+                id: 'own',
+                displayName: 'Ownership',
+                objectType: 'organisationUnit',
+                hiddenGroups: 1,
+                totalGroups: 2,
+            },
+        ]
+        mockGroupSetsLoaded = true
+        mockChangeSets.changeSets = [changeSet({ groupSetId: 'own' })]
+        render(<History />)
+        expect(
+            screen.queryByRole('button', { name: 'Revert' })
+        ).not.toBeInTheDocument()
+        expect(
+            screen.getByText(
+                'You cannot see all groups of this group set, so this change cannot be reverted from here'
+            )
+        ).toBeInTheDocument()
+        expect(
+            screen.queryByText(
+                'This group set no longer exists, so this change cannot be reverted from here'
+            )
+        ).not.toBeInTheDocument()
     })
 
     // The engine has not finished loading, so nothing is known about which

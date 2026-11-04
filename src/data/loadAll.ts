@@ -1,6 +1,7 @@
 import type { Cache, CachedType } from './cache'
 import { CACHE_TTL_MS } from './cache'
 import { ENDPOINTS } from './endpoints'
+import type { RestrictedGroupSet } from './groupSets'
 import { groupIdsFor, loadGroupSets } from './groupSets'
 import type {
     DataSource,
@@ -240,6 +241,12 @@ function withSourceFallback(deps: Deps): {
 
 export async function loadAll(deps: Deps): Promise<{
     groupSets: GroupSetMeta[]
+    /**
+     * Sets with a group the user cannot read. They are not in `groupSets`
+     * and never reach the engine: `groupIdsFor` below, the membership load
+     * and the cache's group id check all see only the checkable sets.
+     */
+    restrictedSets: RestrictedGroupSet[]
     sourceKind: DataSource['kind']
     /**
      * Where organisation unit names came from, which is not always where
@@ -282,9 +289,11 @@ export async function loadAll(deps: Deps): Promise<{
     }
 
     emit({ phase: 'groupSets' })
-    const { sets: groupSets, errors: groupSetErrors } = await loadGroupSets(
-        deps.fetcher
-    )
+    const {
+        sets: groupSets,
+        restricted: restrictedSets,
+        errors: groupSetErrors,
+    } = await loadGroupSets(deps.fetcher)
     // A type whose group sets could not be read is recorded and skipped
     // (spec 6.4); the types that did load carry on.
     Object.assign(status.errors, groupSetErrors)
@@ -445,6 +454,7 @@ export async function loadAll(deps: Deps): Promise<{
     emit({ phase: 'done', type: null, progress: null })
     return {
         groupSets,
+        restrictedSets,
         sourceKind: source.current().kind,
         nameSource: source.current().nameSource,
         fellBack: source.fellBack(),

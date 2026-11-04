@@ -184,6 +184,14 @@ The usage view (`GSI_GROUPSET_USAGE`) depends on these database facts, which are
 - `datastatisticsevent.favoriteuid` for a map view event names the map, never the map view. The view joins `mapview` to `map` through `mapmapviews`.
 - There is no data element group set link table for maps or event visualizations, and no indicator group set dimension table at all. The app shows no usage for indicator group sets.
 
+## Groups the user cannot read
+
+Measured on 2.42.7.1 only. `GET /api/organisationUnitGroupSets/<id>?fields=organisationUnitGroups[id,displayName,access]`, as a user who cannot read one of the groups, still lists that group, with `access.read: false` and no `displayName`. Reading the group directly returns 404 (`E1005`). The app assumes the other three types (`dataElementGroupSets`, `indicatorGroupSets`, `categoryOptionGroupSets`) behave the same; that is not measured.
+
+The app cannot check such a set: the objects in the hidden group would count as in no group. `loadType` in `src/data/groupSets.ts` returns it as a restricted set, which never reaches the engine, the membership load or the cache key. The dashboard shows it as a card with no counts, and its page explains why. A set whose own `access.read` is `false` is skipped; the server is expected not to list it at all, which is not measured either.
+
+The API returns a set's groups in collection order, which is not stable between requests. The app sorts each set's groups by `displayName` (`localeCompare`, then id).
+
 ## The metadata API at scale
 
 These figures are from EMIS (266,396 organisation units, 2.41.10):

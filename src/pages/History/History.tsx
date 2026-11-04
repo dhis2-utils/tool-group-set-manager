@@ -79,6 +79,7 @@ export const History = () => {
     const {
         client,
         groupSets,
+        restrictedSets,
         groupSetsLoaded,
         error: groupSetsError,
     } = useEngine()
@@ -123,9 +124,15 @@ export const History = () => {
     const groupSetState = (cs: ChangeSet): GroupSetState => {
         const set = groupSets.find((gs) => gs.id === cs.groupSetId)
         const present = set !== undefined
+        // A set with a group the user cannot read is not in `groupSets` (it
+        // never reaches the engine), but it does exist: say why it cannot
+        // be reverted rather than calling it deleted.
+        const restricted =
+            !present && restrictedSets.some((rs) => rs.id === cs.groupSetId)
         return {
             exists: groupSetsLoaded && present,
-            missing: groupSetsLoaded && !present,
+            missing: groupSetsLoaded && !present && !restricted,
+            restricted: groupSetsLoaded && restricted,
             loadFailed: !groupSetsLoaded && Boolean(groupSetsError),
             // A property revert writes the group set; a membership revert
             // is a bulk write, and like a bulk fix needs every group.

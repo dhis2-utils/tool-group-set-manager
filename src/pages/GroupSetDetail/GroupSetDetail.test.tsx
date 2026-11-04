@@ -9,6 +9,7 @@ import {
 import React from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { GroupSetDetail } from './GroupSetDetail'
+import type { RestrictedGroupSet } from '@/data/groupSets'
 import type { LoadStatus } from '@/data/loadAll'
 import type { ObjectType } from '@/engine/types'
 
@@ -88,11 +89,13 @@ const mockEngine: {
         call: (method: string, ...args: unknown[]) => Promise<unknown>
     } | null
     status: LoadStatus | null
+    restrictedSets: RestrictedGroupSet[]
     groupSetsLoaded: boolean
     error: string | null
     reload: (force: boolean) => Promise<void>
 } = {
     groupSets: mockGroupSets,
+    restrictedSets: [],
     client: null,
     status: null,
     groupSetsLoaded: true,
@@ -300,6 +303,7 @@ describe('a group set that is not there', () => {
     afterEach(() => {
         mockEngine.groupSetsLoaded = true
         mockEngine.error = null
+        mockEngine.restrictedSets = []
     })
 
     it('shows the load progress while the first load runs', () => {
@@ -316,6 +320,31 @@ describe('a group set that is not there', () => {
         expect(
             screen.getByText(
                 'This group set does not exist, or you cannot see it.'
+            )
+        ).toBeInTheDocument()
+        expect(
+            screen.getByRole('link', { name: 'Back to the dashboard' })
+        ).toHaveAttribute('href', '/')
+    })
+
+    it('explains a set with groups the user cannot see, instead of "not found"', () => {
+        mockEngine.restrictedSets = [
+            {
+                id: 'secret',
+                displayName: 'Secret set',
+                objectType: 'organisationUnit',
+                hiddenGroups: 1,
+                totalGroups: 4,
+            },
+        ]
+        renderDetail({}, { initialEntries: ['/sets/secret'] })
+        expect(
+            screen.queryByText('Group set not found')
+        ).not.toBeInTheDocument()
+        expect(screen.getByText('Secret set')).toBeInTheDocument()
+        expect(
+            screen.getByText(
+                'You cannot see 1 of the 4 groups in this set, so the tool cannot check it. Ask an administrator to share all the groups with you.'
             )
         ).toBeInTheDocument()
         expect(

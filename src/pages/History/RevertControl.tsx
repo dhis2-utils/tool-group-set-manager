@@ -8,6 +8,7 @@ import {
     nothingConfirmedLabel,
     readOnlyGroupSetLabel,
     readOnlyGroupsLabel,
+    restrictedGroupSetLabel,
     revertWindowClosedLabel,
 } from './labels'
 import { canStillRevert } from '@/data/revertWindow'
@@ -19,6 +20,11 @@ export interface GroupSetState {
     exists: boolean
     /** Group sets have loaded and this one is not among them. */
     missing: boolean
+    /**
+     * Group sets have loaded and this one is visible but has a group the
+     * user cannot read, so it was never loaded into the engine.
+     */
+    restricted: boolean
     /** Loading group sets failed, so nothing is known either way. */
     loadFailed: boolean
     /**
@@ -40,6 +46,9 @@ function blockedReason(
     }
     if (!isPropertiesChange(changeSet) && changeSet.changes.length === 0) {
         return nothingConfirmedLabel()
+    }
+    if (groupSet.restricted) {
+        return restrictedGroupSetLabel()
     }
     if (groupSet.missing) {
         return missingGroupSetLabel()

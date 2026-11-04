@@ -42,6 +42,8 @@ The organisation units that are assigned to you do not limit which organisation 
 
 If a group is read-only for you, the tool shows it hatched and crossed out, and you cannot move an object into or out of it. Bulk fix and revert need write access to every group of the set, so that a fix never leaves a set half done.
 
+To check a group set, you need read sharing on every group of the set. If one or more groups are not shared with you, the tool cannot tell which objects are in them, so it does not check the set. The dashboard shows the set with the number of groups that you cannot see, and you cannot open it. Ask an administrator to share all the groups of the set with you.
+
 ## Install the tool { #tool-group-set-manager-install }
 
 The tool is not on the App Hub. Install it from its GitHub release, or from the tool-box app.
@@ -146,6 +148,8 @@ A card shows these items:
 - If the usage SQL view is installed, the number of favourites that use the set. A set with no favourites shows **Appears unused**. Click it to open the **Usage** tab of the set.
 
 If the tool could not load the group sets of one type, their cards show **This group set could not be loaded**. The cards of the other types still load.
+
+A group set with groups that are not shared with you shows a card tagged **Not checked**, with no counts. The card says how many of the groups you cannot see, and you cannot open the set. The card is shown with **Only sets with issues** and with **All sets**, after the other cards of its type.
 
 For data element group sets, the tool checks only aggregate data elements, unless you change this in Settings. See [Include tracker data elements](#tool-group-set-manager-tracker).
 

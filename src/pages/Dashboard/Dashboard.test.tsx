@@ -49,6 +49,15 @@ const baseStatus = {
     namesErrors: {},
     loadedAt: {},
 }
+// Sets the user can see but not check (a group is not shared with them).
+let mockRestrictedSets: {
+    id: string
+    displayName: string
+    objectType: string
+    hiddenGroups: number
+    totalGroups: number
+}[] = []
+
 let mockStatus: typeof baseStatus & {
     loadedAt: Partial<Record<string, number>>
     errors: Partial<Record<string, string>>
@@ -192,6 +201,7 @@ jest.mock('@/hooks/useEngine', () => ({
         },
         status: mockStatus,
         groupSets: [],
+        restrictedSets: mockRestrictedSets,
         get sourceKind() {
             return mockCallOverrides.sourceKind
         },
@@ -256,6 +266,88 @@ afterEach(() => {
     mockCallOverrides.nameSource = 'metadata'
     mockUsage.mockReturnValue(defaultUsageState)
     mockStatus = baseStatus
+    mockRestrictedSets = []
+})
+
+describe('a set with groups the user cannot see', () => {
+    const restricted = (hiddenGroups: number, totalGroups: number) => ({
+        id: 'secret',
+        displayName: 'Secret set',
+        objectType: 'organisationUnit',
+        hiddenGroups,
+        totalGroups,
+    })
+
+    it('is shown as a card with no counts, under its type, even with only issues shown', async () => {
+        mockRestrictedSets = [restricted(2, 5)]
+        render(
+            <MemoryRouter>
+                <Dashboard />
+            </MemoryRouter>
+        )
+        const card = await screen.findByTestId('restricted-group-set-card')
+        expect(within(card).getByText('Secret set')).toBeInTheDocument()
+        expect(
+            within(card).getByText(
+                'You cannot see 2 of the 5 groups in this set, so the tool cannot check it. Ask an administrator to share all the groups with you.'
+            )
+        ).toBeInTheDocument()
+        expect(within(card).queryByText('Conflicts')).not.toBeInTheDocument()
+        expect(within(card).queryByRole('button')).not.toBeInTheDocument()
+        // "Only sets with issues" is the default; the card is still there,
+        // and it does not count as a hidden set.
+        expect(
+            screen.queryByText('1 set without issues hidden')
+        ).toBeInTheDocument()
+    })
+
+    it('uses the singular sentence for one hidden group', async () => {
+        mockRestrictedSets = [restricted(1, 3)]
+        render(
+            <MemoryRouter>
+                <Dashboard />
+            </MemoryRouter>
+        )
+        expect(
+            await screen.findByText(
+                'You cannot see 1 of the 3 groups in this set, so the tool cannot check it. Ask an administrator to share all the groups with you.'
+            )
+        ).toBeInTheDocument()
+    })
+
+    it('is not shown when another type is selected', async () => {
+        mockRestrictedSets = [restricted(1, 3)]
+        sessionStorage.setItem(
+            'gsi.dashboard.typeFilter',
+            JSON.stringify('indicator')
+        )
+        render(
+            <MemoryRouter>
+                <Dashboard />
+            </MemoryRouter>
+        )
+        await screen.findByText('No group sets of this type')
+        expect(
+            screen.queryByTestId('restricted-group-set-card')
+        ).not.toBeInTheDocument()
+    })
+
+    it('replaces "no group sets of this type" when it is the only set of its type', async () => {
+        mockRestrictedSets = [{ ...restricted(1, 3), objectType: 'indicator' }]
+        sessionStorage.setItem(
+            'gsi.dashboard.typeFilter',
+            JSON.stringify('indicator')
+        )
+        render(
+            <MemoryRouter>
+                <Dashboard />
+            </MemoryRouter>
+        )
+        await screen.findByTestId('restricted-group-set-card')
+        expect(
+            screen.queryByText('No group sets of this type')
+        ).not.toBeInTheDocument()
+    })
 })
 
 // Spec 8a: with GSI_ORGUNIT_NAMES removed, the views still serve the

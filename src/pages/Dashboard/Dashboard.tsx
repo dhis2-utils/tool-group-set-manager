@@ -6,6 +6,7 @@ import styles from './Dashboard.module.css'
 import { FilterBar, FilterBarField } from '@/components/FilterBar/FilterBar'
 import { OrgUnitField } from '@/components/FilterBar/OrgUnitField'
 import { GroupSetCard } from '@/components/GroupSetCard/GroupSetCard'
+import { RestrictedGroupSetCard } from '@/components/GroupSetCard/RestrictedGroupSetCard'
 import { LoadProgress } from '@/components/LoadProgress/LoadProgress'
 import { MetadataFreshness } from '@/components/MetadataFreshness/MetadataFreshness'
 import { usageApplies } from '@/data/sources/usageSqlView'
@@ -122,6 +123,7 @@ export const Dashboard = () => {
         nameSource,
         fellBack,
         revision,
+        restrictedSets,
     } = useEngine()
     const { rootId, isReady } = useScope()
     const navigate = useNavigate()
@@ -429,6 +431,14 @@ export const Dashboard = () => {
                             : byWorstFirst
                     )
                 const hidden = all.length - shown.length
+                // Sets the user cannot check (a group is not shared with
+                // them). Shown whether or not "Only sets with issues" is on:
+                // nothing is known about their issues, and hiding them would
+                // let a user believe every set of the type was checked. They
+                // have no counts to sort on, so they come last, by name.
+                const restricted = restrictedSets
+                    .filter((r) => r.objectType === type)
+                    .sort((a, b) => a.displayName.localeCompare(b.displayName))
                 // Minor 9 (fix round 1): `byWorstFirst` sorts a set with
                 // no data yet ahead of every loaded one, but until now
                 // nothing on screen said why -- only the card's own
@@ -445,7 +455,7 @@ export const Dashboard = () => {
                 if (!hasLoaded) {
                     return null
                 }
-                if (all.length === 0 && !typeError) {
+                if (all.length === 0 && restricted.length === 0 && !typeError) {
                     return (
                         <section key={type}>
                             <h2 className={styles.heading}>
@@ -535,6 +545,16 @@ export const Dashboard = () => {
                                                 state: { tab: 'usage' },
                                             })
                                         }
+                                    />
+                                ))}
+                            </div>
+                        )}
+                        {restricted.length > 0 && (
+                            <div className={styles.cards}>
+                                {restricted.map((set) => (
+                                    <RestrictedGroupSetCard
+                                        key={set.id}
+                                        set={set}
                                     />
                                 ))}
                             </div>

@@ -11,6 +11,7 @@ import React, {
 import type { Cache } from '@/data/cache'
 import { cacheIdentity, createMemoryCache, openCache } from '@/data/cache'
 import { createFetcher } from '@/data/fetcher'
+import type { RestrictedGroupSet } from '@/data/groupSets'
 import type { LoadStatus } from '@/data/loadAll'
 import { loadAll } from '@/data/loadAll'
 import { selectSource } from '@/data/sources/selectSource'
@@ -22,6 +23,12 @@ interface EngineContextValue {
     client: EngineClient | null
     status: LoadStatus | null
     groupSets: GroupSetMeta[]
+    /**
+     * Sets the user can see but not check, because at least one of their
+     * groups is not shared with them. Never in `groupSets` and never in the
+     * engine; set together with `groupSets`.
+     */
+    restrictedSets: RestrictedGroupSet[]
     /**
      * False until the first load has actually set `groupSets` (even to an
      * empty array), true from then on. Set together with `groupSets` in the
@@ -97,6 +104,9 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
     const generationRef = useRef(0)
     const [status, setStatus] = useState<LoadStatus | null>(null)
     const [groupSets, setGroupSets] = useState<GroupSetMeta[]>([])
+    const [restrictedSets, setRestrictedSets] = useState<RestrictedGroupSet[]>(
+        []
+    )
     const [groupSetsLoaded, setGroupSetsLoaded] = useState(false)
     const [sourceKind, setSourceKind] = useState<'sqlView' | 'metadata' | null>(
         null
@@ -197,6 +207,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
                 })
                 if (isCurrent()) {
                     setGroupSets(result.groupSets)
+                    setRestrictedSets(result.restrictedSets)
                     // Set together with the array itself, never derived from
                     // status.phase: loadAll emits 'done' before this line
                     // runs, so there is a render in between where the phase
@@ -280,6 +291,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
             client,
             status,
             groupSets,
+            restrictedSets,
             groupSetsLoaded,
             sourceKind,
             nameSource,
@@ -294,6 +306,7 @@ export const EngineProvider = ({ children }: { children: React.ReactNode }) => {
             client,
             status,
             groupSets,
+            restrictedSets,
             groupSetsLoaded,
             sourceKind,
             nameSource,

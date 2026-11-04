@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-11-04T10:11:07.555Z\n"
-"PO-Revision-Date: 2026-11-04T10:11:07.556Z\n"
+"POT-Creation-Date: 2026-11-04T10:11:16.839Z\n"
+"PO-Revision-Date: 2026-11-04T10:11:16.839Z\n"
 
 msgid "Move to catch-all group"
 msgstr "Move to catch-all group"
@@ -284,6 +284,9 @@ msgstr "You can edit all groups"
 
 msgid "Appears unused"
 msgstr "Appears unused"
+
+msgid "Not checked"
+msgstr "Not checked"
 
 msgid "1 object only in this group"
 msgstr "1 object only in this group"
@@ -1159,6 +1162,13 @@ msgid "This group set no longer exists, so this change cannot be reverted from h
 msgstr "This group set no longer exists, so this change cannot be reverted from here"
 
 msgid ""
+"You cannot see all groups of this group set, so this change cannot be "
+"reverted from here"
+msgstr ""
+"You cannot see all groups of this group set, so this change cannot be "
+"reverted from here"
+
+msgid ""
 "Group set information could not be loaded, so this change cannot be "
 "reverted from here"
 msgstr ""
@@ -1554,6 +1564,27 @@ msgstr "indicators"
 
 msgid "category options"
 msgstr "category options"
+
+msgid ""
+"You cannot see any of the groups in this set, so the tool cannot check it. "
+"Ask an administrator to share all the groups with you."
+msgstr ""
+"You cannot see any of the groups in this set, so the tool cannot check it. "
+"Ask an administrator to share all the groups with you."
+
+msgid ""
+"You cannot see 1 of the {total} groups in this set, so the tool cannot "
+"check it. Ask an administrator to share all the groups with you."
+msgstr ""
+"You cannot see 1 of the {total} groups in this set, so the tool cannot "
+"check it. Ask an administrator to share all the groups with you."
+
+msgid ""
+"You cannot see {hidden} of the {total} groups in this set, so the tool "
+"cannot check it. Ask an administrator to share all the groups with you."
+msgstr ""
+"You cannot see {hidden} of the {total} groups in this set, so the tool "
+"cannot check it. Ask an administrator to share all the groups with you."
 
 msgctxt "Application title"
 msgid "__MANIFEST_APP_TITLE"

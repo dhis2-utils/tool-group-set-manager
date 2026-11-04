@@ -87,6 +87,11 @@ export const missingGroupSetLabel = () =>
         'This group set no longer exists, so this change cannot be reverted from here'
     )
 
+export const restrictedGroupSetLabel = () =>
+    i18n.t(
+        'You cannot see all groups of this group set, so this change cannot be reverted from here'
+    )
+
 export const groupSetsLoadFailedLabel = () =>
     i18n.t(
         'Group set information could not be loaded, so this change cannot be reverted from here'

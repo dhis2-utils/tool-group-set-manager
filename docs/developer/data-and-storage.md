@@ -96,7 +96,7 @@ The app keeps each object type's loaded data in IndexedDB, so that it can open t
 
 The app uses a cached entry only if all of the following are true (`tryCache` in `src/data/loadAll.ts`):
 
-1. The group ids are the same as on the server.
+1. The group ids are the same as on the server. They are the groups of the sets the app checks, in a fixed order (each set's groups sorted by name). A set with a group the user cannot read is left out, so an entry saved while the user could read every group of a set is not reused after one of them stops being shared with them, and the other way round.
 2. The entry is less than 10 minutes old (`CACHE_TTL_MS`).
 3. The object total is the same as on the server.
 4. Every group's `lastUpdated` is the same as on the server.
