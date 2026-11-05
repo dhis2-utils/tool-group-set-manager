@@ -128,7 +128,7 @@ def test_dashboard_cards(ctx):
     expect(card.get_by_text("Data dimension", exact=True)).to_be_visible()
     expect(card.get_by_text("OK", exact=True)).to_be_visible(timeout=ui.APP_LOAD_MS)
     total = count_org_units(ctx.api)
-    conflicts, missing, ok = (_stat_value(card, n) for n in ("Conflicts", "Missing", "OK"))
+    conflicts, missing, ok = (_stat_value(card, n) for n in ("Conflicts", "No group", "OK"))
     check(conflicts == FIXTURE_CONFLICT, f"card shows {conflicts} conflicts, seeded {FIXTURE_CONFLICT}")
     check(ok == FIXTURE_OK, f"card shows {ok} OK, seeded {FIXTURE_OK}")
     check(missing == total - FIXTURE_ASSIGNED,

@@ -9,6 +9,8 @@ export const actionLabel = (changeSet: ChangeSet): string => {
             return i18n.t('Moved to a group')
         case 'assign':
             return i18n.t('Assigned to a group')
+        case 'unassign':
+            return i18n.t('Removed from its group')
         case 'properties':
             return i18n.t('Changed group set properties')
         case 'revert':

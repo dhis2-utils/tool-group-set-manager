@@ -27,7 +27,7 @@ describe('evaluateSet', () => {
         const s = evaluateSet(set({}), m, population)
         expect(s[1]).toBe(Status.Conflict)
         expect(s[0]).toBe(Status.Ok)
-        expect(s[2]).toBe(Status.Ok) // missing, but set is neither compulsory nor a dimension
+        expect(s[2]).toBe(Status.NoGroup) // in no group, which a set that is neither compulsory nor a dimension allows
         expect(s[3]).toBe(Status.NotApplicable)
     })
 

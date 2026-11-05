@@ -21,7 +21,7 @@ export interface ChangeSet {
     objectType: ObjectType
     groupSetId: string
     groupSetName: string
-    action: 'move' | 'assign' | 'revert' | 'properties'
+    action: 'move' | 'assign' | 'unassign' | 'revert' | 'properties'
     note: string
     targetGroupId?: string
     changes: GroupChange[]

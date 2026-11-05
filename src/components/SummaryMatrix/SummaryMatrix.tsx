@@ -23,8 +23,7 @@ import { interpolate } from '@/utils/interpolate'
 
 export type MatrixColumn =
     | { kind: 'group'; index: number }
-    | { kind: 'missing' }
-    | { kind: 'unassigned' }
+    | { kind: 'noGroup' }
     | { kind: 'conflict' }
     | { kind: 'total' }
 
@@ -71,14 +70,11 @@ interface Props {
      */
     aboveLevelCaption?: string
     /**
-     * Whether to show the "no group, and that is allowed" column. It can only
-     * ever be non-zero for a set that is neither compulsory nor a data
-     * dimension (spec 3.2 gives an object with no group Status.Ok only
-     * then), so for every other set it would be a column of zeroes inviting
-     * a manager to wonder what it means. The caller knows the set; this
-     * component only knows the rows.
+     * How the "No group" column is coloured: red for a compulsory set,
+     * orange for a data dimension, grey otherwise (src/utils/noGroup.ts).
+     * The column counts every object in no group, whatever the severity.
      */
-    showUnassigned?: boolean
+    noGroupTone?: 'error' | 'warning' | 'neutral'
 }
 
 const fmt = (n: number) => n.toLocaleString()
@@ -95,7 +91,7 @@ export const SummaryMatrix = ({
     onDrillDown,
     flat = false,
     aboveLevelCaption,
-    showUnassigned = false,
+    noGroupTone = 'error',
 }: Props) => {
     // Spec §4.2: an explicit choice persists while the user stays on that set
     // and is dropped on leaving it. `result.groups` is NOT a stable proxy for
@@ -159,8 +155,7 @@ export const SummaryMatrix = ({
         // "Other groups" total silently disagree with what its own
         // constituent groups would show if unfolded, which would be worse.
         other: plan.other.reduce((s, g) => s + g.total, 0),
-        missing: result.rows.reduce((s, r) => s + r.missing, 0),
-        unassigned: result.rows.reduce((s, r) => s + r.unassigned, 0),
+        noGroup: result.rows.reduce((s, r) => s + r.missing + r.unassigned, 0),
         conflict: result.rows.reduce((s, r) => s + r.conflict, 0),
         total: result.rows.reduce((s, r) => s + r.total, 0),
     }
@@ -169,7 +164,7 @@ export const SummaryMatrix = ({
         options: {
             row: ObjectRef | null
             column: MatrixColumn
-            tone?: 'error'
+            tone?: 'error' | 'warning' | 'neutral'
             cellKey?: React.Key
             clickable?: boolean
         }
@@ -178,10 +173,10 @@ export const SummaryMatrix = ({
         const content = (
             <span
                 className={
-                    options.tone === 'error' && value > 0
-                        ? styles.error
-                        : value === 0
-                          ? styles.zero
+                    value === 0
+                        ? styles.zero
+                        : options.tone === 'error' || options.tone === 'warning'
+                          ? styles[options.tone]
                           : undefined
                 }
             >
@@ -274,19 +269,11 @@ export const SummaryMatrix = ({
                                 {i18n.t('Other groups')}
                             </DataTableColumnHeader>
                         )}
-                        {showUnassigned && (
-                            <DataTableColumnHeader
-                                align="right"
-                                className={styles.numericHeader}
-                            >
-                                {i18n.t('No group')}
-                            </DataTableColumnHeader>
-                        )}
                         <DataTableColumnHeader
                             align="right"
                             className={styles.numericHeader}
                         >
-                            {i18n.t('Missing')}
+                            {i18n.t('No group')}
                         </DataTableColumnHeader>
                         <DataTableColumnHeader
                             align="right"
@@ -383,16 +370,10 @@ export const SummaryMatrix = ({
                                         r.row,
                                         !isAboveRowLeftover
                                     )}
-                                {showUnassigned &&
-                                    cell(r.unassigned, {
-                                        row: r.row,
-                                        column: { kind: 'unassigned' },
-                                        clickable: !isAboveRowLeftover,
-                                    })}
-                                {cell(r.missing, {
+                                {cell(r.missing + r.unassigned, {
                                     row: r.row,
-                                    column: { kind: 'missing' },
-                                    tone: 'error',
+                                    column: { kind: 'noGroup' },
+                                    tone: noGroupTone,
                                     clickable: !isAboveRowLeftover,
                                 })}
                                 {cell(r.conflict, {
@@ -422,13 +403,8 @@ export const SummaryMatrix = ({
                                     {fmt(totals.other)}
                                 </DataTableCell>
                             )}
-                            {showUnassigned && (
-                                <DataTableCell align="right">
-                                    {fmt(totals.unassigned)}
-                                </DataTableCell>
-                            )}
                             <DataTableCell align="right">
-                                {fmt(totals.missing)}
+                                {fmt(totals.noGroup)}
                             </DataTableCell>
                             <DataTableCell align="right">
                                 {fmt(totals.conflict)}

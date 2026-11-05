@@ -4,6 +4,28 @@ All notable changes to the Group Set Integrity Tool are recorded here. The
 format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - 2026-11-05
+
+### Changed
+
+- Every object in no group of a set is called **No group**, coloured by how
+  serious that is in the set: red for a compulsory set, orange with a warning
+  sign for a data dimension, grey when the set allows it. This applies on the
+  card, in the matrix, in the Status filter and in the list of objects. Before,
+  the same objects were called **Missing**, **Missing (warning)** or
+  **No group** depending on the set, and a card could show both **Missing**
+  and **No group**. In a set that allows it, an object in no group is no
+  longer counted or filtered as **OK**.
+- The dashboard's **Show** filter option **Only sets with issues** is now
+  **With issues**.
+
+### Added
+
+- In a set that is not compulsory, an object can be taken out of its group
+  in the list of objects: click its selected group again, or clear the list
+  for a set with more than 5 groups. The change is recorded in History as
+  **Removed from its group** and can be reverted.
+
 ## [1.1.0] - 2026-11-04
 
 ### Upgrading

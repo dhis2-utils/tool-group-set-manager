@@ -86,7 +86,7 @@ A compulsory group set says that **every object of its type must be in exactly o
 
 DHIS2 does not stop anyone from saving an object that is in no group, or in two groups, of a compulsory set. It only reports it in its data integrity checks. The tool finds these objects and helps you fix them:
 
-- An object in **no group** of a compulsory set is an error (**Missing**).
+- An object in **no group** of a compulsory set is an error (**No group**, in red).
 - An object in **more than one group** of any set is an error (**Conflicts**).
 
 ### Data dimension group sets { #tool-group-set-manager-data-dimension }
@@ -100,7 +100,7 @@ If the groups of a data dimension are wrong, **the numbers in analytics are wron
 
 A data dimension that nobody uses for analysis still costs something. It adds to the time that analytics table generation takes, and it adds one more dimension to the lists in the analytics apps, which distracts users. The **Usage** tab shows how many saved favourites use the set, so that you can find data dimensions that nothing uses and turn **Data dimension** off. See [Check how the group set is used](#tool-group-set-manager-usage) and [Change the properties of a group set](#tool-group-set-manager-properties).
 
-A set that is a data dimension but not compulsory is reported less strictly: an object in no group is a warning, not an error. A set that is both follows the rules of a compulsory set.
+A set that is a data dimension but not compulsory is reported less strictly: an object in no group is a warning, not an error. The tool shows these objects as **No group** in orange, with a warning sign. A set that is both follows the rules of a compulsory set.
 
 ### Catch-all groups { #tool-group-set-manager-catch-all-groups }
 
@@ -123,7 +123,7 @@ The dashboard shows one card for each group set, grouped by object type. Each ca
 1. Open the **Group Set Integrity Tool**. The tool loads the group sets and their members. **Dashboard** opens.
 2. In **Organisation unit**, click the button and choose the organisation unit to work in. The counts for organisation unit group sets now cover this organisation unit and every unit below it.
 3. In **Object type**, choose a type, or **All object types**.
-4. In **Show**, choose **Only sets with issues** or **All sets**.
+4. In **Show**, choose **With issues** or **All sets**.
 5. In **Sort by**, choose **Issues** to see the sets with the most errors first.
 
 The tool keeps these choices until you close the browser tab.
@@ -132,24 +132,24 @@ The tool keeps these choices until you close the browser tab.
 
 The tool checks each object against each group set in the same way at every organisation unit level:
 
-| What the object is in          | Compulsory set        | Data dimension set    | Other set              |
-| ------------------------------ | --------------------- | --------------------- | ---------------------- |
-| More than one group of the set | Error (**Conflicts**) | Error (**Conflicts**) | Error (**Conflicts**)  |
-| One group of the set           | **OK**                | **OK**                | **OK**                 |
-| No group of the set            | Error (**Missing**)   | Warning (**Missing**) | Allowed (**No group**) |
+| What the object is in          | Compulsory set            | Data dimension set             | Other set                    |
+| ------------------------------ | ------------------------- | ------------------------------ | ---------------------------- |
+| More than one group of the set | Error (**Conflicts**)     | Error (**Conflicts**)          | Error (**Conflicts**)        |
+| One group of the set           | **OK**                    | **OK**                         | **OK**                       |
+| No group of the set            | Error (**No group**, red) | Warning (**No group**, orange) | Allowed (**No group**, grey) |
 
 A set that is both compulsory and a data dimension follows the **Compulsory** column. For what the two properties mean, see [Understand compulsory, data dimension, and catch-all groups](#tool-group-set-manager-concepts).
 
 A card shows these items:
 
 - The tags **Compulsory** and **Data dimension**, if they apply, and the number of groups.
-- The counts **Conflicts**, **Missing**, and **OK**. A set that is neither compulsory nor a data dimension also shows **No group**: the objects that are in no group, which this set allows.
+- The counts **Conflicts**, **No group**, and **OK**. The colour of **No group** says how serious it is in this set: red for a compulsory set, orange for a data dimension, grey when the set allows it.
 - **You can edit all groups**, or the number of groups that are read-only for you.
 - If the usage SQL view is installed, the number of favourites that use the set. A set with no favourites shows **Appears unused**. Click it to open the **Usage** tab of the set.
 
 If the tool could not load the group sets of one type, their cards show **This group set could not be loaded**. The cards of the other types still load.
 
-A group set with groups that are not shared with you shows a card tagged **Not checked**, with no counts. The card says how many of the groups you cannot see, and you cannot open the set. The card is shown with **Only sets with issues** and with **All sets**, after the other cards of its type.
+A group set with groups that are not shared with you shows a card tagged **Not checked**, with no counts. The card says how many of the groups you cannot see, and you cannot open the set. The card is shown with **With issues** and with **All sets**, after the other cards of its type.
 
 For data element group sets, the tool checks only aggregate data elements, unless you change this in Settings. See [Include tracker data elements](#tool-group-set-manager-tracker).
 
@@ -185,8 +185,7 @@ The **Overview** tab shows a matrix of organisation units against the groups of 
 The matrix has these columns:
 
 - One column for each group, for up to 8 groups. The other groups are added together in **Other groups**. To choose which groups get their own column, click a number in **Other groups**, choose up to 8 groups, and click **Save**.
-- **No group**, only for a set that is neither compulsory nor a data dimension.
-- **Missing**, **Conflict**, and **Total**.
+- **No group**, coloured as on the card, **Conflict**, and **Total**.
 
 The row **Above the row level** counts the organisation units above the level that you chose in **Rows**. You cannot filter on the numbers in this row.
 
@@ -200,7 +199,7 @@ The **Objects** tab lists the objects of the set, with their status and their gr
 
 ![The Objects tab filtered to conflicts](resources/images/tool-group-set-manager/objects-tab.png)
 
-1. On the **Objects** tab, in **Status**, choose **All**, **OK**, **Missing**, or **Conflict**.
+1. On the **Objects** tab, in **Status**, choose **All**, **OK**, **No group**, or **Conflict**.
 2. For an organisation unit group set, in **Level**, choose a level, or **All levels**.
 3. In **Group**, choose a group, **No group**, **Several groups (conflict)**, or **Any**.
 4. In **Search**, enter part of a name.
@@ -246,6 +245,16 @@ You can move one object to one group of the set from the list of objects. The to
 The tool shows a message that the object is now in the group, and records the change in History.
 
 For an object in conflict, the column shows the groups that the object is in. Choose the group to keep. The tool removes the object from the others.
+
+### Remove an object from its group { #tool-group-set-manager-remove }
+
+In a set that is not compulsory, an object can be in no group. To take an object out of its group in such a set:
+
+1. In the **Group in this set** column, click the group that the object is in. If the set has more than 5 groups, clear the list with **Remove from this group**.
+2. In **Confirm group change**, read which group the object is removed from. For a data dimension, the dialog reminds you that the data of an object in no group drops out when analytics is broken down by this set.
+3. Click **Remove**.
+
+The tool records the change in History as **Removed from its group**, and you can revert it there for 24 hours. A compulsory set does not offer this, because every object must be in one of its groups. An object in conflict is not removed this way: choose the group to keep instead.
 
 ## Fix many objects with bulk fix { #tool-group-set-manager-bulk-fix }
 

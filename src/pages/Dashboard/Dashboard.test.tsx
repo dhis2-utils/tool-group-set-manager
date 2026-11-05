@@ -294,7 +294,7 @@ describe('a set with groups the user cannot see', () => {
         ).toBeInTheDocument()
         expect(within(card).queryByText('Conflicts')).not.toBeInTheDocument()
         expect(within(card).queryByRole('button')).not.toBeInTheDocument()
-        // "Only sets with issues" is the default; the card is still there,
+        // "With issues" is the default; the card is still there,
         // and it does not count as a hidden set.
         expect(
             screen.queryByText('1 set without issues hidden')
@@ -617,7 +617,7 @@ test('M9b: the sets of a type that failed to load show the failure, not "Loading
 
 // Manual review 2: the Show choice (and the type and sort choices beside
 // it) lived only in component state, so opening a group set and coming back
-// reset the dashboard to "Only sets with issues" every time. Leaving the
+// reset the dashboard to "With issues" every time. Leaving the
 // page is an unmount; the choice has to come back on the next mount.
 test('keeps the Show choice across leaving and returning to the dashboard', async () => {
     const first = render(
@@ -628,7 +628,7 @@ test('keeps the Show choice across leaving and returning to the dashboard', asyn
     await waitFor(() =>
         expect(screen.getByText('Ownership')).toBeInTheDocument()
     )
-    await userEvent.click(screen.getByText('Only sets with issues'))
+    await userEvent.click(screen.getByText('With issues'))
     await userEvent.click(
         document.querySelector('[data-value="all"]') as HTMLElement
     )
@@ -644,7 +644,7 @@ test('keeps the Show choice across leaving and returning to the dashboard', asyn
         expect(screen.getByText('Ownership')).toBeInTheDocument()
     )
     expect(screen.getByText('All sets')).toBeInTheDocument()
-    expect(screen.queryByText('Only sets with issues')).not.toBeInTheDocument()
+    expect(screen.queryByText('With issues')).not.toBeInTheDocument()
 })
 
 test('filters the sections by object type (spec 5.1)', async () => {

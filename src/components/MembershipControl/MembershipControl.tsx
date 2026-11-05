@@ -24,8 +24,22 @@ interface Props {
      * `disabled` is false.
      */
     disabledReason?: string
+    /**
+     * Let the user deselect the object's only group: clicking the selected
+     * button again, or clearing the dropdown, passes `NO_GROUP`. Only for a
+     * set that is not compulsory, where being in no group is allowed (or,
+     * for a data dimension, only a warning).
+     */
+    allowNone?: boolean
+    /** A group position, or `NO_GROUP` to remove the object from every group. */
     onChange: (groupIndex: number) => void
 }
+
+/** The choice "in no group of this set", passed to `onChange`. */
+export const NO_GROUP = -1
+
+const removeLabel = (name: string) =>
+    interpolate(i18n.t('Click again to remove from {group}'), { group: name })
 
 /** Up to this many groups the control is a row of buttons, above it a dropdown. */
 export const SEGMENTED_MAX = 5
@@ -53,9 +67,13 @@ export const MembershipControl = ({
     current,
     disabled,
     disabledReason,
+    allowNone = false,
     onChange,
 }: Props) => {
     const isConflict = current.length > 1
+    // The object's only group can be deselected, which removes the object
+    // from it (a conflict is resolved by choosing a group to keep instead).
+    const deselectable = allowNone && current.length === 1
     if (groups.length <= SEGMENTED_MAX) {
         return (
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- role=group gives the segmented control group semantics without a fieldset's border and legend layout
@@ -67,6 +85,7 @@ export const MembershipControl = ({
                             : 'selected'
                         : 'none'
                     const optionDisabled = disabled || !g.canWrite
+                    const deselect = deselectable && state === 'selected'
                     const title =
                         disabled && disabledReason
                             ? disabledReason
@@ -74,7 +93,9 @@ export const MembershipControl = ({
                               ? readOnlyTargetLabel(g.displayName)
                               : isConflict
                                 ? keepLabel(g.displayName)
-                                : g.displayName
+                                : deselect
+                                  ? removeLabel(g.displayName)
+                                  : g.displayName
                     return (
                         <button
                             key={g.id}
@@ -82,9 +103,10 @@ export const MembershipControl = ({
                             className={styles.segButton}
                             data-state={state}
                             data-read-only={!g.canWrite}
+                            aria-pressed={state === 'selected'}
                             disabled={optionDisabled}
                             title={title}
-                            onClick={() => onChange(i)}
+                            onClick={() => onChange(deselect ? NO_GROUP : i)}
                         >
                             {g.displayName}
                         </button>
@@ -128,7 +150,12 @@ export const MembershipControl = ({
                         ? i18n.t('Conflict, choose the group to keep')
                         : i18n.t('Choose group')
                 }
-                onChange={({ selected: value }) => onChange(Number(value))}
+                // Clearing the select is how its only group is deselected.
+                clearable={deselectable}
+                clearText={i18n.t('Remove from this group')}
+                onChange={({ selected: value }) =>
+                    onChange(value ? Number(value) : NO_GROUP)
+                }
                 filterable={groups.length > 10}
                 noMatchText={i18n.t('No group matches')}
             >

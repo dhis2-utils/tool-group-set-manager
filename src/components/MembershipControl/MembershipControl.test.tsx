@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import React from 'react'
-import { MembershipControl } from './MembershipControl'
+import { MembershipControl, NO_GROUP } from './MembershipControl'
 
 const groups = (n: number, unwritable: number[] = []) =>
     Array.from({ length: n }, (_, i) => ({
@@ -152,4 +152,53 @@ test('disables the corresponding option in the dropdown for a read-only target g
         .find((el) => el.textContent === 'Group 2 (read-only for you)')
     expect(option).toBeDefined()
     expect(option?.className).toMatch(/disabled/)
+})
+
+test('clicking the selected group passes NO_GROUP only when deselecting is allowed', () => {
+    const onChange = jest.fn()
+    const { rerender } = render(
+        <MembershipControl
+            groups={groups(2)}
+            current={[1]}
+            disabled={false}
+            onChange={onChange}
+        />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Group 1' }))
+    expect(onChange).toHaveBeenLastCalledWith(1)
+    rerender(
+        <MembershipControl
+            groups={groups(2)}
+            current={[1]}
+            disabled={false}
+            allowNone
+            onChange={onChange}
+        />
+    )
+    const selected = screen.getByRole('button', { name: 'Group 1' })
+    expect(selected).toHaveAttribute('aria-pressed', 'true')
+    expect(selected).toHaveAttribute(
+        'title',
+        'Click again to remove from Group 1'
+    )
+    fireEvent.click(selected)
+    expect(onChange).toHaveBeenLastCalledWith(NO_GROUP)
+    expect(
+        screen.queryByRole('button', { name: 'No group' })
+    ).not.toBeInTheDocument()
+})
+
+test('a conflict is never deselected: clicking a conflicting group keeps it', () => {
+    const onChange = jest.fn()
+    render(
+        <MembershipControl
+            groups={groups(2)}
+            current={[0, 1]}
+            disabled={false}
+            allowNone
+            onChange={onChange}
+        />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Group 0' }))
+    expect(onChange).toHaveBeenLastCalledWith(0)
 })

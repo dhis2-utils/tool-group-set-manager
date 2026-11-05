@@ -8,6 +8,7 @@ import { SummaryMatrix } from '@/components/SummaryMatrix/SummaryMatrix'
 import type { MatrixResult, ObjectRef, ScopeRef } from '@/engine/store'
 import type { GroupSetMeta } from '@/engine/types'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
+import { noGroupSeverity } from '@/utils/noGroup'
 
 interface Props {
     set: GroupSetMeta
@@ -70,11 +71,7 @@ export const OverviewTab = ({
                         onDrillDown={onDrillDown}
                         flat={!isHierarchical}
                         aboveLevelCaption={aboveLevelCaption}
-                        // Only a set that is neither compulsory nor a data
-                        // dimension can hold objects that are in no group and
-                        // still Ok (spec 3.2); anywhere else the column would
-                        // be a permanent zero.
-                        showUnassigned={!set.compulsory && !set.dataDimension}
+                        noGroupTone={noGroupSeverity(set)}
                     />
                 </>
             ) : isLoading ? (

@@ -42,7 +42,7 @@ The catch-all group is the group that the bulk fix puts objects in when no real 
 
 ### `history-<id>`
 
-A change set records one user action on one group set: a move, an assignment, a property change or a revert. It holds the changes that the server confirmed, not the changes that the user asked for (`ChangeSet` in `src/engine/changeSet.ts`).
+A change set records one user action on one group set: a move, an assignment, a removal from a group, a property change or a revert. It holds the changes that the server confirmed, not the changes that the user asked for (`ChangeSet` in `src/engine/changeSet.ts`).
 
 ```json
 {
@@ -70,7 +70,7 @@ A change set records one user action on one group set: a move, an assignment, a 
 }
 ```
 
-- `action` is `move`, `assign`, `properties` or `revert`. A revert also has `revertOf`, the id of the change set that it undoes.
+- `action` is `move`, `assign`, `unassign`, `properties` or `revert`. `unassign` (from 1.1.1) removes one object from its only group of the set and has no `targetGroupId`; an older version of the app lists it under its raw name. A revert also has `revertOf`, the id of the change set that it undoes.
 - A `properties` change set records a change to `compulsory` or `dataDimension` on the group set. Its `changes` is empty, and `properties` holds the changed values: `{ "before": { "compulsory": false }, "after": { "compulsory": true } }`. A revert of it has the same `properties` field. The revert leaves a property alone if it has changed again since.
 - A membership write saves its change set with `status: "pending"` and `planned` (the number of membership changes that it set out to make) before the first request, and updates it after each group. At the end the app replaces it with the finished record, which has no `status`, or deletes it when the server confirmed nothing. A record that stays `pending` is a write that was interrupted, for example by a closed tab. Its `changes` holds what was confirmed, and History offers to revert that part. Records without `status` are finished, which includes every record from earlier versions.
 - The History export has the columns `changeSetId`, `createdAt`, `createdBy`, `groupSet`, `action`, `note`, `revertOf`, `objectId`, `objectName`, `groupId`, `groupName`, `operation`, `property`, `oldValue` and `newValue` (`src/pages/History/historyExport.ts`). A property change has one row per property. CSV exports prefix a value that starts with `=`, `+`, `-`, `@`, a tab or a carriage return with `'`, so that a spreadsheet does not run it as a formula (`src/data/csv.ts`).

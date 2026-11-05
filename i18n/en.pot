@@ -5,8 +5,8 @@ msgstr ""
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1)\n"
-"POT-Creation-Date: 2026-11-04T11:10:02.511Z\n"
-"PO-Revision-Date: 2026-11-04T11:10:02.511Z\n"
+"POT-Creation-Date: 2026-11-05T09:13:22.535Z\n"
+"PO-Revision-Date: 2026-11-05T09:13:22.538Z\n"
 
 msgid "Move to catch-all group"
 msgstr "Move to catch-all group"
@@ -273,9 +273,6 @@ msgstr "Loading…"
 msgid "Conflicts"
 msgstr "Conflicts"
 
-msgid "Missing"
-msgstr "Missing"
-
 msgid "OK"
 msgstr "OK"
 
@@ -380,6 +377,9 @@ msgstr "Some names could not be loaded"
 msgid "Names for {type} could not be loaded; the counts shown are still correct"
 msgstr "Names for {type} could not be loaded; the counts shown are still correct"
 
+msgid "Click again to remove from {group}"
+msgstr "Click again to remove from {group}"
+
 msgid "Keep {group} and remove the others"
 msgstr "Keep {group} and remove the others"
 
@@ -391,6 +391,9 @@ msgstr "Conflict, choose the group to keep"
 
 msgid "Choose group"
 msgstr "Choose group"
+
+msgid "Remove from this group"
+msgstr "Remove from this group"
 
 msgid "No group matches"
 msgstr "No group matches"
@@ -438,8 +441,21 @@ msgstr "The change was saved to the server, but could not be recorded in History
 msgid "{name} is now in {group}"
 msgstr "{name} is now in {group}"
 
+msgid "{name} is now in no group of this set"
+msgstr "{name} is now in no group of this set"
+
+msgid "Removed {name} from {group}"
+msgstr "Removed {name} from {group}"
+
 msgid "Assigned {name} to {group}"
 msgstr "Assigned {name} to {group}"
+
+msgid ""
+"The object could not be removed from its group. Reload and check it before "
+"trying again."
+msgstr ""
+"The object could not be removed from its group. Reload and check it before "
+"trying again."
 
 msgid ""
 "The group change could not be fully applied, so this object may now be in "
@@ -482,12 +498,25 @@ msgstr "No objects match this filter."
 msgid "Confirm group change"
 msgstr "Confirm group change"
 
+msgid "{name} will be removed from {group}, and will be in no group of this set"
+msgstr "{name} will be removed from {group}, and will be in no group of this set"
+
 msgid ""
 "{name} will be assigned to {group} and removed from any other group in this "
 "set"
 msgstr ""
 "{name} will be assigned to {group} and removed from any other group in this "
 "set"
+
+msgid ""
+"This set is a data dimension, so the data of an object in no group drops "
+"out when analytics is broken down by this set."
+msgstr ""
+"This set is a data dimension, so the data of an object in no group drops "
+"out when analytics is broken down by this set."
+
+msgid "Remove"
+msgstr "Remove"
 
 msgid "Assign"
 msgstr "Assign"
@@ -572,9 +601,6 @@ msgstr "Save"
 
 msgid "Confirm"
 msgstr "Confirm"
-
-msgid "Missing (warning)"
-msgstr "Missing (warning)"
 
 msgid "Conflict"
 msgstr "Conflict"
@@ -766,8 +792,8 @@ msgstr "All object types"
 msgid "Show"
 msgstr "Show"
 
-msgid "Only sets with issues"
-msgstr "Only sets with issues"
+msgid "With issues"
+msgstr "With issues"
 
 msgid "All sets"
 msgstr "All sets"
@@ -1139,6 +1165,9 @@ msgstr "Moved to a group"
 msgid "Assigned to a group"
 msgstr "Assigned to a group"
 
+msgid "Removed from its group"
+msgstr "Removed from its group"
+
 msgid "Changed group set properties"
 msgstr "Changed group set properties"
 
@@ -1356,6 +1385,9 @@ msgstr "Not shared with you"
 
 msgid "Not usable yet"
 msgstr "Not usable yet"
+
+msgid "Missing"
+msgstr "Missing"
 
 msgid "SQL views are not set up"
 msgstr "SQL views are not set up"

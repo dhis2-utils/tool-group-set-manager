@@ -12,7 +12,7 @@ import { ObjectsTable } from '@/components/ObjectsTable/ObjectsTable'
 import type { ObjectFilter } from '@/engine/queries'
 import type { ScopeRef } from '@/engine/store'
 import type { GroupSetMeta } from '@/engine/types'
-import { Status } from '@/engine/types'
+import { NO_GROUP_STATUSES, Status } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 
 interface Props {
@@ -53,7 +53,7 @@ const statusesOf = (c: StatusChoice): Status[] | undefined => {
         case 'ok':
             return [Status.Ok]
         case 'missing':
-            return [Status.MissingError, Status.MissingWarning]
+            return NO_GROUP_STATUSES
         case 'conflict':
             return [Status.Conflict]
         default:
@@ -181,7 +181,7 @@ export const ObjectsTab = ({
                     <SingleSelectOption value="ok" label={i18n.t('OK')} />
                     <SingleSelectOption
                         value="missing"
-                        label={i18n.t('Missing')}
+                        label={i18n.t('No group')}
                     />
                     <SingleSelectOption
                         value="conflict"
@@ -267,7 +267,8 @@ export const ObjectsTab = ({
             </div>
             {!bulkFixAllowed && (
                 <p className={styles.bulkFixNote}>
-                    {set.groups.length <= SEGMENTED_MAX
+                    {set.groups.length + (set.compulsory ? 0 : 1) <=
+                    SEGMENTED_MAX
                         ? i18n.t(
                               'Some groups in this set are read-only for you. They are crossed out, and you cannot move objects into or out of them. Bulk fix needs edit access to every group, so you can only fix objects one at a time.'
                           )

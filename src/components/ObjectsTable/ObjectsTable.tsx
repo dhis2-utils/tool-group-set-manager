@@ -13,7 +13,10 @@ import {
 import { useVirtualizer } from '@tanstack/react-virtual'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import styles from './ObjectsTable.module.css'
-import { MembershipControl } from '@/components/MembershipControl/MembershipControl'
+import {
+    MembershipControl,
+    NO_GROUP,
+} from '@/components/MembershipControl/MembershipControl'
 import { StatusPill } from '@/components/StatusPill/StatusPill'
 import type { GroupChange } from '@/engine/changeSet'
 import type { ObjectFilter } from '@/engine/queries'
@@ -23,6 +26,7 @@ import { Status } from '@/engine/types'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
 import { useMembershipWrite } from '@/hooks/useMembershipWrite'
 import { interpolate } from '@/utils/interpolate'
+import { noGroupIsWarning } from '@/utils/noGroup'
 
 interface Props {
     set: GroupSetMeta
@@ -170,6 +174,20 @@ export function computeMembershipChanges(
     // control disables those options too, but an invariant about what may
     // be written belongs in the layer that builds the write, not only in
     // the one that renders the choice.
+    if (chosenIndex === NO_GROUP) {
+        // Removal only: leave every group the object holds. Blocked when any
+        // of them is read-only, or the object would be left half removed.
+        if (row.groups.some((p) => groups[p] && !groups[p].canWrite)) {
+            return []
+        }
+        return row.groups
+            .filter((p) => groups[p])
+            .map((p) => ({
+                groupId: groups[p].id,
+                additions: [],
+                deletions: [row.id],
+            }))
+    }
     const target = groups[chosenIndex]
     const needsAddition = !row.groups.includes(chosenIndex)
     const deletionPositions = row.groups.filter((p) => p !== chosenIndex)
@@ -271,6 +289,9 @@ function disabledReasonFor(row: Row, groups: GroupMeta[]): string | undefined {
 const assignedLabel = (name: string, group: string) =>
     interpolate(i18n.t('{name} is now in {group}'), { name, group })
 
+const removedLabel = (name: string) =>
+    interpolate(i18n.t('{name} is now in no group of this set'), { name })
+
 // oxlint-disable-next-line complexity -- predates the lint migration; splitting it is a refactor of its own, not part of adopting the linter
 export const ObjectsTable = ({ set, scope, filter }: Props) => {
     // D3: only organisation units have a hierarchy at all; the level and
@@ -341,16 +362,26 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
         setWritingRowIds((prev) => new Set(prev).add(row.id))
         try {
             const name = row.displayName ?? row.id
-            const groupName = set.groups[index].displayName
+            const removing = index === NO_GROUP
+            // A removal leaves the object's only group (deselecting is
+            // offered only for an object in exactly one group).
+            const groupName = removing
+                ? row.groups.map((p) => set.groups[p]?.displayName).join(', ')
+                : set.groups[index].displayName
             const result = await write({
                 set,
                 changes,
-                action: 'assign',
-                note: interpolate(i18n.t('Assigned {name} to {group}'), {
-                    name,
-                    group: groupName,
-                }),
-                targetGroupId: set.groups[index].id,
+                action: removing ? 'unassign' : 'assign',
+                note: removing
+                    ? interpolate(i18n.t('Removed {name} from {group}'), {
+                          name,
+                          group: groupName,
+                      })
+                    : interpolate(i18n.t('Assigned {name} to {group}'), {
+                          name,
+                          group: groupName,
+                      }),
+                targetGroupId: removing ? undefined : set.groups[index].id,
             })
             // `unaccounted` (a batch the server did not confirm at all)
             // means the assignment itself did not land -- the only case
@@ -363,9 +394,13 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
                 // alone did not say that, so the state the user may now be
                 // looking at is named.
                 setFailureAlert(
-                    i18n.t(
-                        'The group change could not be fully applied, so this object may now be in no group at all. Reload and check it before trying again.'
-                    )
+                    removing
+                        ? i18n.t(
+                              'The object could not be removed from its group. Reload and check it before trying again.'
+                          )
+                        : i18n.t(
+                              'The group change could not be fully applied, so this object may now be in no group at all. Reload and check it before trying again.'
+                          )
                 )
             } else {
                 // The write is confirmed, and `useMembershipWrite` has
@@ -386,15 +421,27 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
                 // longer matches the filter (a "only missing" view, say).
                 // Making it vanish at the moment of success is how the
                 // user loses track of what they just did.
+                // A removal leaves the object in no group, which the
+                // control is offered for only on a set that is not
+                // compulsory: allowed there (NoGroup), or a warning on a data dimension.
+                const removedStatus = noGroupIsWarning(set)
+                    ? Status.MissingWarning
+                    : Status.NoGroup
                 setLoaded((prev) => ({
                     ...prev,
                     rows: prev.rows.map((r) =>
                         r.id === row.id
-                            ? { ...r, groups: [index], status: Status.Ok }
+                            ? removing
+                                ? { ...r, groups: [], status: removedStatus }
+                                : { ...r, groups: [index], status: Status.Ok }
                             : r
                     ),
                 }))
-                setSuccessAlert(assignedLabel(name, groupName))
+                setSuccessAlert(
+                    removing
+                        ? removedLabel(name)
+                        : assignedLabel(name, groupName)
+                )
             }
             // M2: `engineError` and `historyError` both mean the server
             // change already happened -- see useMembershipWrite's own doc
@@ -678,6 +725,7 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
                                                 writingRowIds.has(r.id)
                                             }
                                             disabledReason={disabledReason}
+                                            allowNone={!set.compulsory}
                                             onChange={(index) =>
                                                 handleGroupChoice(r, index)
                                             }
@@ -699,19 +747,44 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
                     <ModalTitle>{i18n.t('Confirm group change')}</ModalTitle>
                     <ModalContent>
                         <p>
-                            {interpolate(
-                                i18n.t(
-                                    '{name} will be assigned to {group} and removed from any other group in this set'
-                                ),
-                                {
-                                    name:
-                                        confirm.row.displayName ??
-                                        confirm.row.id,
-                                    group: set.groups[confirm.index]
-                                        .displayName,
-                                }
-                            )}
+                            {confirm.index === NO_GROUP
+                                ? interpolate(
+                                      i18n.t(
+                                          '{name} will be removed from {group}, and will be in no group of this set'
+                                      ),
+                                      {
+                                          name:
+                                              confirm.row.displayName ??
+                                              confirm.row.id,
+                                          group: confirm.row.groups
+                                              .map(
+                                                  (p) =>
+                                                      set.groups[p]?.displayName
+                                              )
+                                              .join(', '),
+                                      }
+                                  )
+                                : interpolate(
+                                      i18n.t(
+                                          '{name} will be assigned to {group} and removed from any other group in this set'
+                                      ),
+                                      {
+                                          name:
+                                              confirm.row.displayName ??
+                                              confirm.row.id,
+                                          group: set.groups[confirm.index]
+                                              .displayName,
+                                      }
+                                  )}
                         </p>
+                        {confirm.index === NO_GROUP &&
+                            noGroupIsWarning(set) && (
+                                <p>
+                                    {i18n.t(
+                                        'This set is a data dimension, so the data of an object in no group drops out when analytics is broken down by this set.'
+                                    )}
+                                </p>
+                            )}
                     </ModalContent>
                     <ModalActions>
                         {/* ModalActions lays its children out with no gap
@@ -723,7 +796,9 @@ export const ObjectsTable = ({ set, scope, filter }: Props) => {
                                 {i18n.t('Cancel')}
                             </Button>
                             <Button primary onClick={handleConfirm}>
-                                {i18n.t('Assign')}
+                                {confirm.index === NO_GROUP
+                                    ? i18n.t('Remove')
+                                    : i18n.t('Assign')}
                             </Button>
                         </ButtonStrip>
                     </ModalActions>

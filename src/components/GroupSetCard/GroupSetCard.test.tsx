@@ -242,10 +242,10 @@ test('M9b: a set with no groups says so even before any data, rather than loadin
     expect(screen.queryByText(/Loading/)).not.toBeInTheDocument()
 })
 
-test('shows the "no group, not required" count only for a set where being in no group is allowed', () => {
-    // The card, the matrix column and the drill-down all key on the same
-    // condition. A compulsory or data dimension set can never have one of
-    // these, so the stat would be a permanent zero there.
+test('counts every object in no group once, as "No group", whatever the set requires', () => {
+    // One name for one thing: a compulsory set used to say "Missing", a
+    // data dimension "Not set", and a set with neither property showed both
+    // "Missing 0" and "No group". Only the colour says how serious it is.
     const permissive = {
         ...entry,
         set: { ...entry.set, compulsory: false, dataDimension: false },
@@ -259,17 +259,24 @@ test('shows the "no group, not required" count only for a set where being in no 
         },
     }
     const { rerender } = renderCard({ entry: permissive })
-    expect(screen.getByText('No group')).toBeInTheDocument()
+    expect(screen.getAllByText('No group')).toHaveLength(1)
     expect(screen.getByText('70')).toBeInTheDocument()
+    expect(screen.queryByText('Missing')).not.toBeInTheDocument()
 
+    const compulsory = {
+        ...entry,
+        summary: { ...permissive.summary, unassigned: 0, missingError: 70 },
+    }
     rerender(
         <GroupSetCard
-            entry={entry}
+            entry={compulsory}
             onOpen={() => undefined}
             onOpenUsage={() => undefined}
         />
     )
-    expect(screen.queryByText('No group')).not.toBeInTheDocument()
+    expect(screen.getAllByText('No group')).toHaveLength(1)
+    expect(screen.getByText('70')).toBeInTheDocument()
+    expect(screen.queryByText('Missing')).not.toBeInTheDocument()
 })
 
 describe('GroupSetCard — usage', () => {

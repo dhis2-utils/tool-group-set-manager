@@ -8,6 +8,7 @@ import { useUsage } from '@/hooks/useUsage'
 import { usedInFavouritesLabel } from '@/utils/favouritesLabel'
 import { groupsLabel } from '@/utils/groupsLabel'
 import { interpolate } from '@/utils/interpolate'
+import { noGroupSeverity } from '@/utils/noGroup'
 
 interface Props {
     entry: DashboardEntry
@@ -52,14 +53,13 @@ export const GroupSetCard = ({
         usage.status === 'ready' && usageApplies(set.objectType)
             ? usage.forSet(set.id)
             : null
-    // The same condition, and the same wording, as the summary matrix's
-    // extra column (see SummaryMatrix's showUnassigned): only a set that is
-    // neither compulsory nor a data dimension can hold objects that are in
-    // no group and still Ok. Showing it here as well is what keeps the card
-    // and the matrix telling one story -- the card used to fold those
-    // objects into a green OK number while the matrix counted them as
-    // Missing.
-    const showUnassigned = !set.compulsory && !set.dataDimension
+    // Every object in no group is counted once, as "No group", coloured by
+    // how serious that is in this set -- the same as the matrix column and
+    // the status in the list of objects. Only one of the three counts can
+    // be non-zero for a set, since the rules are per set.
+    const noGroupCount =
+        summary.missingError + summary.missingWarning + summary.unassigned
+    const noGroupClass = styles[noGroupSeverity(set)]
     // The set name is the card's one real control, so keyboard and screen
     // reader users get a plain button with the set's name as its label.
     // The rest of the card also opens the set on a mouse click, as a
@@ -120,33 +120,14 @@ export const GroupSetCard = ({
                                 {i18n.t('Conflicts')}
                             </div>
                         </div>
-                        <div
-                            className={
-                                summary.missingError > 0
-                                    ? styles.error
-                                    : styles.warning
-                            }
-                        >
+                        <div className={noGroupClass}>
                             <div className={styles.value}>
-                                {(
-                                    summary.missingError +
-                                    summary.missingWarning
-                                ).toLocaleString()}
+                                {noGroupCount.toLocaleString()}
                             </div>
                             <div className={styles.label}>
-                                {i18n.t('Missing')}
+                                {i18n.t('No group')}
                             </div>
                         </div>
-                        {showUnassigned && (
-                            <div className={styles.neutral}>
-                                <div className={styles.value}>
-                                    {summary.unassigned.toLocaleString()}
-                                </div>
-                                <div className={styles.label}>
-                                    {i18n.t('No group')}
-                                </div>
-                            </div>
-                        )}
                         <div className={styles.ok}>
                             <div className={styles.value}>
                                 {summary.ok.toLocaleString()}
