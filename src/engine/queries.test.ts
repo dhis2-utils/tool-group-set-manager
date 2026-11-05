@@ -50,15 +50,15 @@ describe('summarize', () => {
         ).toBe(1)
     })
 
-    it('counts an Ok object with no group as unassigned, not as ok', () => {
+    it('counts a NoGroup object as unassigned, not as ok', () => {
         // A set that is neither compulsory nor a data dimension: rules.ts
-        // gives its group-less objects Status.Ok (spec 3.2). Folding those
-        // into `ok` would let a card claim every object is categorised when
-        // none of them is.
+        // gives its group-less objects Status.NoGroup (spec 3.2). Folding
+        // those into `ok` would let a card claim every object is
+        // categorised when none of them is.
         const permissive = Uint8Array.from([
-            Status.Ok, // 0: no group, allowed
-            Status.Ok, // 1: no group, allowed
-            Status.Ok, // 2: no group, allowed
+            Status.NoGroup, // 0: no group, allowed
+            Status.NoGroup, // 1: no group, allowed
+            Status.NoGroup, // 2: no group, allowed
             Status.Ok, // 3: in G0
             Status.Conflict,
             Status.Ok, // 5: in G1
@@ -136,16 +136,15 @@ describe('matrix', () => {
         ])
     })
 
-    it('buckets a group-less object the rules call Ok as unassigned, not missing', () => {
-        // The bug this replaces: the Missing column was keyed on membership,
-        // so a non-compulsory, non-data-dimension set (rules.ts gives those
-        // objects Status.Ok) reported Missing N in the matrix while the card
-        // reported Missing 0 -- and clicking the cell, which filters by
-        // status, listed nothing at all.
+    it('buckets a NoGroup object as unassigned, not missing', () => {
+        // The bug this replaced: the Missing column was keyed on membership,
+        // so a non-compulsory, non-data-dimension set reported Missing N in
+        // the matrix while the card reported Missing 0 -- and clicking the
+        // cell, which filters by status, listed nothing at all.
         const permissive = Uint8Array.from([
-            Status.Ok,
-            Status.Ok,
-            Status.Ok,
+            Status.NoGroup,
+            Status.NoGroup,
+            Status.NoGroup,
             Status.Ok,
             Status.Conflict,
             Status.Ok,

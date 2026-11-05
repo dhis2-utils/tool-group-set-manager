@@ -58,7 +58,7 @@ test('renders group columns, rows, totals and fires onCell', async () => {
     // Total row: 210, 388, 68, 12, 678
     expect(screen.getByText('678')).toBeInTheDocument()
     await userEvent.click(screen.getByText('61'))
-    expect(onCell).toHaveBeenCalledWith(result.rows[0].row, { kind: 'missing' })
+    expect(onCell).toHaveBeenCalledWith(result.rows[0].row, { kind: 'noGroup' })
 })
 
 test('leaves the row label as plain text when onDrillDown is not given', () => {
@@ -179,7 +179,7 @@ test('does not let the aggregate "above the row level" row be filtered by clicki
     expect(onCell).not.toHaveBeenCalled()
 })
 
-test('shows the "no group, not required" column only when the caller asks for it, and filters by it', async () => {
+test('counts every object in no group in one "No group" column, coloured by the set, and filters by it', async () => {
     const permissive = {
         groups: [{ id: 'g', displayName: 'Group', canWrite: true }],
         rows: [
@@ -202,19 +202,34 @@ test('shows the "no group, not required" column only when the caller asks for it
     }
     const onCell = jest.fn()
     const { rerender } = render(
-        <SummaryMatrix result={permissive} onCell={onCell} />
+        <SummaryMatrix
+            result={permissive}
+            onCell={onCell}
+            noGroupTone="neutral"
+        />
     )
-    // Without the flag the column is not there at all -- for a compulsory or
-    // data dimension set it could only ever be zero.
-    expect(screen.queryByText('No group')).not.toBeInTheDocument()
-
-    rerender(
-        <SummaryMatrix result={permissive} onCell={onCell} showUnassigned />
-    )
-    expect(screen.getByText('No group')).toBeInTheDocument()
+    expect(screen.getAllByText('No group')).toHaveLength(1)
+    expect(screen.queryByText('Missing')).not.toBeInTheDocument()
     await userEvent.click(screen.getByText('9'))
     expect(onCell).toHaveBeenCalledWith(permissive.rows[0].row, {
-        kind: 'unassigned',
+        kind: 'noGroup',
+    })
+    // A compulsory set's objects in no group are `missing`, counted in the
+    // same column.
+    const compulsory = {
+        ...permissive,
+        rows: [{ ...permissive.rows[0], missing: 9, unassigned: 0 }],
+    }
+    rerender(
+        <SummaryMatrix
+            result={compulsory}
+            onCell={onCell}
+            noGroupTone="error"
+        />
+    )
+    await userEvent.click(screen.getByText('9'))
+    expect(onCell).toHaveBeenLastCalledWith(compulsory.rows[0].row, {
+        kind: 'noGroup',
     })
 })
 
@@ -437,7 +452,7 @@ test('M12: each clickable cell holds a real button that works from the keyboard'
     const missing = screen.getByRole('button', { name: '61' })
     missing.focus()
     await userEvent.keyboard('{Enter}')
-    expect(onCell).toHaveBeenCalledWith(result.rows[0].row, { kind: 'missing' })
+    expect(onCell).toHaveBeenCalledWith(result.rows[0].row, { kind: 'noGroup' })
     // The "above the row level" row cannot be filtered, so its cells hold
     // no button at all.
     const aboveRow = screen

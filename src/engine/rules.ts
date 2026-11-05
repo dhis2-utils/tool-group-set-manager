@@ -6,9 +6,10 @@ import { Status } from './types'
  * Spec 2026-09-15 §2.1. Returns one Status per object.
  * - Conflict (count > 1) is always an error.
  * - Exactly one group is Ok.
- * - Missing (count === 0) is an error when the set is compulsory, a
- *   warning when it is a data dimension and not compulsory, and Ok
- *   otherwise -- the "in no group, and that is allowed here" bucket.
+ * - In no group (count === 0) is an error when the set is compulsory, a
+ *   warning when it is a data dimension and not compulsory, and NoGroup
+ *   (allowed) otherwise. All three are shown as "No group", coloured by
+ *   severity; Ok always means exactly one group.
  *
  * The rule deliberately does not vary by organisation unit level. The
  * per-set "required levels" policy that used to narrow it was removed in
@@ -42,7 +43,7 @@ export function evaluateSet(
         } else if (set.dataDimension) {
             status[i] = Status.MissingWarning
         } else {
-            status[i] = Status.Ok
+            status[i] = Status.NoGroup
         }
     }
     return status

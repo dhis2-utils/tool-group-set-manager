@@ -28,7 +28,7 @@ import type { RestrictedGroupSet } from '@/data/groupSets'
 import type { ObjectFilter } from '@/engine/queries'
 import type { ObjectRef, ScopeRef } from '@/engine/store'
 import type { GroupSetMeta } from '@/engine/types'
-import { Status } from '@/engine/types'
+import { NO_GROUP_STATUSES, Status } from '@/engine/types'
 import { useEngine } from '@/hooks/useEngine'
 import { useEngineQuery } from '@/hooks/useEngineQuery'
 import { useIntegrity } from '@/hooks/useIntegrity'
@@ -122,13 +122,8 @@ function filterForCell(row: ObjectRef | null, column: MatrixColumn) {
     }
     if (column.kind === 'group') {
         next.group = column.index
-    } else if (column.kind === 'missing') {
-        next.statuses = [Status.MissingError, Status.MissingWarning]
-    } else if (column.kind === 'unassigned') {
-        // "In no group, and that is allowed here": the engine records those
-        // as Status.Ok with no group, so both halves are needed.
-        next.group = -1
-        next.statuses = [Status.Ok]
+    } else if (column.kind === 'noGroup') {
+        next.statuses = NO_GROUP_STATUSES
     } else if (column.kind === 'conflict') {
         next.statuses = [Status.Conflict]
     }

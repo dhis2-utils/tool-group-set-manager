@@ -1,10 +1,22 @@
 .warning {
     display: inline-flex;
     align-items: center;
+    gap: 4px;
     height: 23px;
     padding: 5px 6px;
     border-radius: 3px;
     background-color: var(--colors-yellow100);
     color: var(--colors-yellow900);
+    font-size: var(--gsi-font-size-md, 13px);
+}
+/* In no group of a set that allows it: grey, the same size as Tag. */
+.neutral {
+    display: inline-flex;
+    align-items: center;
+    height: 23px;
+    padding: 5px 6px;
+    border-radius: 3px;
+    background-color: var(--colors-grey200);
+    color: var(--colors-grey800);
     font-size: var(--gsi-font-size-md, 13px);
 }

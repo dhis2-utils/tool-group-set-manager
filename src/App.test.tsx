@@ -67,5 +67,5 @@ jest.mock('@/hooks/useUserScope', () => ({
 
 test('renders the dashboard with the only-issues filter', () => {
     render(<App />)
-    expect(screen.getByText('Only sets with issues')).toBeInTheDocument()
+    expect(screen.getByText('With issues')).toBeInTheDocument()
 })

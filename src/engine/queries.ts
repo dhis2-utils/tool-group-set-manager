@@ -78,14 +78,10 @@ export function summarize(
     forEachInScope(status.length, h, scopeRoot, (i) => {
         switch (status[i]) {
             case Status.Ok:
-                // Status.Ok covers both "in exactly one group" and "in no
-                // group, which this set allows"; only the membership tells
-                // them apart.
-                if (m.groupOf[i] >= 0) {
-                    s.ok++
-                } else {
-                    s.unassigned++
-                }
+                s.ok++
+                break
+            case Status.NoGroup:
+                s.unassigned++
                 break
             case Status.MissingError:
                 s.missingError++
@@ -110,7 +106,7 @@ export interface MatrixRow {
     perGroup: number[]
     /** in no group where the rules require one: an error or a warning */
     missing: number
-    /** in no group where that is allowed (spec 3.2), so status Ok */
+    /** in no group where that is allowed (spec 3.2): Status.NoGroup */
     unassigned: number
     conflict: number
     total: number
@@ -130,7 +126,7 @@ function newRow(object: number, groupCount: number): MatrixRow {
 /**
  * Buckets by *status*, not by membership. Bucketing "in no group" as missing
  * regardless of status contradicted rules.ts, which gives such an object
- * Status.Ok when the set is neither compulsory nor a data dimension (spec
+ * Status.NoGroup when the set is neither compulsory nor a data dimension (spec
  * 3.2): the card counted no missing objects, the matrix counted them all,
  * and the drill-down filter (which goes by status) listed none of them.
  * Those objects now have their own bucket instead, so every bucket is
@@ -149,11 +145,12 @@ function addToRow(row: MatrixRow, status: number, groupOf: number): void {
         case Status.MissingWarning:
             row.missing++
             break
+        case Status.NoGroup:
+            row.unassigned++
+            break
         default:
             if (groupOf >= 0) {
                 row.perGroup[groupOf]++
-            } else {
-                row.unassigned++
             }
     }
 }

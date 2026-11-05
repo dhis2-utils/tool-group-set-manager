@@ -128,7 +128,7 @@ export const Dashboard = () => {
     const { rootId, isReady } = useScope()
     const navigate = useNavigate()
     // Manual review 2: these three were plain `useState`, so going into a
-    // group set and back put the dashboard back to "Only sets with issues"
+    // group set and back put the dashboard back to "With issues"
     // every time. Kept for the browser session, like the scope.
     const [onlyIssues, setOnlyIssues] = useSessionState(
         'gsi.dashboard.onlyIssues',
@@ -297,7 +297,7 @@ export const Dashboard = () => {
                     >
                         <SingleSelectOption
                             value="onlyIssues"
-                            label={i18n.t('Only sets with issues')}
+                            label={i18n.t('With issues')}
                         />
                         <SingleSelectOption
                             value="all"
@@ -432,7 +432,7 @@ export const Dashboard = () => {
                     )
                 const hidden = all.length - shown.length
                 // Sets the user cannot check (a group is not shared with
-                // them). Shown whether or not "Only sets with issues" is on:
+                // them). Shown whether or not "With issues" is on:
                 // nothing is known about their issues, and hiding them would
                 // let a user believe every set of the type was checked. They
                 // have no counts to sort on, so they come last, by name.

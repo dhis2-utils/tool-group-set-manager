@@ -31,6 +31,10 @@
     color: var(--colors-red600);
     font-weight: 500;
 }
+.warning {
+    color: var(--colors-yellow700);
+    font-weight: 500;
+}
 .zero {
     color: var(--colors-grey500);
 }

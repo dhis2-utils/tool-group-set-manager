@@ -5,6 +5,7 @@ import {
     isAwaitedPage,
     ObjectsTable,
 } from './ObjectsTable'
+import { NO_GROUP } from '@/components/MembershipControl/MembershipControl'
 import { actAndFlush } from '@/testing/actAndFlush'
 
 // babel-plugin-jest-hoist only allows a jest.mock() factory to reference
@@ -956,6 +957,29 @@ describe('interactive membership control', () => {
         ])
     })
 
+    it('clicking the selected group on a data dimension set removes the object from it, warns about analytics, and records an unassign', async () => {
+        const dimensionSet = { ...set, compulsory: false }
+        const okRow = { ...conflictRow, status: 1, groups: [0] }
+        mockObjectsPage({ total: 1, offset: 0, items: [okRow] })
+        render(<ObjectsTable set={dimensionSet} scope={scope} filter={{}} />)
+        fireEvent.click(await screen.findByRole('button', { name: 'Public' }))
+        expect(
+            screen.getByText(
+                /will be removed from Public, and will be in no group/
+            )
+        ).toBeInTheDocument()
+        expect(
+            screen.getByText(/drops out when analytics is broken down/)
+        ).toBeInTheDocument()
+        fireEvent.click(screen.getByText('Remove'))
+        await waitFor(() => expect(mockWrite).toHaveBeenCalledTimes(1))
+        expect(mockWrite.mock.calls[0][0]).toMatchObject({
+            action: 'unassign',
+            targetGroupId: undefined,
+            changes: [{ groupId: 'a', additions: [], deletions: ['o1'] }],
+        })
+    })
+
     it('produces no change and no write when clicking the group already the sole membership', () => {
         const okRow = { ...conflictRow, id: 'o3', status: 1, groups: [0] }
         renderWithRows([okRow])
@@ -1250,6 +1274,43 @@ describe('computeMembershipChanges re-checks canWrite itself (M6)', () => {
     it('plans nothing when a group the object must leave is read-only', () => {
         const groups = [{ ...writable[0], canWrite: false }, writable[1]]
         expect(computeMembershipChanges(row, groups, 1)).toEqual([])
+    })
+})
+
+describe('computeMembershipChanges with NO_GROUP', () => {
+    const groups = [
+        { id: 'a', displayName: 'Public', canWrite: true },
+        { id: 'b', displayName: 'Private', canWrite: true },
+    ]
+
+    it('removes the object from every group it is in, and adds it nowhere', () => {
+        expect(
+            computeMembershipChanges(
+                { id: 'o1', groups: [0, 1] },
+                groups,
+                NO_GROUP
+            )
+        ).toEqual([
+            { groupId: 'a', additions: [], deletions: ['o1'] },
+            { groupId: 'b', additions: [], deletions: ['o1'] },
+        ])
+    })
+
+    it('plans nothing for an object already in no group', () => {
+        expect(
+            computeMembershipChanges({ id: 'o1', groups: [] }, groups, NO_GROUP)
+        ).toEqual([])
+    })
+
+    it('plans nothing when a group the object is in is read-only', () => {
+        const readOnly = [groups[0], { ...groups[1], canWrite: false }]
+        expect(
+            computeMembershipChanges(
+                { id: 'o1', groups: [0, 1] },
+                readOnly,
+                NO_GROUP
+            )
+        ).toEqual([])
     })
 })
 

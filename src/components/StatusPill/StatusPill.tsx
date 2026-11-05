@@ -1,5 +1,5 @@
 import i18n from '@dhis2/d2-i18n'
-import { Tag } from '@dhis2/ui'
+import { IconWarning16, Tag } from '@dhis2/ui'
 import React from 'react'
 import styles from './StatusPill.module.css'
 import { Status } from '@/engine/types'
@@ -9,7 +9,7 @@ import { Status } from '@/engine/types'
 // node_modules/.pnpm/@dhis2-ui+tag@10.17.0.../src/tag.js: its propTypes and
 // styled-jsx block enumerate exactly those three plus the unstyled
 // default). The brief calls for yellow specifically to keep a soft
-// "missing, but only a warning" apart from a hard "missing, an error" --
+// "no group, but only a warning" apart from a hard "missing, an error" --
 // so the warning case renders as a small pill styled directly against the
 // yellow design tokens instead of `Tag`, matching `Tag`'s own sizing so it
 // sits at the same height inline with the others.
@@ -17,14 +17,19 @@ export const StatusPill = ({ status }: { status: Status }) => {
     switch (status) {
         case Status.Ok:
             return <Tag positive>{i18n.t('OK')}</Tag>
+        // In no group: one name, coloured by how serious it is in this set
+        // (see src/utils/noGroup.ts).
         case Status.MissingError:
-            return <Tag negative>{i18n.t('Missing')}</Tag>
+            return <Tag negative>{i18n.t('No group')}</Tag>
         case Status.MissingWarning:
             return (
                 <span className={styles.warning}>
-                    {i18n.t('Missing (warning)')}
+                    <IconWarning16 color="currentColor" />
+                    {i18n.t('No group')}
                 </span>
             )
+        case Status.NoGroup:
+            return <span className={styles.neutral}>{i18n.t('No group')}</span>
         case Status.Conflict:
             return <Tag negative>{i18n.t('Conflict')}</Tag>
         default:
